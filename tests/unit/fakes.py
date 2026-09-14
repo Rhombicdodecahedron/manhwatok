@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from pathlib import Path
 
 from manhwatok.domain.models import Manhwa, SearchQuery, Status, TagInfo
 from manhwatok.domain.post import ListPost, PostItem
@@ -53,3 +54,13 @@ def post(**overrides) -> ListPost:
     }
     fields.update(overrides)
     return ListPost(**fields)
+
+
+def cover_file(folder: Path, anilist_id: int, color=(200, 60, 60), size=(460, 650)) -> Path:
+    """A real (tiny) JPEG so Pillow-based code can open it."""
+    from PIL import Image
+
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{anilist_id}.jpg"
+    Image.new("RGB", size, color).save(path)
+    return path
