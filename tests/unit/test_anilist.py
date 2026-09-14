@@ -22,7 +22,10 @@ DOOM_BREAKER = {
     ],
     "averageScore": 78,
     "popularity": 21000,
-    "coverImage": {"extraLarge": "https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx125636.jpg"},
+    "coverImage": {
+        "extraLarge": "https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/bx125636.jpg",
+        "color": "#43c9e4",
+    },
     "description": "Zephyr was the last man standing.<br><br>\n(Source: Webtoon)",
     "siteUrl": "https://anilist.co/manga/125636",
 }
@@ -32,6 +35,7 @@ NO_ENGLISH = {
     "title": {"english": None, "romaji": "Eoneu Nal"},
     "status": None,
     "chapters": 135,
+    "coverImage": {"extraLarge": "https://example.test/c.jpg"},
 }
 
 
@@ -87,6 +91,7 @@ def test_search_maps_media_to_manhwa():
     assert m.score == 78
     assert m.popularity == 21000
     assert m.cover_url.endswith("bx125636.jpg")
+    assert m.cover_color == "#43c9e4"
     assert m.description == "Zephyr was the last man standing."
     assert m.site_url == "https://anilist.co/manga/125636"
 
@@ -98,6 +103,7 @@ def test_search_falls_back_to_romaji_and_unknown_status():
     assert m.title == "Eoneu Nal"
     assert m.status is Status.UNKNOWN
     assert m.chapters == 135
+    assert m.cover_color is None  # AniList omits color for some covers
 
 
 def test_graphql_errors_raise_metadata_error():

@@ -28,7 +28,7 @@ query ($perPage: Int, $genres: [String], $tags: [String], $sort: [MediaSort], $m
       tags { name rank isMediaSpoiler }
       averageScore
       popularity
-      coverImage { extraLarge }
+      coverImage { extraLarge color }
       description(asHtml: false)
       siteUrl
     }
@@ -126,6 +126,7 @@ def _to_manhwa(m: dict) -> Manhwa:
         score=m.get("averageScore"),
         popularity=m.get("popularity") or 0,
         cover_url=(m.get("coverImage") or {}).get("extraLarge") or "",
+        cover_color=(m.get("coverImage") or {}).get("color"),
         description=clean_description(m.get("description") or ""),
         site_url=m.get("siteUrl") or "",
     )

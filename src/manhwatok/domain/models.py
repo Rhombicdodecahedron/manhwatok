@@ -29,6 +29,7 @@ class Manhwa(BaseModel):
     score: int | None = None
     popularity: int = 0
     cover_url: str = ""
+    cover_color: str | None = None
     description: str = ""
     site_url: str = ""
 
