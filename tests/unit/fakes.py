@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
+from manhwatok.domain.errors import MetadataError
 from manhwatok.domain.models import Manhwa, SearchQuery, Status, TagInfo
 from manhwatok.domain.post import ListPost, PostItem
 
@@ -64,3 +66,61 @@ def cover_file(folder: Path, anilist_id: int, color=(200, 60, 60), size=(460, 65
     path = folder / f"{anilist_id}.jpg"
     Image.new("RGB", size, color).save(path)
     return path
+
+
+class FakeCovers:
+    """Returns pre-made cover files; ids in `fail` raise MetadataError like a failed download."""
+
+    def __init__(self, paths: dict[int, Path] | None = None, fail: set[int] | None = None):
+        self.paths = dict(paths or {})
+        self.fail = set(fail or ())
+        self.calls: list[int] = []
+
+    def get(self, manhwa: Manhwa) -> Path:
+        self.calls.append(manhwa.anilist_id)
+        if manhwa.anilist_id in self.fail or manhwa.anilist_id not in self.paths:
+            raise MetadataError(f"cover download failed for {manhwa.title}: HTTP 500")
+        return self.paths[manhwa.anilist_id]
+
+
+class FakeRenderer:
+    """Writes placeholder NN.png files instead of drawing, and records what it was given."""
+
+    def __init__(self):
+        self.calls: list[tuple[ListPost, dict[int, Path | None]]] = []
+
+    def render(self, post: ListPost, covers: dict[int, Path | None], out_dir: Path) -> list[Path]:
+        self.calls.append((post, covers))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for old in out_dir.glob("[0-9][0-9].png"):
+            old.unlink()
+        paths = [out_dir / f"{n:02d}.png" for n in range(1, post.slide_count + 1)]
+        for p in paths:
+            p.write_bytes(b"png")
+        return paths
+
+
+class ScriptedEditor:
+    """Stands in for $EDITOR: `edit(text)` returns `respond(text)` and remembers what it was shown."""
+
+    def __init__(self, respond: Callable[[str], str | None]):
+        self.respond = respond
+        self.shown: list[str] = []
+
+    def __call__(self, text: str) -> str | None:
+        self.shown.append(text)
+        return self.respond(text)
+
+
+def make_tools(tmp_path: Path, editor=None, covers=None, renderer=None, messages=None):
+    """PostTools with real post folders under tmp_path and fakes for everything else."""
+    from manhwatok.adapters.fs_posts import FsPostRepository
+    from manhwatok.app.post_tools import PostTools
+
+    return PostTools(
+        posts=FsPostRepository(tmp_path / "posts"),
+        covers=covers or FakeCovers({i: tmp_path / f"{i}.jpg" for i in (1, 2, 3, 11, 22)}),
+        renderer=renderer or FakeRenderer(),
+        editor=editor or ScriptedEditor(lambda text: text + "\n"),
+        progress=(messages.append if messages is not None else lambda _: None),
+    )
