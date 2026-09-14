@@ -8,3 +8,15 @@ class MetadataError(ManhwatokError):
 
 class CacheError(ManhwatokError):
     """The on-disk cache (SQLite) is unusable: unwritable data dir, locked or corrupt DB."""
+
+
+class DraftError(ManhwatokError):
+    """The edited draft file can't be turned into a post (bad line, no title, no items)."""
+
+
+class PostNotFound(ManhwatokError):
+    """No saved post with that id."""
+
+
+class NotRendered(ManhwatokError):
+    """The post has no slides yet; run `manhwatok render <id>` first."""
