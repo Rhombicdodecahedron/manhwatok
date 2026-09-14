@@ -57,3 +57,24 @@ def test_manhwa_slide_uses_readable_accent_for_rank(tmp_path):
         colors = {c for _, c in img.getcolors(maxcolors=1 << 20)}
     assert (0x6B, 0x1A, 0x1A) not in colors
     assert hex_to_rgb(readable_accent("#6b1a1a")) in colors
+
+
+def test_inactive_progress_segments_are_dimmed_not_white(tmp_path):
+    from manhwatok.adapters.layout import layout_cover
+
+    p = _post(3)
+    covers = {i: cover_file(tmp_path / "covers", i, color=(0, 0, 0)) for i in (1, 2, 3)}
+    PillowRenderer().render(p, covers, tmp_path / "out")
+    seg = layout_cover(p.title, 3).bar[1]
+    with Image.open(tmp_path / "out" / "01.png") as img:
+        r, g, b = img.getpixel((seg.x + seg.w // 2, seg.y + seg.h // 2))
+    assert (r, g, b) != (255, 255, 255)
+    assert 40 < r < 200 and r == g == b  # ~30% white over a near-black background
+
+
+def test_end_slide_uses_accent_gradient_when_no_covers(tmp_path):
+    PillowRenderer().render(_post(2), {1: None, 2: None}, tmp_path / "out")
+    with Image.open(tmp_path / "out" / "04.png") as img:
+        top = img.getpixel((20, 20))
+    assert top != (0, 0, 0)
+    assert top[2] > top[0]  # default accent #43c9e4 is blue-dominant

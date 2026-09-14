@@ -202,19 +202,35 @@ class PillowRenderer:
         draw = ImageDraw.Draw(canvas)
         _draw_pill(draw, layout.kicker, accent, filled=True)
         _draw_text(draw, layout.title, WHITE, accent)
+        # Draw active segment first, then composite DIM segments with alpha blending
         for i, seg in enumerate(layout.bar):
-            draw.rounded_rectangle(
-                (seg.x, seg.y, seg.right, seg.bottom),
-                radius=BAR_H // 2,
-                fill=accent if i == 0 else DIM,
-            )
+            if i == 0:
+                draw.rounded_rectangle(
+                    (seg.x, seg.y, seg.right, seg.bottom),
+                    radius=BAR_H // 2,
+                    fill=accent,
+                )
+        # DIM segments with proper alpha blending
+        dim_layer = Image.new("RGBA", SIZE, (0, 0, 0, 0))
+        dim_draw = ImageDraw.Draw(dim_layer)
+        for i, seg in enumerate(layout.bar):
+            if i > 0:
+                dim_draw.rounded_rectangle(
+                    (seg.x, seg.y, seg.right, seg.bottom),
+                    radius=BAR_H // 2,
+                    fill=DIM,
+                )
+        canvas.alpha_composite(dim_layer)
         return canvas
 
     def end_slide(self, post: ListPost, images: dict[int, Image.Image | None]) -> Image.Image:
         accent = hex_to_rgb(readable_accent(post.accent))
-        canvas = Image.new("RGBA", SIZE, (0, 0, 0, 255))
         tiles = [images.get(it.manhwa.anilist_id) for it in post.items[:4]]
         tiles = [t for t in tiles if t is not None]
+        if tiles:
+            canvas = Image.new("RGBA", SIZE, (0, 0, 0, 255))
+        else:
+            canvas = _accent_gradient(SIZE, readable_accent(post.accent)).convert("RGBA")
         if tiles:
             half = (SLIDE_W // 2, SLIDE_H // 2)
             for k in range(4):
