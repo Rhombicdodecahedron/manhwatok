@@ -48,6 +48,8 @@ manhwatok delete <id> [--yes]
 - `posts` gains an account column (`@handle` or `-`); `--account` filters.
 - `delete` prompts `Delete post <id> (<N> slides)? [y/N]` unless `--yes`; removes the post folder;
   history rows of an exported post are kept.
+- `account remove` deletes only the account row; its history rows stay, so re-adding the same handle
+  keeps its repeat protection. Posts keep their `account` string.
 - `account list`: one line per account (`@handle  genres  blocks  repeat Nd`); `show`: all fields.
   `theme list`/`show` likewise.
 
