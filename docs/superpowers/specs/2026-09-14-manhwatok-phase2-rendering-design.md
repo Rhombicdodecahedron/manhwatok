@@ -50,7 +50,8 @@ title: Manhwa where the MC *regresses* for *revenge*
   id must be an int present in candidates; no duplicate ids; 1 to 33 items (35-slide TikTok cap
   minus cover and end). Violations raise `DraftError` with the 1-based line number.
 - Editor contract (as in `minutes`): `EditorFn = Callable[[str], str | None]`, where `None` means
-  aborted or unchanged. CLI uses `click.edit(text, extension=".txt")`.
+  aborted or unchanged. The CLI uses `adapters/editor.py` `edit_text`, which runs `$VISUAL`, else
+  `$EDITOR`, else `nano`/`vi` on a temp file. It avoids `click.edit` because typer 0.27 no longer ships click.
 - `build`: editor returns `None` → "cancelled", nothing saved. `DraftError` → post folder is created
   with `draft.txt` (the user's text) and `post.json` holding the candidates and an empty item list;
   the error and "fix with: manhwatok edit <id>" are printed; exit 1.
@@ -72,7 +73,8 @@ title: Manhwa where the MC *regresses* for *revenge*
   - `accent_spans(title) -> list[tuple[str, bool]]`: `*x*` → `(x, True)`, everything else `(…, False)`;
     an unmatched `*` is literal text. `plain_title(title)` removes the markers.
 - `domain/color.py` `readable_accent(hex_or_none, default="#43c9e4") -> str`: invalid/None → default;
-  otherwise, while WCAG relative luminance < 0.30, mix 10% toward white (at most 10 steps); returns
+  otherwise, while WCAG relative luminance < 0.30, raise HLS lightness by 0.05 (up to 0.95), which
+  keeps hue and saturation (`#6b1a1a` → `#e28888`; mixing toward white gave grey `#b99292`); returns
   `#rrggbb` lowercase.
 - `domain/caption.py` `build_caption(post)`:
   `"{plain_title}\n\n1. {name}\n2. {name}…\n\n{hashtags}"`.
@@ -109,16 +111,17 @@ Inter (text, SemiBold/ExtraBold), both OFL, bundled under `src/manhwatok/assets/
   `01.png…NN.png` (cover first, end last) and `caption.txt`.
 
 ## Adapters / app
-- `adapters/cover_cache.py` `CoverCache(dir, client=None)`: `get(manhwa) -> Path | None`, cached file
+- `adapters/cover_cache.py` `CoverCache(dir, client=None)`: `get(manhwa) -> Path`, cached file
   `<data_dir>/covers/<anilist_id><ext>` (ext from the URL path, default `.jpg`). Downloads with
-  `User-Agent: manhwatok/0.1`. Failure raises `MetadataError`; the renderer caller turns it into the
-  missing-cover path.
+  `User-Agent: manhwatok/0.1`. Failure raises `MetadataError`; `render_post` turns it into the
+  missing-cover path and stops downloading for the rest of that render (one warning).
 - `adapters/fs_posts.py` `FsPostRepository(posts_dir)`: `save(post)`, `get(id)` (missing → `PostNotFound`),
   `list()` (newest first), `folder(id)`, `save_draft(id, text)` / `load_draft(id)` / `clear_draft(id)`.
-- `adapters/layout.py`: pure fitting helpers. `adapters/pillow_renderer.py` `PillowRenderer(fonts)`
-  with `render(post, covers: dict[int, Path | None], out_dir) -> list[Path]`.
+- `adapters/layout.py`: pure fitting helpers. `adapters/pillow_renderer.py` `PillowRenderer()`
+  with `render(post, covers: dict[int, Path | None], out_dir) -> list[Path]` (fonts from `adapters/fonts.py`).
 - `app/build_post.py`, `edit_post.py`, `render_post.py`, `export_post.py`; the editor, repository,
-  renderer and cover cache are injected. `container.py` gains builders for them.
+  renderer and cover cache are injected, bundled as `app/post_tools.py` `PostTools`.
+  `container.build_post_tools(settings, editor, progress)` builds the real ones.
 - New errors (all `ManhwatokError`): `DraftError`, `PostNotFound`, `NotRendered` (export before render).
 - New dependency: `pillow>=10`.
 
