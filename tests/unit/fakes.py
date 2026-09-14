@@ -1,4 +1,7 @@
+from datetime import datetime, timezone
+
 from manhwatok.domain.models import Manhwa, SearchQuery, Status, TagInfo
+from manhwatok.domain.post import ListPost, PostItem
 
 
 def manhwa(**overrides) -> Manhwa:
@@ -32,3 +35,21 @@ class FakeChapters:
         if self.error:
             raise self.error
         return self.latest.get(manhwa.anilist_id)
+
+
+def post(**overrides) -> ListPost:
+    items = overrides.pop("items", None)
+    if items is None:
+        items = [
+            PostItem(manhwa=manhwa(anilist_id=i, title=f"Title {i}"), hook=f"Hook {i}")
+            for i in (1, 2, 3)
+        ]
+    fields = {
+        "id": "20260914-a3f9",
+        "created_at": datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc),
+        "title": "Manhwa where the MC *regresses*",
+        "items": items,
+        "candidates": [item.manhwa for item in items],
+    }
+    fields.update(overrides)
+    return ListPost(**fields)
