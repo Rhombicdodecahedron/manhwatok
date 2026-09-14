@@ -14,3 +14,6 @@ wheels/
 
 # Rendered exports
 /out/
+
+# Superpowers scratch (SDD ledgers, brainstorm mockups)
+/.superpowers/
