@@ -103,6 +103,25 @@ Each phase gets its own task-level implementation plan under `docs/superpowers/p
   lifecycle-owning container built on the thread that uses it.
 - Cosmetic: CLI usage errors exit 1 (not click's 2).
 
+## Carry-forward from Phase 2 review (address in the named phase's plan)
+- Phase 3: split `build_post` into a pure `create_post(candidates, title, items, hashtags, accent, now)`
+  shared by the draft-file CLI and the TUI (the `EditorFn` contract doesn't fit a Textual screen);
+  this also removes the build/edit "parse → save draft → re-raise" duplication.
+- Phase 3: introduce a `SlideStyle` (fonts, sizes, accent, CTA texts `END_TITLE`/`FOLLOW`) passed into
+  `layout_*` and `PillowRenderer` before per-account styles land.
+- Phase 3: extend `ListPost` with defaulted `account`, `status` (draft → rendered → exported/sent) and
+  maybe `schema_version` so existing `post.json` files keep loading; decide whether posts stay
+  folder-only (history dedupe scans every `post.json`) or get indexed in the SQLite store.
+- Phase 3: fold `CoverCache`'s `httpx.Client` into the lifecycle-owning container; let `export`/`posts`
+  get the repository without building the whole `PostTools`. Reserve post ids with
+  `mkdir(exist_ok=False)` (`new_id` has a check-then-act race once TUI workers exist).
+- Phase 3: `manhwatok delete <id>` (cancelled/abandoned posts pile up).
+- Phase 3 polish: re-download a cached cover that Pillow can't decode (today it silently renders
+  the plain fallback forever); blur the end-slide 2×2 grid once (seams at x=540/y=960) and centre
+  short recap lists; strip or warn on glyphs Anton/Inter lack (Hangul/CJK/emoji) in hooks.
+- Phase 4: verify which image formats TikTok's Content Posting API accepts for photo posts (reviewer
+  recalls JPEG/WebP only, not PNG) — add a format option to `render` or convert on upload.
+
 ## Verification
 - Unit: domain helpers (chapter label, dedupe, caption); AniList/MangaUpdates adapters against
   recorded JSON fixtures; renderer (slide count, 1080×1920, text bbox fits inside safe area);
