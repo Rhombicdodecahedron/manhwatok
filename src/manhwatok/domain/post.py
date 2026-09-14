@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 from manhwatok.domain.models import Manhwa
 
@@ -20,7 +18,7 @@ class PostItem(BaseModel):
 
 class ListPost(BaseModel):
     id: str
-    created_at: datetime
+    created_at: AwareDatetime
     title: str = ""
     items: list[PostItem] = Field(default_factory=list)
     candidates: list[Manhwa] = Field(default_factory=list)

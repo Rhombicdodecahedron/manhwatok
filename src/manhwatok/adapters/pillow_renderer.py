@@ -20,6 +20,7 @@ from manhwatok.adapters.layout import (
     layout_item,
 )
 from manhwatok.domain.color import hex_to_rgb, readable_accent
+from manhwatok.domain.errors import StorageError
 from manhwatok.domain.labels import chapter_label
 from manhwatok.domain.post import ListPost
 
@@ -99,15 +100,26 @@ def _paste_with_shadow(canvas: Image.Image, card: Image.Image, x: int, y: int) -
 
 
 def _draw_text(draw: ImageDraw.ImageDraw, placed: Placed, color, accent) -> None:
+    """Paint each line word by word, and each word run by run (its own colour), advancing x by
+    each run's length — a trailing space is appended only to a word's last run, and only when
+    the word isn't the last one on the line."""
     text = placed.text
     for i, base in enumerate(text.baselines(placed.y)):
         x = placed.line_x(i)
-        for j, (word, is_accent) in enumerate(text.lines[i]):
-            chunk = word if j == len(text.lines[i]) - 1 else word + " "
-            draw.text(
-                (x, base), chunk, font=text.font, fill=accent if is_accent else color, anchor="ls"
-            )
-            x += text.font.getlength(chunk)
+        words = text.lines[i]
+        for j, word in enumerate(words):
+            for k, (run_text, is_accent) in enumerate(word):
+                chunk = run_text
+                if k == len(word) - 1 and j != len(words) - 1:
+                    chunk += " "
+                draw.text(
+                    (x, base),
+                    chunk,
+                    font=text.font,
+                    fill=accent if is_accent else color,
+                    anchor="ls",
+                )
+                x += text.font.getlength(chunk)
 
 
 def _draw_pill(draw: ImageDraw.ImageDraw, pill: Pill, accent, filled: bool) -> None:
@@ -132,9 +144,12 @@ def _draw_pill(draw: ImageDraw.ImageDraw, pill: Pill, accent, filled: bool) -> N
 class PillowRenderer:
     def render(self, post: ListPost, covers: dict[int, Path | None], out_dir: Path) -> list[Path]:
         """Write 01.png (cover) … NN.png (end slide) into out_dir, replacing old slides."""
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for old in out_dir.glob("[0-9][0-9].png"):
-            old.unlink()
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            for old in out_dir.glob("[0-9][0-9].png"):
+                old.unlink()
+        except OSError as e:
+            raise StorageError(f"could not prepare slide folder {out_dir}: {e}") from e
         images = {m_id: _load(path) for m_id, path in covers.items()}
         slides = [self.cover_slide(post, images)]
         slides += [self.item_slide(post, i, images) for i in range(len(post.items))]
@@ -142,7 +157,10 @@ class PillowRenderer:
         paths = []
         for n, slide in enumerate(slides, 1):
             path = out_dir / f"{n:02d}.png"
-            slide.convert("RGB").save(path)
+            try:
+                slide.convert("RGB").save(path)
+            except OSError as e:
+                raise StorageError(f"could not save slide {path}: {e}") from e
             paths.append(path)
         return paths
 
@@ -177,7 +195,9 @@ class PillowRenderer:
         first = post.items[0].manhwa
         img = images.get(first.anilist_id)
         canvas = (
-            _blurred(img, SIZE, 36, 0.42) if img else _accent_gradient(SIZE, post.accent)
+            _blurred(img, SIZE, 36, 0.42)
+            if img
+            else _accent_gradient(SIZE, readable_accent(post.accent))
         ).convert("RGBA")
         fan = post.items[:3]
         # (item index, size, rotation, centre x, top y); drawn back to front so the centre card is on top

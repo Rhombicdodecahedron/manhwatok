@@ -6,6 +6,7 @@ from manhwatok.app.build_post import build_post
 from manhwatok.app.edit_post import edit_post
 from manhwatok.domain.errors import DraftError, ManhwatokError
 from manhwatok.domain.models import SearchQuery
+from manhwatok.domain.post import MAX_ITEMS
 from tests.unit.fakes import FakeCovers, FakeMetadata, ScriptedEditor, make_tools, manhwa, post
 
 NOW = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
@@ -48,6 +49,40 @@ def test_build_cancelled_saves_nothing(tmp_path):
     tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: None))
     assert _build(tools) is None
     assert tools.posts.list() == []
+
+
+def test_build_accepts_unchanged_draft_saves_and_renders(tmp_path):
+    editor = ScriptedEditor(lambda text: text)
+    tools = make_tools(tmp_path, editor=editor)
+    built, slides = _build(tools)
+    assert built.title == "MC *regresses*"
+    assert [i.manhwa.anilist_id for i in built.items] == [11, 22]
+    assert tools.posts.get(built.id) == built
+    assert len(slides) == 4
+
+
+def test_build_empty_draft_cancels_and_saves_nothing(tmp_path):
+    tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: ""))
+    assert _build(tools) is None
+    assert tools.posts.list() == []
+
+
+def test_build_comment_only_draft_cancels_and_saves_nothing(tmp_path):
+    respond = lambda text: "\n".join("# " + line for line in text.splitlines()) + "\n"
+    tools = make_tools(tmp_path, editor=ScriptedEditor(respond))
+    assert _build(tools) is None
+    assert tools.posts.list() == []
+
+
+def test_build_prefills_at_most_max_items(tmp_path):
+    many = [
+        manhwa(anilist_id=i, title=f"T{i}", description="d.") for i in range(1, 41)
+    ]
+    editor = ScriptedEditor(lambda text: text)
+    tools = make_tools(tmp_path, editor=editor)
+    built, _ = _build(tools, results=many)
+    assert len(built.items) == MAX_ITEMS
+    assert built.candidates == many
 
 
 def test_build_bad_draft_keeps_text_for_edit(tmp_path):
@@ -113,6 +148,13 @@ def test_edit_can_bring_back_a_dropped_candidate(tmp_path):
 
 def test_edit_no_changes(tmp_path):
     tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: None))
+    tools.posts.save(post())
+    assert edit_post("20260914-a3f9", tools) is None
+    assert tools.renderer.calls == []
+
+
+def test_edit_unchanged_text_means_no_changes(tmp_path):
+    tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: text))
     tools.posts.save(post())
     assert edit_post("20260914-a3f9", tools) is None
     assert tools.renderer.calls == []

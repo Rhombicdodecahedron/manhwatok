@@ -149,6 +149,19 @@ def test_export_before_render(wire):
     assert "run: manhwatok render 20260914-a3f9" in result.output
 
 
+def test_export_destination_blocked_by_a_file_exits_1(wire, tmp_path):
+    wire()
+    built = runner.invoke(
+        app, ["build", "-t", "Revenge", "--title", "MC *regresses*", "--no-chapters"]
+    )
+    post_id = _post_id(built.output)
+    blocker = tmp_path / "blocker"
+    blocker.write_bytes(b"not a directory")
+    result = runner.invoke(app, ["export", post_id, "--out", str(blocker)])
+    assert result.exit_code == 1
+    assert result.output.startswith("error: ")
+
+
 def test_posts_lists_newest_first_and_marks_drafts(wire):
     from datetime import datetime, timezone
 

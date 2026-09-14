@@ -51,7 +51,9 @@ title: Manhwa where the MC *regresses* for *revenge*
 Delete lines to drop titles, reorder lines to rank them, edit the hook after the second `|`,
 and wrap title words in `*stars*` to colour them. Save and close: the slides (cover, one per
 manhwa, end slide) and `caption.txt` are rendered into
-`$XDG_DATA_HOME/manhwatok/posts/<id>/`.
+`$XDG_DATA_HOME/manhwatok/posts/<id>/`. Save as-is to accept the prefilled picks unchanged;
+delete everything (or exit the editor with an error, e.g. `:cq` in vim) to cancel. GUI editors
+need a wait flag, e.g. `EDITOR="code --wait"`.
 
 ```bash
 uv run manhwatok posts                 # list posts

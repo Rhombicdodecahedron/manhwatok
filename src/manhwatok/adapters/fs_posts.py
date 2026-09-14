@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from manhwatok.domain.errors import PostNotFound
+from manhwatok.domain.errors import PostNotFound, StorageError
 from manhwatok.domain.post import ListPost
 
 POST_FILE = "post.json"
@@ -28,21 +28,30 @@ class FsPostRepository:
                 return post_id
 
     def folder(self, post_id: str) -> Path:
-        if not _ID.match(post_id):
+        if not _ID.fullmatch(post_id):
             raise PostNotFound(f"{post_id!r} is not a post id (like 20260914-a3f9)")
         return self._dir / post_id
 
     def save(self, post: ListPost) -> None:
         folder = self.folder(post.id)
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / POST_FILE).write_text(post.model_dump_json(indent=2), encoding="utf-8")
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / POST_FILE).write_text(post.model_dump_json(indent=2), encoding="utf-8")
+        except OSError as e:
+            raise StorageError(f"could not save post {post.id}: {e}") from e
 
     def get(self, post_id: str) -> ListPost:
         path = self.folder(post_id) / POST_FILE
         if not path.is_file():
             raise PostNotFound(f"no post {post_id} — see `manhwatok posts`")
         try:
-            return ListPost.model_validate_json(path.read_text(encoding="utf-8"))
+            text = path.read_text(encoding="utf-8")
+        except OSError as e:
+            raise StorageError(f"could not read post {post_id}: {e}") from e
+        except UnicodeDecodeError as e:
+            raise StorageError(f"post {post_id} is not valid UTF-8: {e}") from e
+        try:
+            return ListPost.model_validate_json(text)
         except ValidationError as e:
             raise PostNotFound(
                 f"post {post_id} is unreadable: {e.error_count()} invalid fields"
@@ -52,19 +61,33 @@ class FsPostRepository:
         posts = []
         for path in self._dir.glob(f"*/{POST_FILE}") if self._dir.is_dir() else []:
             try:
-                posts.append(ListPost.model_validate_json(path.read_text(encoding="utf-8")))
-            except ValidationError:
-                continue  # a corrupt folder shouldn't hide the others
+                text = path.read_text(encoding="utf-8")
+                posts.append(ListPost.model_validate_json(text))
+            except (ValidationError, OSError, UnicodeDecodeError):
+                continue  # a corrupt or unreadable folder shouldn't hide the others
         return sorted(posts, key=lambda p: p.created_at, reverse=True)
 
     def save_draft(self, post_id: str, text: str) -> None:
         folder = self.folder(post_id)
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / DRAFT_FILE).write_text(text, encoding="utf-8")
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / DRAFT_FILE).write_text(text, encoding="utf-8")
+        except OSError as e:
+            raise StorageError(f"could not save draft for {post_id}: {e}") from e
 
     def load_draft(self, post_id: str) -> str | None:
         path = self.folder(post_id) / DRAFT_FILE
-        return path.read_text(encoding="utf-8") if path.is_file() else None
+        if not path.is_file():
+            return None
+        try:
+            return path.read_text(encoding="utf-8")
+        except OSError as e:
+            raise StorageError(f"could not read draft for {post_id}: {e}") from e
+        except UnicodeDecodeError as e:
+            raise StorageError(f"draft for {post_id} is not valid UTF-8: {e}") from e
 
     def clear_draft(self, post_id: str) -> None:
-        (self.folder(post_id) / DRAFT_FILE).unlink(missing_ok=True)
+        try:
+            (self.folder(post_id) / DRAFT_FILE).unlink(missing_ok=True)
+        except OSError as e:
+            raise StorageError(f"could not clear draft for {post_id}: {e}") from e

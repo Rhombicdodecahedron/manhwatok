@@ -56,3 +56,21 @@ def test_network_error_raises(tmp_path):
 def test_missing_cover_url(tmp_path):
     with pytest.raises(MetadataError, match="no cover image"):
         _cache(tmp_path, Cdn()).get(manhwa(cover_url=""))
+
+
+def test_cached_returns_none_without_downloading(tmp_path):
+    cache = _cache(tmp_path, Cdn())
+    m = manhwa(anilist_id=136220, cover_url=URL)
+    assert cache.cached(m) is None
+    assert not (tmp_path / "covers").exists()
+
+
+def test_cached_returns_path_after_download(tmp_path):
+    cache = _cache(tmp_path, Cdn())
+    m = manhwa(anilist_id=136220, cover_url=URL)
+    downloaded = cache.get(m)
+    assert cache.cached(m) == downloaded
+
+
+def test_cached_is_none_for_missing_cover_url(tmp_path):
+    assert _cache(tmp_path, Cdn()).cached(manhwa(cover_url="")) is None

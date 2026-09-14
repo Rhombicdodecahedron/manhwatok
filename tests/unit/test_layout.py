@@ -20,6 +20,14 @@ LONG_NAME = "The Reincarnated Assassin Who Became the Strongest Swordmaster of t
 LONG_HOOK = "He wakes up again " * 25
 
 
+def _word_text(word) -> str:
+    return "".join(t for t, _ in word)
+
+
+def _line_text(line) -> str:
+    return " ".join(_word_text(w) for w in line)
+
+
 def test_stack_up_ends_at_bottom_with_gaps():
     assert stack_up([10, 20, 30], bottom=100, gap=5) == [30, 45, 70]
 
@@ -27,8 +35,32 @@ def test_stack_up_ends_at_bottom_with_gaps():
 def test_wrap_respects_width_and_breaks_huge_words():
     font = inter_semibold(40)
     lines = wrap_words(plain_words("short words " * 10 + "x" * 80), font, 400)
-    assert all(font.getlength(" ".join(w for w, _ in line)) <= 400 for line in lines)
-    assert "".join(w for line in lines for w, _ in line).count("x") == 80
+    assert all(font.getlength(_line_text(line)) <= 400 for line in lines)
+    assert "".join(_word_text(w) for line in lines for w in line).count("x") == 80
+
+
+def test_words_of_keeps_punctuation_attached_across_span_boundaries():
+    """A span boundary without whitespace must not become a word boundary (no stray space)."""
+    words = words_of(accent_spans("MC *regresses*, then *revenge*!"))
+    assert [_word_text(w) for w in words] == ["MC", "regresses,", "then", "revenge!"]
+    assert [a for _, a in words[0]] == [False]
+    assert [a for _, a in words[1]] == [True, False]  # "regresses" accent, "," not
+    assert [a for _, a in words[2]] == [False]
+    assert [a for _, a in words[3]] == [True, False]  # "revenge" accent, "!" not
+
+
+def test_words_of_merges_a_word_split_by_one_accent_run():
+    [word] = words_of(accent_spans("*re*gression"))
+    assert word == (("re", True), ("gression", False))
+
+
+def test_fitted_line_has_no_stray_space_before_punctuation():
+    fitted = fit_words(
+        words_of(accent_spans("MC *regresses*, then *revenge*!")), anton, 900, 4, 124, 72
+    )
+    text = " ".join(fitted.line_text(i) for i in range(len(fitted.lines)))
+    assert " ," not in text
+    assert " !" not in text
 
 
 def test_fit_shrinks_before_giving_up():
@@ -49,7 +81,10 @@ def test_accent_flags_survive_wrapping():
     fitted = fit_words(
         words_of(accent_spans("MC *REGRESSES* FOR *REVENGE*")), anton, 900, 4, 124, 72
     )
-    flags = {w: a for line in fitted.lines for w, a in line}
+    flags = {}
+    for line in fitted.lines:
+        for word in line:
+            flags[_word_text(word)] = any(a for _, a in word)
     assert flags == {"MC": False, "REGRESSES": True, "FOR": False, "REVENGE": True}
 
 

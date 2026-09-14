@@ -21,7 +21,8 @@ PILL_PAD_X, PILL_PAD_Y, PILL_BORDER = 28, 16, 6
 END_TITLE = "Which one have you *read?*"
 FOLLOW = "Follow for part 2"
 
-Word = tuple[str, bool]  # (text, accent)
+Run = tuple[str, bool]  # (text, accent)
+Word = tuple[Run, ...]  # one or more runs, concatenated with no space, forming one word
 FontFor = Callable[[int], FreeTypeFont]
 
 
@@ -53,15 +54,47 @@ SAFE = Box(90, 250, 900, 1420)  # x 90–990, y 250–1670
 
 
 def words_of(spans: list[tuple[str, bool]]) -> list[Word]:
-    return [(w, accent) for text, accent in spans for w in text.split()]
+    """Split the spans' JOINED text on whitespace, so a span boundary without whitespace (e.g.
+    an accent run ending mid-word, or right before punctuation) stays inside one word — as
+    several runs — instead of becoming a stray word break."""
+    words: list[Word] = []
+    current: list[list] = []  # [[run_text, accent], ...] runs of the word being built
+
+    def flush() -> None:
+        if current:
+            words.append(tuple((t, a) for t, a in current))
+            current.clear()
+
+    for text, accent in spans:
+        i, n = 0, len(text)
+        while i < n:
+            if text[i].isspace():
+                flush()
+                i += 1
+                continue
+            j = i
+            while j < n and not text[j].isspace():
+                j += 1
+            piece = text[i:j]
+            if current and current[-1][1] == accent:
+                current[-1][0] += piece
+            else:
+                current.append([piece, accent])
+            i = j
+    flush()
+    return words
 
 
 def plain_words(text: str) -> list[Word]:
-    return [(w, False) for w in text.split()]
+    return [((w, False),) for w in text.split()]
+
+
+def word_text(word: Word) -> str:
+    return "".join(t for t, _ in word)
 
 
 def _join(words: list[Word] | tuple[Word, ...]) -> str:
-    return " ".join(w for w, _ in words)
+    return " ".join(word_text(w) for w in words)
 
 
 @dataclass(frozen=True)
@@ -106,18 +139,29 @@ class FittedText:
 
 
 def _break_word(word: Word, font: FreeTypeFont, max_width: int) -> list[Word]:
-    text, accent = word
-    if font.getlength(text) <= max_width:
+    """Split an over-wide word into pieces that each fit max_width, keeping each piece's
+    characters' original accent runs (a piece may itself carry more than one run)."""
+    if font.getlength(word_text(word)) <= max_width:
         return [word]
-    pieces, current = [], ""
-    for ch in text:
-        if current and font.getlength(current + ch) > max_width:
-            pieces.append((current, accent))
-            current = ch
-        else:
-            current += ch
-    if current:
-        pieces.append((current, accent))
+    pieces: list[Word] = []
+    current: list[list] = []
+
+    def flush() -> None:
+        if current:
+            pieces.append(tuple((t, a) for t, a in current))
+            current.clear()
+
+    for text, accent in word:
+        for ch in text:
+            trial = "".join(t for t, _ in current) + ch
+            if current and font.getlength(trial) > max_width:
+                flush()
+                current.append([ch, accent])
+            elif current and current[-1][1] == accent:
+                current[-1][0] += ch
+            else:
+                current.append([ch, accent])
+    flush()
     return pieces
 
 
@@ -139,16 +183,22 @@ def wrap_words(words: list[Word], font: FreeTypeFont, max_width: int) -> list[li
 def _ellipsize(line: list[Word], font: FreeTypeFont, max_width: int) -> list[Word]:
     words = list(line)
     while words:
-        text, accent = words[-1]
-        candidate = words[:-1] + [(text + "…", accent)]
+        last = list(words[-1])  # runs of the last word, as mutable [text, accent] pairs
+        text, accent = last[-1]
+        candidate_last = tuple(last[:-1] + [(text + "…", accent)])
+        candidate = words[:-1] + [candidate_last]
         if font.getlength(_join(candidate)) <= max_width:
             return candidate
         trimmed = text[:-1].rstrip()
         if trimmed:
-            words[-1] = (trimmed, accent)
+            last[-1] = (trimmed, accent)
+            words[-1] = tuple(last)
+        elif len(last) > 1:
+            last.pop()
+            words[-1] = tuple(last)
         else:
             words.pop()
-    return [("…", False)]
+    return [(("…", False),)]
 
 
 def fit_words(

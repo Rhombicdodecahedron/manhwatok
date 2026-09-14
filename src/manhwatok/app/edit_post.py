@@ -15,7 +15,7 @@ def edit_post(post_id: str, tools: PostTools) -> list[Path] | None:
     post = tools.posts.get(post_id)
     text = tools.posts.load_draft(post_id) or render_draft(post.title, post.items, post.candidates)
     edited = tools.editor(text)
-    if edited is None:
+    if edited is None or edited == text:
         return None
     try:
         title, items = parse_draft(edited, post.candidates)

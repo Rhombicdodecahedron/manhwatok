@@ -1,3 +1,8 @@
+from datetime import datetime
+
+import pytest
+from pydantic import ValidationError
+
 from manhwatok.domain.caption import build_caption
 from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS, ListPost
 from tests.unit.fakes import post
@@ -16,6 +21,11 @@ def test_defaults():
     p = post()
     assert p.hashtags == DEFAULT_HASHTAGS
     assert p.accent == DEFAULT_ACCENT
+
+
+def test_created_at_must_be_timezone_aware():
+    with pytest.raises(ValidationError):
+        post(created_at=datetime(2026, 9, 14, 12, 0))  # naive, no tzinfo
 
 
 def test_json_round_trip():

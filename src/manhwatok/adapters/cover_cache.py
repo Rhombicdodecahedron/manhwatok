@@ -21,12 +21,22 @@ class CoverCache:
         self._dir = covers_dir
         self._client = client or httpx.Client(timeout=timeout, follow_redirects=True)
 
+    def _path_for(self, manhwa: Manhwa) -> Path:
+        ext = PurePosixPath(urlparse(manhwa.cover_url).path).suffix.lower()
+        return self._dir / f"{manhwa.anilist_id}{ext if ext in _EXTENSIONS else '.jpg'}"
+
+    def cached(self, manhwa: Manhwa) -> Path | None:
+        """Local path of an already-downloaded cover, or None. Never downloads."""
+        if not manhwa.cover_url:
+            return None
+        path = self._path_for(manhwa)
+        return path if path.is_file() and path.stat().st_size > 0 else None
+
     def get(self, manhwa: Manhwa) -> Path:
         """Local path of the cover, downloading it on first use. Raises MetadataError on failure."""
         if not manhwa.cover_url:
             raise MetadataError(f"{manhwa.title}: AniList has no cover image")
-        ext = PurePosixPath(urlparse(manhwa.cover_url).path).suffix.lower()
-        path = self._dir / f"{manhwa.anilist_id}{ext if ext in _EXTENSIONS else '.jpg'}"
+        path = self._path_for(manhwa)
         if path.is_file() and path.stat().st_size > 0:
             return path
         try:

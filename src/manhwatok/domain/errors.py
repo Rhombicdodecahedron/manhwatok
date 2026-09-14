@@ -20,3 +20,7 @@ class PostNotFound(ManhwatokError):
 
 class NotRendered(ManhwatokError):
     """The post has no slides yet; run `manhwatok render <id>` first."""
+
+
+class StorageError(ManhwatokError):
+    """Reading or writing post files failed (permissions, disk, bad encoding)."""

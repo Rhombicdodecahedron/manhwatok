@@ -9,12 +9,19 @@ from manhwatok.domain.text import first_sentence
 
 HELP = (
     "# *word* = accent colour. Delete lines to drop, move lines to reorder, edit text after the 2nd |.\n"
-    "# Order = rank. Lines starting with # are ignored."
+    "# Order = rank. Lines starting with # are ignored.\n"
+    "# Save as-is to accept. Delete everything to cancel."
 )
 
 
+def is_empty_draft(text: str) -> bool:
+    """True if `text` has no non-comment, non-blank lines (the user deleted everything)."""
+    return all(not line.strip() or line.strip().startswith("#") for line in text.splitlines())
+
+
 def _line(m: Manhwa, hook: str) -> str:
-    return f"{m.anilist_id} | {m.title} | {hook}"
+    name = m.title.replace("|", "/")
+    return f"{m.anilist_id} | {name} | {hook}"
 
 
 def render_draft(title: str, items: list[PostItem], candidates: list[Manhwa]) -> str:

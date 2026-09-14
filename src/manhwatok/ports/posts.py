@@ -27,6 +27,10 @@ class PostRepository(Protocol):
 class CoverSource(Protocol):
     def get(self, manhwa: Manhwa) -> Path: ...
 
+    def cached(self, manhwa: Manhwa) -> Path | None:
+        """Local path of an already-downloaded cover, or None. Never downloads."""
+        ...
+
 
 class SlideRenderer(Protocol):
     def render(

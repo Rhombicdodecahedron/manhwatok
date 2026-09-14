@@ -7,8 +7,8 @@ from typing import Callable
 
 from manhwatok.ports.posts import CoverSource, PostRepository, SlideRenderer
 
-# Opens text for editing; returns the edited text, or None if the user aborted or changed nothing
-# (click.edit's contract).
+# Opens text for editing; returns the edited text (even if unchanged), or None if the editor
+# failed or was aborted (non-zero exit).
 EditorFn = Callable[[str], str | None]
 ProgressFn = Callable[[str], None]
 

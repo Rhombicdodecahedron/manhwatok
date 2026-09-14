@@ -1,7 +1,9 @@
+import pytest
 from PIL import Image
 
 from manhwatok.adapters.pillow_renderer import PillowRenderer
 from manhwatok.domain.color import hex_to_rgb, readable_accent
+from manhwatok.domain.errors import StorageError
 from manhwatok.domain.post import PostItem
 from tests.unit.fakes import cover_file, manhwa, post
 
@@ -70,6 +72,30 @@ def test_inactive_progress_segments_are_dimmed_not_white(tmp_path):
         r, g, b = img.getpixel((seg.x + seg.w // 2, seg.y + seg.h // 2))
     assert (r, g, b) != (255, 255, 255)
     assert 40 < r < 200 and r == g == b  # ~30% white over a near-black background
+
+
+def test_cover_slide_missing_cover_survives_a_bad_accent(tmp_path):
+    """A hand-edited post.json can have a non-hex accent; the missing-cover fallback must not
+    ValueError — it should fall back like readable_accent does everywhere else."""
+    p = _post(1).model_copy(update={"accent": "not-a-color"})
+    paths = PillowRenderer().render(p, {1: None}, tmp_path / "out")
+    assert len(paths) == 3
+
+
+def test_out_dir_blocked_by_a_file_raises_storage_error(tmp_path):
+    blocker = tmp_path / "out"
+    blocker.write_bytes(b"not a directory")
+    with pytest.raises(StorageError):
+        PillowRenderer().render(_post(1), {1: None}, blocker)
+
+
+def test_slide_save_failure_raises_storage_error(tmp_path, monkeypatch):
+    def boom(self, *args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Image.Image, "save", boom)
+    with pytest.raises(StorageError):
+        PillowRenderer().render(_post(1), {1: None}, tmp_path / "out")
 
 
 def test_end_slide_uses_accent_gradient_when_no_covers(tmp_path):

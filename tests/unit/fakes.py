@@ -8,7 +8,13 @@ from manhwatok.domain.post import ListPost, PostItem
 
 
 def manhwa(**overrides) -> Manhwa:
-    fields = {"anilist_id": 1, "title": "Test Manhwa", "romaji": "Teseuteu", "status": Status.RELEASING}
+    fields = {
+        "anilist_id": 1,
+        "title": "Test Manhwa",
+        "romaji": "Teseuteu",
+        "status": Status.RELEASING,
+        "cover_url": "https://example.test/cover.jpg",
+    }
     fields.update(overrides)
     return Manhwa(**fields)
 
@@ -69,11 +75,18 @@ def cover_file(folder: Path, anilist_id: int, color=(200, 60, 60), size=(460, 65
 
 
 class FakeCovers:
-    """Returns pre-made cover files; ids in `fail` raise MetadataError like a failed download."""
+    """Returns pre-made cover files; ids in `fail` raise MetadataError like a failed download.
+    `on_disk`: ids already downloaded, so `cached()` returns them without fetching."""
 
-    def __init__(self, paths: dict[int, Path] | None = None, fail: set[int] | None = None):
+    def __init__(
+        self,
+        paths: dict[int, Path] | None = None,
+        fail: set[int] | None = None,
+        on_disk: set[int] | None = None,
+    ):
         self.paths = dict(paths or {})
         self.fail = set(fail or ())
+        self.on_disk = set(on_disk or ())
         self.calls: list[int] = []
 
     def get(self, manhwa: Manhwa) -> Path:
@@ -81,6 +94,11 @@ class FakeCovers:
         if manhwa.anilist_id in self.fail or manhwa.anilist_id not in self.paths:
             raise MetadataError(f"cover download failed for {manhwa.title}: HTTP 500")
         return self.paths[manhwa.anilist_id]
+
+    def cached(self, manhwa: Manhwa) -> Path | None:
+        if manhwa.anilist_id in self.on_disk and manhwa.anilist_id in self.paths:
+            return self.paths[manhwa.anilist_id]
+        return None
 
 
 class FakeRenderer:

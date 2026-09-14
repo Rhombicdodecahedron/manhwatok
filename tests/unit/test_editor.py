@@ -21,9 +21,9 @@ def test_returns_edited_text(monkeypatch, tmp_path):
     assert edit_text("hello\n") == "hello\nadded\n"
 
 
-def test_unchanged_text_means_none(monkeypatch, tmp_path):
+def test_unchanged_text_is_returned_as_is(monkeypatch, tmp_path):
     _editor(monkeypatch, tmp_path, "pass\n")
-    assert edit_text("hello\n") is None
+    assert edit_text("hello\n") == "hello\n"
 
 
 def test_editor_failure_means_none(monkeypatch, tmp_path):
@@ -61,3 +61,9 @@ def test_no_editor_configured_or_installed(monkeypatch):
     monkeypatch.setattr("manhwatok.adapters.editor.shutil.which", lambda name: None)
     with pytest.raises(ManhwatokError, match="set \\$EDITOR"):
         edit_text("hello")
+
+
+def test_editor_deleting_temp_file_raises_instead_of_filenotfound(monkeypatch, tmp_path):
+    _editor(monkeypatch, tmp_path, "import sys, os\nos.remove(sys.argv[1])\n")
+    with pytest.raises(ManhwatokError, match="could not read back"):
+        edit_text("hello\n")

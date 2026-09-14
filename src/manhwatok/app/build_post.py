@@ -9,10 +9,10 @@ from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_post
 from manhwatok.app.suggest import suggest_titles
 from manhwatok.domain.color import is_hex_color
-from manhwatok.domain.draft import parse_draft, render_draft
+from manhwatok.domain.draft import is_empty_draft, parse_draft, render_draft
 from manhwatok.domain.errors import DraftError, ManhwatokError
 from manhwatok.domain.models import SearchQuery
-from manhwatok.domain.post import ListPost, PostItem
+from manhwatok.domain.post import MAX_ITEMS, ListPost, PostItem
 from manhwatok.domain.text import first_sentence
 from manhwatok.ports.metadata import ChapterSource, MetadataSource
 
@@ -33,9 +33,11 @@ def build_post(
     candidates = suggest_titles(query, metadata, chapters, progress=tools.progress)
     if not candidates:
         raise ManhwatokError("no matches — try fewer tags or a lower --min-tag-rank")
-    items = [PostItem(manhwa=m, hook=first_sentence(m.description)) for m in candidates]
+    items = [
+        PostItem(manhwa=m, hook=first_sentence(m.description)) for m in candidates[:MAX_ITEMS]
+    ]
     edited = tools.editor(render_draft(title, items, candidates))
-    if edited is None:
+    if edited is None or is_empty_draft(edited):
         return None
 
     post = ListPost(

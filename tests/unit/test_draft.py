@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from manhwatok.domain.draft import parse_draft, render_draft
@@ -33,6 +35,13 @@ def test_render_lists_chosen_items_then_comments_out_the_rest():
         "# 128067 | SSS-Class Revival Hunter | He copies skills."
     )
     assert text.endswith("\n")
+
+
+def test_render_replaces_pipe_in_title_so_it_cant_shift_the_hook():
+    weird = manhwa(anilist_id=1, title="A | B")
+    text = render_draft("T", [], [weird])
+    assert "1 | A / B | " in text
+    assert "A | B" not in text
 
 
 def test_round_trip_keeps_title_order_and_hooks():
@@ -76,7 +85,7 @@ def test_bare_id_line_gets_empty_hook():
     ],
 )
 def test_parse_errors(text, message):
-    with pytest.raises(DraftError, match=message):
+    with pytest.raises(DraftError, match=re.escape(message)):
         parse_draft(text, CANDIDATES)
 
 
