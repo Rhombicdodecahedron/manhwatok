@@ -11,6 +11,7 @@ from manhwatok.domain.errors import MetadataError
 from manhwatok.domain.models import Manhwa, SearchQuery, Sort, Status, TagInfo
 
 ANILIST_URL = "https://graphql.anilist.co"
+USER_AGENT = "manhwatok/0.1"
 
 # tag_in / genre_in are AND filters; minimumTagRank drops weak tag matches.
 _SEARCH = """
@@ -85,7 +86,7 @@ class AniListSource:
             resp = self._client.post(
                 ANILIST_URL,
                 json={"query": query, "variables": variables},
-                headers={"Accept": "application/json"},
+                headers={"Accept": "application/json", "User-Agent": USER_AGENT},
             )
         except httpx.HTTPError as e:
             raise MetadataError(f"AniList unreachable: {e}") from e

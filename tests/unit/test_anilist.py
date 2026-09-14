@@ -122,6 +122,17 @@ def test_network_failure_raises_metadata_error():
         _source(handler).search(SearchQuery(tags=["x"]))
 
 
+def test_sends_user_agent_header():
+    seen = {}
+
+    def handler(request):
+        seen["ua"] = request.headers.get("user-agent")
+        return httpx.Response(200, json=_page())
+
+    _source(handler).search(SearchQuery(tags=["x"]))
+    assert seen["ua"] == "manhwatok/0.1"
+
+
 def test_list_tags_drops_adult_tags():
     body = {
         "data": {

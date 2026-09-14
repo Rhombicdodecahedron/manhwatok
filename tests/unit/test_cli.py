@@ -72,6 +72,19 @@ def test_suggest_requires_a_filter():
     assert "at least one --tag or --genre" in result.output
 
 
+def test_suggest_reports_cache_errors_without_a_traceback(monkeypatch, tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("x")
+    monkeypatch.setenv("MANHWATOK_DATA_DIR", str(blocker / "sub"))
+    monkeypatch.setattr(
+        container, "build_metadata", lambda settings: FakeMetadata([manhwa(status=Status.RELEASING)])
+    )
+    result = runner.invoke(app, ["suggest", "-t", "Revenge"])
+    assert result.exit_code == 1
+    assert "error:" in result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+
+
 def test_suggest_reports_metadata_errors(monkeypatch):
     class Down(FakeMetadata):
         def search(self, query):

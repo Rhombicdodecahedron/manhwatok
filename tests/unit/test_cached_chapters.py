@@ -2,9 +2,19 @@ import pytest
 
 from manhwatok.adapters.cached_chapters import CachedChapterSource
 from manhwatok.adapters.sqlite_cache import SqliteCache
-from manhwatok.domain.errors import MetadataError
+from manhwatok.domain.errors import CacheError, MetadataError
 from tests.unit.fakes import FakeChapters, manhwa
 from tests.unit.test_sqlite_cache import Clock
+
+
+class BrokenCache:
+    """Raises CacheError on every get and put — simulates a locked/unwritable DB."""
+
+    def get(self, key: str, max_age: float) -> str | None:
+        raise CacheError("cache unavailable")
+
+    def put(self, key: str, value: str) -> None:
+        raise CacheError("cache unavailable")
 
 
 def _cached(tmp_path, inner, clock):
@@ -36,6 +46,13 @@ def test_expired_entry_refetches(tmp_path):
     inner.latest[7] = 56
     assert src.latest_chapter(manhwa(anilist_id=7)) == 56
     assert inner.calls == [7, 7]
+
+
+def test_cache_get_error_is_treated_as_a_miss_and_put_error_is_ignored(tmp_path):
+    inner = FakeChapters({7: 55})
+    src = CachedChapterSource(inner, BrokenCache(), max_age=3600)
+    assert src.latest_chapter(manhwa(anilist_id=7)) == 55
+    assert inner.calls == [7]
 
 
 def test_errors_are_not_cached(tmp_path):

@@ -33,7 +33,31 @@ def test_chapter_lookup_failure_reports_and_continues():
         progress=msgs.append,
     )
     assert out[0].latest_chapter is None
-    assert msgs == ["no chapter count for Doom Breaker: down"]
+    assert msgs == [
+        "looking up chapter counts for 1 title(s) on MangaUpdates…",
+        "MangaUpdates unavailable, skipping chapter counts: down",
+    ]
+
+
+def test_chapter_lookup_failure_stops_further_lookups():
+    ongoing = [
+        manhwa(anilist_id=1, title="A"),
+        manhwa(anilist_id=2, title="B"),
+        manhwa(anilist_id=3, title="C"),
+    ]
+    chapters = FakeChapters(error=MetadataError("down"))
+    out = suggest_titles(Q, FakeMetadata(ongoing), chapters)
+    assert chapters.calls == [1]
+    assert [m.latest_chapter for m in out] == [None, None, None]
+    assert [m.title for m in out] == ["A", "B", "C"]
+
+
+def test_no_progress_message_when_nothing_needs_a_lookup():
+    finished = manhwa(anilist_id=1, status=Status.FINISHED, chapters=135)
+    msgs = []
+    out = suggest_titles(Q, FakeMetadata([finished]), FakeChapters({}), progress=msgs.append)
+    assert msgs == []
+    assert out[0].chapter_count == 135
 
 
 def test_search_errors_propagate():

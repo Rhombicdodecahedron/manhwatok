@@ -90,3 +90,48 @@ def test_network_failure_raises_metadata_error():
 
     with pytest.raises(MetadataError, match="unreachable"):
         _source(handler).latest_chapter(manhwa(title="X"))
+
+
+def test_non_json_response_raises_metadata_error():
+    src = _source(lambda r: httpx.Response(200, content=b"not json"))
+    with pytest.raises(MetadataError, match="non-JSON"):
+        src.latest_chapter(manhwa(title="X"))
+
+
+def test_malformed_search_record_raises_metadata_error():
+    api = Api({"X": [{"hit_title": "X", "record": None}]}, {})
+    with pytest.raises(MetadataError, match="response shape changed"):
+        _source(api).latest_chapter(manhwa(title="X", romaji=""))
+
+
+def test_search_results_not_a_list_raises_metadata_error():
+    def handler(request):
+        if request.url.path == "/v1/series/search":
+            return httpx.Response(200, json={"results": "not-a-list"})
+        return httpx.Response(200, json={})
+
+    with pytest.raises(MetadataError, match="response shape changed"):
+        _source(handler).latest_chapter(manhwa(title="X", romaji=""))
+
+
+def test_malformed_detail_body_raises_metadata_error():
+    api = Api({"X": [_hit(3, "X")]}, {3: ["not", "a", "dict"]})
+    with pytest.raises(MetadataError, match="response shape changed"):
+        _source(api).latest_chapter(manhwa(title="X", romaji=""))
+
+
+def test_empty_normalized_title_returns_none_without_request():
+    api = Api({}, {})
+    assert _source(api).latest_chapter(manhwa(title="!!!", romaji="")) is None
+    assert api.calls == []
+
+
+def test_sends_user_agent_header():
+    seen = {}
+
+    def handler(request):
+        seen["ua"] = request.headers.get("user-agent")
+        return httpx.Response(200, json={"results": []})
+
+    _source(handler).latest_chapter(manhwa(title="X", romaji=""))
+    assert seen["ua"] == "manhwatok/0.1"

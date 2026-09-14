@@ -22,12 +22,17 @@ def suggest_titles(
     results = metadata.search(query)
     if chapters is None:
         return results
+    needs_lookup = sum(1 for m in results if m.chapter_count is None)
+    if needs_lookup > 0:
+        progress(f"looking up chapter counts for {needs_lookup} title(s) on MangaUpdates…")
     enriched = []
+    lookups_failed = False
     for m in results:
-        if m.chapter_count is None:
+        if not lookups_failed and m.chapter_count is None:
             try:
                 m = m.model_copy(update={"latest_chapter": chapters.latest_chapter(m)})
             except MetadataError as e:
-                progress(f"no chapter count for {m.title}: {e}")
+                progress(f"MangaUpdates unavailable, skipping chapter counts: {e}")
+                lookups_failed = True
         enriched.append(m)
     return enriched
