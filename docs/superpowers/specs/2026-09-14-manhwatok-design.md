@@ -90,6 +90,19 @@ Each phase gets its own task-level implementation plan under `docs/superpowers/p
 - Theme presets live in the SQLite store (`theme add`), not YAML; `pyyaml` dropped unless needed.
 - Slide size default 1080×1920; safe area = 90 px side margins, 250 px top/bottom (TikTok UI overlays).
 
+## Carry-forward from Phase 1 review (address in the named phase's plan)
+- Phase 2: AniList adapter drops spoiler tags and tag ranks (`Manhwa.tags` is names only). Add a
+  `Tag(name, rank, spoiler)` model if ranking/"why it matched" needs it.
+- Phase 2/3: history dedupe needs over-fetching — `search()` is `page: 1, perPage: limit`, so
+  filtering posted titles afterwards returns fewer than `n`; request `limit + excluded` (≤50) or add paging.
+- Phase 3: account genres are OR but AniList `genre_in` is AND → one query per genre; then cache
+  AniList search responses (90 req/min limit).
+- Phase 3 (prerequisite for TUI workers): `SqliteCache` never closes its connection and uses the
+  default `check_same_thread=True`; give one owner the DB connection + schema versioning
+  (`PRAGMA user_version`) when `sqlite_store.py` lands, and turn `container` build functions into a
+  lifecycle-owning container built on the thread that uses it.
+- Cosmetic: CLI usage errors exit 1 (not click's 2).
+
 ## Verification
 - Unit: domain helpers (chapter label, dedupe, caption); AniList/MangaUpdates adapters against
   recorded JSON fixtures; renderer (slide count, 1080×1920, text bbox fits inside safe area);
