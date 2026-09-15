@@ -67,7 +67,7 @@ uv run manhwatok export <id>           # copy slides + caption to ~/Downloads/ma
 Options: `--hashtags "..."` (caption hashtags), `--accent "#43c9e4"` (cover/end slide colour);
 both default to the account's (see below). Manhwa slides take their accent colour from each cover.
 Export folder: `--out DIR` or `MANHWATOK_EXPORT_DIR`. Upload the PNGs as a TikTok photo post and
-paste `caption.txt`.
+paste `caption.txt` — or let `manhwatok upload` fill them in for you (see below).
 
 ```bash
 uv run manhwatok delete <id>           # asks first; --yes skips the question
@@ -109,6 +109,34 @@ uv run manhwatok posts --account @manhwa.daily
 - `account remove` keeps the account's posting history, so re-adding the handle keeps its repeat
   protection. `--cta-title` / `--cta-follow` set the end slide's texts (`*word*` = accent colour).
 
+## Uploading to TikTok (assisted)
+
+`upload` takes the manual steps out of posting but leaves the decision to you: it opens a real,
+visible Chromium window logged in as the post's account, attaches the slides in order and types
+the caption. You check the post (add a sound, pick the cover) and click **Post** yourself.
+
+```bash
+uv sync --extra upload && uv run playwright install chromium   # once: Playwright + its Chromium
+
+uv run manhwatok login @manhwa.daily      # once per account: log in by hand, close the window
+uv run manhwatok upload <id>              # an account's post with up-to-date slides
+```
+
+- Each account gets its own browser profile in `$XDG_DATA_HOME/manhwatok/browser/<handle>/`;
+  manhwatok never sees your password. Captchas and login checks are yours to answer in the
+  window.
+- `upload` prints what it did and anything left for you (e.g. "caption box not found — paste
+  caption.txt yourself"), plus the slides folder, then asks `Posted on @x? [y/N]` with the
+  window still open. `y` records the post: its titles count as posted for the repeat window and
+  `posts` marks it `sent`. Anything else records nothing. The window closes after you answer.
+- `upload --debug` saves a screenshot and the page's HTML to
+  `$XDG_DATA_HOME/manhwatok/debug/<id>-<time>/` whenever something wasn't found. TikTok changes
+  its site now and then; the selectors live in `src/manhwatok/adapters/tiktok_page.py`.
+- `account remove` asks whether to delete the account's saved login too (`--yes` does).
+- manhwatok never clicks Post, schedules or batch-uploads, and does nothing to hide that the
+  browser is automated. Automating TikTok's website is against TikTok's Terms of Service and may
+  trigger captchas or account checks — use it at your own risk.
+
 ## Upgrading from earlier versions
 
 - The database upgrades itself the first time you run any command; cached chapter counts are
@@ -125,3 +153,7 @@ uv run manhwatok posts --account @manhwa.daily
 uv run pytest                                        # offline unit tests
 MANHWATOK_LIVE=1 uv run pytest tests/integration     # real AniList/MangaUpdates
 ```
+
+`tests/browser` (marker `browser`) drives a headless Chromium against local fixture pages — never
+tiktok.com. It is skipped unless the upload extra and its Chromium are installed; `-m "not
+browser"` skips it anyway.
