@@ -98,9 +98,10 @@ uv run manhwatok posts --account @manhwa.daily
   `--block-tags` are never suggested. List options take comma-separated names; `--genres ""`
   clears a list. Names are checked against AniList ("did you mean …?"); if AniList is down the
   account is saved anyway with a warning.
-- A post's titles count as posted when the post is **exported** (the first export). `build
-  --account` (and `suggest --account`) skip titles that account exported in the last
-  `--repeat-days` (default 30); `build --allow-repeats` keeps them.
+- A post's titles count as posted when the post is **exported**, dated with its first export
+  (titles swapped in by `edit` count once you export again). `build --account` (and `suggest
+  --account`) skip titles that account exported in the last `--repeat-days` (default 30);
+  `build --allow-repeats` keeps them.
 - `--theme` supplies tags, genres, sort, min tag rank and title; `--title`, `--sort` and
   `--min-tag-rank` override it. Use either `--theme` or `-t/-g`, not both.
 - Without `--account`, `build` behaves as before: no filters, no history, default hashtags,

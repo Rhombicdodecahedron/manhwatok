@@ -271,8 +271,8 @@ def export(
         None, help="Folder to export into (default: ~/Downloads/manhwatok)."
     ),
 ) -> None:
-    """Copy a post's slides and caption.txt to a folder for uploading. The first export of an
-    account's post counts its titles as posted."""
+    """Copy a post's slides and caption.txt to a folder for uploading. Exporting an account's
+    post counts its titles as posted."""
     from manhwatok.app import container
     from manhwatok.app.export_post import export_post
 

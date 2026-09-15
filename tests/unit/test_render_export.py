@@ -176,14 +176,43 @@ def test_first_export_of_an_account_post_records_history(tmp_path):
     assert tools.posts.get("20260914-a3f9").exported_at == NOW
 
 
-def test_re_export_keeps_the_first_date_and_records_once(tmp_path):
+def _history_rows(store) -> list[tuple]:
+    return store.query(
+        StorageError,
+        "SELECT account, anilist_id, post_id, exported_at FROM history ORDER BY anilist_id",
+    )
+
+
+def test_re_export_keeps_the_first_date_and_adds_no_rows(tmp_path):
     tools = make_tools(tmp_path)
     tools.posts.save(post(account="reads"))
     render_post("20260914-a3f9", tools)
-    history = FakeHistory()
-    _export(tools, tmp_path / "exports", history)
-    _export(tools, tmp_path / "again", history, now=NOW + timedelta(days=3))
-    assert len(history.records) == 1
+    with SqliteStore(tmp_path / "m.db") as store:
+        _export(tools, tmp_path / "exports", store.history)
+        first = _history_rows(store)
+        _export(tools, tmp_path / "again", store.history, now=NOW + timedelta(days=3))
+        assert _history_rows(store) == first
+    assert [row[1] for row in first] == [1, 2, 3]
+    assert tools.posts.get("20260914-a3f9").exported_at == NOW
+
+
+def test_re_export_after_an_edit_records_the_new_title_with_the_first_date(tmp_path):
+    """Export, swap title 3 for title 9, export again: 9 is protected from repeats too, dated
+    like the rest of the post (its first export), and 3 stays recorded — it was posted."""
+    tools = make_tools(tmp_path)
+    tools.posts.save(post(account="reads"))
+    render_post("20260914-a3f9", tools)
+    with SqliteStore(tmp_path / "m.db") as store:
+        _export(tools, tmp_path / "exports", store.history)
+        exported = tools.posts.get("20260914-a3f9")
+        swapped = exported.items[:2] + [PostItem(manhwa=manhwa(anilist_id=9), hook="Hook 9")]
+        tools.posts.save(exported.model_copy(update={"items": swapped}))
+        render_post("20260914-a3f9", tools)
+        _export(tools, tmp_path / "again", store.history, now=NOW + timedelta(days=3))
+
+        assert store.history.recent("reads", NOW) == {1, 2, 3, 9}
+        assert store.history.recent("reads", NOW + timedelta(microseconds=1)) == set()
+        assert len(_history_rows(store)) == 4
     assert tools.posts.get("20260914-a3f9").exported_at == NOW
 
 
@@ -193,6 +222,7 @@ def test_export_without_account_records_nothing(tmp_path):
     render_post("20260914-a3f9", tools)
     history = FakeHistory()
     _export(tools, tmp_path / "exports", history)
+    _export(tools, tmp_path / "again", history)
     assert history.records == []
     assert tools.posts.get("20260914-a3f9").exported_at is None
 
