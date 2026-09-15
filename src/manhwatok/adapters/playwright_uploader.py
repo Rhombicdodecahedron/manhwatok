@@ -10,12 +10,16 @@ Every TikTok URL and selector lives in `tiktok_page.py`."""
 
 from __future__ import annotations
 
+import random
+import time
 from pathlib import Path
 
 from manhwatok.adapters.tiktok_page import TikTokPage
 from manhwatok.domain.errors import ManhwatokError, StorageError, UploadUnavailable
+from manhwatok.ports.uploader import UploadReport
 
 INSTALL_HINT = "upload needs: uv sync --extra upload && uv run playwright install chromium"
+POLL_MS = 200  # how often to look again for an element that isn't there yet
 
 
 def _load_playwright():
@@ -61,6 +65,42 @@ class PlaywrightUploader:
         self._goto(page, self._page.login_url)
         self._wait_until_closed()
 
+    def upload(self, handle: str, slides: list[Path], caption: str, debug: bool) -> UploadReport:
+        page = self._open(handle)
+        problems: list[str] = []
+        try:
+            self._goto(page, self._page.upload_url)
+            file_input = self._upload_input(page)
+            if file_input is None:
+                problems.append("upload button not found — drag the slides in yourself")
+            else:
+                self._pause(page)
+                problem = self._attach(page, file_input, slides)
+                if problem:
+                    problems.append(problem)
+        except self._error as e:
+            self.close()
+            raise ManhwatokError(
+                f"the browser stopped before the slides were attached: {_first_line(e)}"
+            ) from e
+        except ManhwatokError:
+            self.close()
+            raise
+        attached = not problems
+        captioned = False
+        try:
+            if not attached:
+                problems.append("caption not typed — paste caption.txt yourself")
+            else:
+                if self._find(page, [self._page.editor_ready], self._page.editor_timeout) is None:
+                    problems.append("the post editor didn't open — check the browser window")
+                captioned = self._type_caption(page, caption)
+                if not captioned:
+                    problems.append("caption box not found — paste caption.txt yourself")
+        except self._error as e:  # e.g. the user closed the window while the caption was typed
+            problems.append(f"the browser stopped: {_first_line(e)}")
+        return UploadReport(attached=attached, captioned=captioned, problems=problems)
+
     def close(self) -> None:
         context, playwright = self._context, self._playwright
         self._context = self._playwright = None
@@ -105,6 +145,61 @@ class PlaywrightUploader:
         except self._error as e:
             self.close()
             raise ManhwatokError(f"could not open {url}: {_first_line(e)}") from e
+
+    def _pause(self, page) -> None:
+        low, high = self._pause_s
+        if high > 0:
+            page.wait_for_timeout(random.uniform(low, high) * 1000)
+
+    def _find(self, page, selectors: list[str] | tuple[str, ...], timeout: float, visible=True):
+        """The first element matching one of `selectors` (tried in order, in every frame of the
+        page), waiting up to `timeout` seconds for one to show up; None if none did. Unless
+        `visible` is False, hidden elements don't count."""
+        only_visible = " >> visible=true" if visible else ""
+        deadline = time.monotonic() + timeout
+        while True:
+            for selector in selectors:
+                for frame in page.frames:
+                    element = frame.locator(selector + only_visible).first
+                    try:
+                        if element.count():
+                            return element
+                    except self._error:
+                        if page.is_closed():
+                            raise
+                        # the frame went away while we looked; try the next one
+            if time.monotonic() >= deadline:
+                return None
+            page.wait_for_timeout(POLL_MS)
+
+    def _upload_input(self, page):
+        """The upload page's file input, or None if it doesn't show up in time."""
+        return self._find(page, [self._page.file_input], self._page.page_timeout, visible=False)
+
+    def _attach(self, page, file_input, slides: list[Path]) -> str | None:
+        """None once the slides are attached (in order), else what went wrong."""
+        try:
+            file_input.set_input_files(slides)
+        except self._error as e:
+            if page.is_closed():
+                raise
+            return f"couldn't attach the slides ({_first_line(e)}) — drag them in yourself"
+        return None
+
+    def _type_caption(self, page, caption: str) -> bool:
+        box = self._find(page, self._page.caption_candidates, self._page.caption_timeout)
+        if box is None:
+            return False
+        self._pause(page)
+        box.click()
+        page.keyboard.press("ControlOrMeta+A")  # TikTok may prefill the box; replace that
+        page.keyboard.press("Delete")
+        low, high = self._type_delay_ms
+        for char in caption.strip():
+            page.keyboard.type(char)
+            if high > 0:
+                page.wait_for_timeout(random.uniform(low, high))
+        return True
 
     def _wait_until_closed(self) -> None:
         """Block until the user has closed every tab, or the whole browser."""

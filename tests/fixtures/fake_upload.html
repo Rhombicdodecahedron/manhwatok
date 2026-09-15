@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- Stands in for TikTok's upload page in tests/browser; it follows the selectors in
+     src/manhwatok/adapters/tiktok_page.py. Query-string flags: ?no-input (no file input),
+     ?no-editor (the editor never opens), ?no-caption (the editor has no caption box). -->
+<html lang="en">
+<head><meta charset="utf-8"><title>Upload</title></head>
+<body>
+  <!-- Hidden editable text before the editor, as real pages have; it must not count. -->
+  <div contenteditable="true" hidden>not the caption</div>
+  <main>
+    <button type="button" onclick="document.querySelector('input[type=file]').click()">Select files</button>
+    <input type="file" accept="image/*" multiple hidden>
+  </main>
+  <section id="editor" hidden>
+    <ol id="files"></ol>
+    <div class="caption-editor"><div contenteditable="true">01.png</div></div>
+    <button type="button" data-e2e="post_video_button" onclick="document.body.dataset.posted = 'yes'">Post</button>
+  </section>
+  <script>
+    const flags = new URLSearchParams(location.search);
+    if (flags.has("no-input")) document.querySelector("input[type=file]").remove();
+    if (flags.has("no-caption")) document.querySelector(".caption-editor").remove();
+    const input = document.querySelector("input[type=file]");
+    input?.addEventListener("change", () => {
+      for (const file of input.files) {
+        const item = document.createElement("li");
+        item.textContent = file.name;
+        document.getElementById("files").append(item);
+      }
+      // TikTok takes a moment to process the files before it shows the editor.
+      if (!flags.has("no-editor")) {
+        setTimeout(() => { document.getElementById("editor").hidden = false; }, 100);
+      }
+    });
+  </script>
+</body>
+</html>
