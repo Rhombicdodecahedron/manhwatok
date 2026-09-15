@@ -609,13 +609,13 @@ def account_remove(
     except ManhwatokError as e:
         _fail(e)
     typer.echo(f"removed @{h} (its posting history is kept)")
-    profile = saved_login(settings.browser_dir, h)
-    if profile is None:
-        return
-    if not yes and not _ask(f"Also delete the saved TikTok login for @{h}?"):
-        typer.echo(f"kept the saved TikTok login in {profile}")
-        return
     try:
+        profile = saved_login(settings.browser_dir, h)
+        if profile is None:
+            return
+        if not yes and not _ask(f"Also delete the saved TikTok login for @{h}?"):
+            typer.echo(f"kept the saved TikTok login in {profile}")
+            return
         forget_login(settings.browser_dir, h)
     except ManhwatokError as e:
         _fail(e)

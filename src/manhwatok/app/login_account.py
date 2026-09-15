@@ -27,10 +27,15 @@ def login_account(
 
 
 def _validate_profile_path(browser_dir: Path, name: str) -> Path:
-    """Build and validate the profile path stays within browser_dir."""
+    """Build and validate the profile path stays within browser_dir. A link is never followed
+    (nor deleted): manhwatok only ever creates real folders there."""
     if name in (".", ".."):
         raise InvalidName(f"invalid profile folder name: {name!r}")
     path = browser_dir / name
+    if path.is_symlink():
+        raise StorageError(
+            f"the saved TikTok login for @{name} is a link — delete it yourself: {path}"
+        )
     if path.resolve().parent != browser_dir.resolve():
         raise InvalidName("profile path would escape the browser directory")
     return path

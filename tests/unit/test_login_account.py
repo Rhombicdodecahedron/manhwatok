@@ -57,6 +57,20 @@ def test_forget_login_deletes_the_folder(tmp_path):
     assert not folder.exists()
 
 
+def test_a_linked_saved_login_is_never_followed(tmp_path):
+    (tmp_path / "elsewhere").mkdir()
+    (tmp_path / "elsewhere" / "keep.txt").write_text("mine")
+    browser_dir = tmp_path / "browsers"
+    browser_dir.mkdir()
+    (browser_dir / "reads").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    message = "the saved TikTok login for @reads is a link — delete it yourself: "
+    for step in (saved_login, forget_login):
+        with pytest.raises(StorageError) as e:
+            step(browser_dir, "reads")
+        assert str(e.value) == message + str(browser_dir / "reads")
+    assert (tmp_path / "elsewhere" / "keep.txt").read_text() == "mine"
+
+
 def test_forget_login_failure_is_a_storage_error(tmp_path, monkeypatch):
     browser_dir = tmp_path / "browsers"
     browser_dir.mkdir()

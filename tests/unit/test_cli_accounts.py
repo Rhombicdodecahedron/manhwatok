@@ -209,6 +209,25 @@ def test_account_remove_yes_deletes_the_saved_login_without_asking(tmp_path):
     assert not (tmp_path / "browser" / "reads").exists()
 
 
+@pytest.mark.parametrize("target", ["outside", "browser/other"])  # anywhere, or a sibling
+@pytest.mark.parametrize("args", [["--yes"], []])
+def test_account_remove_never_follows_a_linked_saved_login(tmp_path, target, args):
+    _ok(["account", "add", "reads"])
+    (tmp_path / target).mkdir(parents=True)
+    (tmp_path / target / "keep.txt").write_text("mine")
+    link = tmp_path / "browser" / "reads"
+    link.parent.mkdir(exist_ok=True)
+    link.symlink_to(tmp_path / target, target_is_directory=True)
+    result = runner.invoke(app, ["account", "remove", "reads", *args], input="y\n")
+    assert result.exit_code == 1
+    assert result.output == (
+        "removed @reads (its posting history is kept)\n"
+        f"error: the saved TikTok login for @reads is a link — delete it yourself: {link}\n"
+    )
+    assert link.is_symlink()
+    assert (tmp_path / target / "keep.txt").read_text() == "mine"
+
+
 # --- themes --------------------------------------------------------------------------------
 
 
