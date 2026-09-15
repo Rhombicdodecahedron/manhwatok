@@ -22,9 +22,17 @@ dev = [
 [project.scripts]
 manhwatok = "manhwatok.cli:app"
 
+[project.optional-dependencies]
+upload = [
+    "playwright>=1.45",
+]
+
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "browser: drives a real headless Chromium against local fixture pages (needs the upload extra)",
+]
