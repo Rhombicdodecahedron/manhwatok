@@ -144,3 +144,18 @@ Each phase gets its own task-level implementation plan under `docs/superpowers/p
 - Phase 4: a successful draft upload becomes the "posted" event → `ListPost` status / `sent_at`; PNG vs JPEG/WebP.
 - Still open: glyphs Montserrat lacks (Hangul/CJK/emoji) in hooks; re-download undecodable cached covers; CLI usage
   errors exit 2. `SlideStyle` is superseded by per-post style fields (accent, cta_title, cta_follow) — closed.
+
+## Carry-forward from Phase 4 review (address in the named phase's plan)
+- Phase 4 live check: adjust `adapters/tiktok_page.py` from the debug bundle (multi-image photo posts, PNG vs
+  JPEG/WebP, real caption / editor-ready selectors); client-side login redirects after the file input appears
+  would read "couldn't attach the slides" instead of "not logged in".
+- A Playwright driver that dies on its own mid-upload (no Ctrl-C) raises a non-`Error` exception → traceback;
+  `close()` is already safe in that case. Wrap it as `ManhwatokError("the browser stopped: …")`.
+- `upload` captures `now` before the prompt (`sent_at`/history get the command's start time, not the answer's).
+- `test_the_later_date_is_compared_as_an_instant` doesn't catch raw-offset storage; add
+  `recent("alpha", T0 + 30 min) == set()`. `ports/store.py` `recent()` docstring still says "exported" only.
+- `login`/`upload` launch Chromium in a symlinked profile's target (only `account remove` refuses links).
+- The Ctrl-C teardown reads Playwright's private `context._loop` (getattr-guarded) to mute asyncio noise;
+  re-check on Playwright upgrades.
+- Cosmetic: long lines in `domain/account.py` (fold the letter/digit check into the regex), narrative comments in
+  `tests/unit/test_login_account.py`, redundant `.`/`..` check in `_validate_profile_path`.
