@@ -92,3 +92,14 @@ manhwatok account remove <handle>             # also offers to delete the saved 
 
 ## Out of scope for Phase 4
 Automatic posting, scheduling, batch uploads, stealth/captcha tricks, the official Content Posting API, Phase 3b TUI.
+
+## Plan-time adjustments (from prototyping; details in `plans/2026-09-15-phase4-upload.md` → "Deviations from the spec")
+- `PlaywrightUploader(headless=False)` flag exists for tests only; `login`/`upload` commands always open a visible window.
+- `TikTokPage` timeouts are flat fields (page, editor, caption); elements are searched in all frames, visible ones only.
+- `login_account` takes a `progress` callback; exact problem/output messages pinned; uploading an already-sent post warns.
+- The debug folder is named after the slides folder (the uploader doesn't receive the post id).
+- The `sent` column in `posts` appears only when at least one post is sent.
+- Playwright resolved to 1.63.0 (Chromium build 1243). Playwright's sync API can't run inside an asyncio loop —
+  the Phase 3b TUI must call the uploader from a worker thread.
+- Open questions for the live check: whether TikTok Studio web accepts multi-image photo posts and PNG files,
+  and the real caption / editor-ready selectors.
