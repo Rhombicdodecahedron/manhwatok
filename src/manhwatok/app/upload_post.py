@@ -53,7 +53,10 @@ def upload_post(
         for problem in report.problems:
             progress(problem)
         if report.debug_dir:
-            progress(f"debug files: {report.debug_dir}")
+            progress(
+                f"debug files: {report.debug_dir} (page.html can hold account details — "
+                "check it before sharing)"
+            )
         progress(f"slides and caption.txt: {posts.folder(post_id)}")
         progress("check the post in the browser and click Post yourself")
         posted = confirm(f"Posted on {account.display}?")

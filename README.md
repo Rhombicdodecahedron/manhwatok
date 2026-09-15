@@ -132,7 +132,9 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
   `posts` marks it `sent`. Anything else records nothing. The window closes after you answer.
 - `upload --debug` saves a screenshot and the page's HTML to
   `$XDG_DATA_HOME/manhwatok/debug/<id>-<time>/` whenever something wasn't found. TikTok changes
-  its site now and then; the selectors live in `src/manhwatok/adapters/tiktok_page.py`.
+  its site now and then; the selectors live in `src/manhwatok/adapters/tiktok_page.py`. The
+  saved `page.html` comes from a logged-in TikTok page and can contain account details (IDs,
+  nickname, tokens) — check it before sharing it with anyone.
 - `account remove` asks whether to delete the account's saved login too (`--yes` does).
 - manhwatok never clicks Post, schedules or batch-uploads, and does nothing to hide that the
   browser is automated. Automating TikTok's website is against TikTok's Terms of Service and may
@@ -147,6 +149,11 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
 - Re-rendering an old post (`render`, `edit`) uses the new Montserrat style.
 - A post keeps the end-slide texts it was built with: a later `account set --cta-title` /
   `--cta-follow` doesn't change existing posts.
+- Handles now need at least one letter or digit (TikTok allows no others). An account saved
+  earlier with a handle of only `.` and `_` can't be loaded any more: `account list` stops with
+  "is unreadable" and `account remove` refuses the handle. Delete it from the database by hand,
+  e.g. `sqlite3 ~/.local/share/manhwatok/manhwatok.db "DELETE FROM accounts WHERE handle = '__'"`
+  (its posting history is kept, as with `account remove`).
 
 ## Tests
 

@@ -115,7 +115,8 @@ def test_problems_are_shown_and_the_question_is_still_asked(tmp_path, store):
     assert messages[:3] == [
         "attached 5 slides",
         "caption box not found — paste caption.txt yourself",
-        f"debug files: {tmp_path / 'debug' / 'x'}",
+        f"debug files: {tmp_path / 'debug' / 'x'} (page.html can hold account details — "
+        "check it before sharing)",
     ]
     assert answer.questions == ["Posted on @reads?"]
 
