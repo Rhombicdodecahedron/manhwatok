@@ -1,6 +1,7 @@
 import re
 import sqlite3
 import threading
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -59,6 +60,69 @@ def test_phase2_database_is_upgraded_in_place_and_keeps_cache_rows(tmp_path):
         assert store.cache.get("latest_chapter:8", 60) == "null"
     assert _version(path) == 2
     assert {"accounts", "themes", "history"} <= _tables(path)
+
+
+def _phase2_database(path, rows: int = 3) -> None:
+    """A database as Phase 2 left it: only `cache`, user_version 0."""
+    with closing(sqlite3.connect(path)) as conn, conn:
+        conn.execute(
+            "CREATE TABLE cache (key TEXT PRIMARY KEY, value TEXT NOT NULL, stored_at REAL NOT NULL)"
+        )
+        conn.executemany(
+            "INSERT INTO cache VALUES (?, ?, 1000.0)",
+            [(f"latest_chapter:{i}", str(i)) for i in range(rows)],
+        )
+
+
+def test_concurrent_openers_upgrade_a_phase2_database_exactly_once(tmp_path):
+    """Several commands starting at once on an old database (e.g. two terminals after an
+    update): every one opens it, each migration step runs once, nothing is lost."""
+    openers, trials = 6, 20
+    failures: list[str] = []
+    for trial in range(trials):
+        path = tmp_path / f"m{trial}.db"
+        _phase2_database(path)
+        barrier = threading.Barrier(openers)
+
+        def open_store(path=path, barrier=barrier, trial=trial) -> None:
+            barrier.wait()
+            try:
+                SqliteStore(path).close()
+            except StorageError as e:
+                failures.append(f"trial {trial}: {e}")
+
+        threads = [threading.Thread(target=open_store) for _ in range(openers)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        with closing(sqlite3.connect(path)) as conn:
+            state = (
+                conn.execute("PRAGMA user_version").fetchone()[0],
+                conn.execute("PRAGMA integrity_check").fetchone()[0],
+                conn.execute("SELECT key, value FROM cache ORDER BY key").fetchall(),
+            )
+        if state != (2, "ok", [(f"latest_chapter:{i}", str(i)) for i in range(3)]):
+            failures.append(f"trial {trial}: user_version/integrity/rows = {state}")
+    assert failures == []
+
+
+def test_connections_wait_for_a_busy_database(tmp_path):
+    with SqliteStore(tmp_path / "m.db") as store:
+        assert store.query(StorageError, "PRAGMA busy_timeout") == [(10_000,)]
+
+
+def test_migration_scripts_split_into_single_statements():
+    script = """
+    CREATE TABLE a (x TEXT DEFAULT 'semi;colon');
+    CREATE INDEX a_x ON a (x);
+    INSERT INTO a VALUES ('no trailing semicolon')"""
+    assert sqlite_store._statements(script) == [
+        "CREATE TABLE a (x TEXT DEFAULT 'semi;colon');",
+        "CREATE INDEX a_x ON a (x);",
+        "INSERT INTO a VALUES ('no trailing semicolon');",
+    ]
+    assert [len(sqlite_store._statements(m)) for m in MIGRATIONS] == [1, 4]
 
 
 def test_reopening_keeps_data_and_version(tmp_path):

@@ -47,30 +47,61 @@ MIGRATIONS: tuple[str, ...] = (
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 
+BUSY_TIMEOUT = 10.0  # seconds a connection waits for another connection's write lock
+
 Rows = list[tuple]
 M = TypeVar("M", bound=BaseModel)
 
 
+def _statements(script: str) -> list[str]:
+    """Split a migration script into single statements: `execute` runs one at a time, and
+    `executescript` would commit the open transaction first."""
+    statements, pending = [], ""
+    for part in script.split(";"):
+        pending += part + ";"
+        if sqlite3.complete_statement(pending):  # False while the ';' sits inside a literal
+            if pending.strip(" \t\r\n;"):
+                statements.append(pending.strip())
+            pending = ""
+    if pending.strip(" \t\r\n;"):
+        statements.append(pending.strip())  # incomplete: let SQLite report it
+    return statements
+
+
+def _user_version(conn: sqlite3.Connection) -> int:
+    return conn.execute("PRAGMA user_version").fetchone()[0]
+
+
 def _migrate(conn: sqlite3.Connection, path: Path) -> None:
+    """Bring the schema to SCHEMA_VERSION, one transaction per step. Each step takes the write
+    lock first (BEGIN IMMEDIATE, waiting up to BUSY_TIMEOUT) and re-reads user_version under
+    it, so when several commands open an old database at once every step runs exactly once:
+    the others wait, then see the new version and move on. An up-to-date database needs no
+    write lock at all (user_version only ever grows)."""
     try:
-        version = conn.execute("PRAGMA user_version").fetchone()[0]
-        if version > SCHEMA_VERSION:
-            raise StorageError(
-                f"database at {path} has schema v{version}, newer than this manhwatok "
-                f"(v{SCHEMA_VERSION}) — update manhwatok"
-            )
-        for target in range(version + 1, SCHEMA_VERSION + 1):
+        version = _user_version(conn)
+        while version < SCHEMA_VERSION:
+            conn.execute("BEGIN IMMEDIATE")
             try:
-                # one transaction per step: the tables and the version bump land together
-                conn.executescript(
-                    f"BEGIN;\n{MIGRATIONS[target - 1]}\nPRAGMA user_version = {target};\nCOMMIT;"
-                )
+                version = _user_version(conn)
+                if version < SCHEMA_VERSION:
+                    # the step's tables and its version bump land together, or not at all
+                    for statement in _statements(MIGRATIONS[version]):
+                        conn.execute(statement)
+                    version += 1
+                    conn.execute(f"PRAGMA user_version = {version}")
+                conn.commit()
             except sqlite3.Error:
                 if conn.in_transaction:
                     conn.rollback()
                 raise
     except sqlite3.Error as e:
         raise StorageError(f"could not upgrade database at {path}: {e}") from e
+    if version > SCHEMA_VERSION:
+        raise StorageError(
+            f"database at {path} has schema v{version}, newer than this manhwatok "
+            f"(v{SCHEMA_VERSION}) — update manhwatok"
+        )
 
 
 class SqliteStore:
@@ -81,7 +112,7 @@ class SqliteStore:
         self.path = path
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(path, check_same_thread=False)
+            conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT, check_same_thread=False)
         except (sqlite3.Error, OSError) as e:
             raise StorageError(f"database at {path} is unusable: {e}") from e
         try:
