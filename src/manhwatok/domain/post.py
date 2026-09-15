@@ -8,6 +8,8 @@ from manhwatok.domain.models import Manhwa
 
 DEFAULT_ACCENT = "#43c9e4"
 DEFAULT_HASHTAGS = "#manhwa #manhwarecommendation #webtoon #manhwatiktok"
+DEFAULT_CTA_TITLE = "Which one have you *read?*"
+DEFAULT_CTA_FOLLOW = "Follow for part 2"
 MAX_ITEMS = 33  # TikTok photo posts cap at 35 images: cover + items + end slide
 
 
@@ -24,6 +26,11 @@ class ListPost(BaseModel):
     candidates: list[Manhwa] = Field(default_factory=list)
     hashtags: str = DEFAULT_HASHTAGS
     accent: str = DEFAULT_ACCENT
+    # Phase 3a fields; all defaulted so Phase 2 post.json files load unchanged.
+    account: str | None = None  # handle without "@", or None for posts built without --account
+    exported_at: AwareDatetime | None = None  # first export; its titles count as posted
+    cta_title: str = DEFAULT_CTA_TITLE
+    cta_follow: str = DEFAULT_CTA_FOLLOW
 
     @property
     def slide_count(self) -> int:

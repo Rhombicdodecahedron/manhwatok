@@ -24,3 +24,19 @@ class NotRendered(ManhwatokError):
 
 class StorageError(ManhwatokError):
     """Reading or writing post files failed (permissions, disk, bad encoding)."""
+
+
+class AccountNotFound(ManhwatokError):
+    """No saved account with that handle."""
+
+
+class ThemeNotFound(ManhwatokError):
+    """No saved theme with that name."""
+
+
+class InvalidName(ManhwatokError):
+    """A handle, theme name, genre, tag or accent colour is not acceptable."""
+
+
+class AlreadyExists(ManhwatokError):
+    """An account or theme with that handle/name is already saved."""
