@@ -1,6 +1,7 @@
 """PlaywrightUploader without a browser: a stand-in for Playwright checks the launch options
 and how missing pieces are reported. tests/browser drives the real thing."""
 
+import re
 import sys
 
 import pytest
@@ -17,14 +18,45 @@ class FakeError(Exception):
     """Stands in for playwright.sync_api.Error."""
 
 
+class FakeLocator:
+    """Every selector finds an element; clicking it raises the page's `click_error`, if any."""
+
+    def __init__(self, page):
+        self.page = page
+        self.first = self
+
+    def count(self) -> int:
+        return 1
+
+    def set_input_files(self, files):
+        pass
+
+    def click(self):
+        if self.page.click_error:
+            self.page.closed = self.page.click_closes
+            raise self.page.click_error
+
+
+class FakeKeyboard:
+    def press(self, key):
+        pass
+
+    def type(self, text):
+        pass
+
+
 class FakePage:
     """A tab the "user" closes as soon as login() waits for that; `goto()` and
-    `wait_for_event()` raise `error` instead if one is given."""
+    `wait_for_event()` raise `error` instead if one is given. It is its own only frame."""
 
     def __init__(self, error: BaseException | None = None):
         self.error = error
         self.url = "about:blank"
         self.closed = False
+        self.click_error: Exception | None = None
+        self.click_closes = False  # the click_error came with the window closing
+        self.frames = [self]
+        self.keyboard = FakeKeyboard()
 
     def goto(self, url, **options):
         if self.error:
@@ -35,6 +67,21 @@ class FakePage:
         if self.error:
             raise self.error
         self.closed = True
+
+    def is_closed(self) -> bool:
+        return self.closed
+
+    def locator(self, selector: str) -> FakeLocator:
+        return FakeLocator(self)
+
+    def wait_for_timeout(self, ms):
+        pass
+
+    def screenshot(self, path, **options):
+        path.write_bytes(b"png")
+
+    def content(self) -> str:
+        return "<html></html>"
 
 
 class FakeLoop:
@@ -178,6 +225,47 @@ def test_ctrl_c_stops_playwright_without_asking_the_browser(tmp_path, monkeypatc
     uploader.login("reads")
     uploader.close()
     assert (context.closed, fake.stopped) == (1, 2)
+
+
+def _local_uploader(tmp_path) -> PlaywrightUploader:
+    page = TikTokPage(
+        login_url="http://127.0.0.1/login", upload_url="http://127.0.0.1/upload", page_timeout=0
+    )
+    return PlaywrightUploader(
+        tmp_path / "browser", tmp_path / "debug", page, pause=(0, 0), type_delay_ms=(0, 0)
+    )
+
+
+@pytest.mark.parametrize(
+    ("closes", "problem"),
+    [
+        # e.g. something lies over the caption box: the window is still there
+        (False, "couldn't type the caption (Locator.click: Timeout 30000ms exceeded.) — "
+         "paste caption.txt yourself"),
+        (True, "the browser stopped: Locator.click: Timeout 30000ms exceeded."),
+    ],
+    ids=["window open", "window closed"],
+)
+def test_a_caption_that_cant_be_typed_is_a_problem(tmp_path, monkeypatch, closes, problem):
+    window = FakePage()
+    window.click_error = FakeError("Locator.click: Timeout 30000ms exceeded.\nCall log: …")
+    window.click_closes = closes
+    _fake(monkeypatch, context=FakeContext(window))
+    uploader = _local_uploader(tmp_path)
+    report = uploader.upload("reads", [tmp_path / "01.png"], "caption", debug=False)
+    uploader.close()
+    assert (report.attached, report.captioned, report.problems) == (True, False, [problem])
+
+
+def test_debug_files_without_slides_go_to_a_neutral_folder(tmp_path, monkeypatch):
+    window = FakePage()
+    window.click_error = FakeError("Locator.click: Timeout 30000ms exceeded.")
+    _fake(monkeypatch, context=FakeContext(window))
+    uploader = _local_uploader(tmp_path)
+    report = uploader.upload("reads", [], "caption", debug=True)
+    uploader.close()
+    assert re.fullmatch(r"upload-\d{8}-\d{6}", report.debug_dir.name)
+    assert (report.debug_dir / "page.html").read_text() == "<html></html>"
 
 
 def test_tiktok_page_defaults():

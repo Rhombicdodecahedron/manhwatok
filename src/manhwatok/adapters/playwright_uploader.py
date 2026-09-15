@@ -152,8 +152,13 @@ class PlaywrightUploader:
                 captioned = self._type_caption(page, caption)
                 if not captioned:
                     problems.append("caption box not found — paste caption.txt yourself")
-        except self._error as e:  # e.g. the user closed the window while the caption was typed
-            problems.append(f"the browser stopped: {_first_line(e)}")
+        except self._error as e:
+            if page.is_closed():  # e.g. the user closed the window while the caption was typed
+                problems.append(f"the browser stopped: {_first_line(e)}")
+            else:  # e.g. something lay over the caption box, so it couldn't be clicked
+                problems.append(
+                    f"couldn't type the caption ({_first_line(e)}) — paste caption.txt yourself"
+                )
         report = UploadReport(attached=attached, captioned=captioned, problems=problems)
         if debug and problems:
             report.debug_dir = self._save_debug(page, slides, problems)
@@ -256,9 +261,11 @@ class PlaywrightUploader:
 
     def _save_debug(self, page, slides: list[Path], problems: list[str]) -> Path | None:
         """screenshot.png and page.html in <debug_dir>/<post id>-<time>/ (the slides' folder is
-        named after the post). Failing to save them is one more problem, not an error."""
+        named after the post; upload-<time>/ without slides). Failing to save them is one more
+        problem, not an error."""
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        folder = self._debug_dir / f"{slides[0].parent.name}-{stamp}"
+        name = slides[0].parent.name if slides else "upload"
+        folder = self._debug_dir / f"{name}-{stamp}"
         try:
             folder.mkdir(parents=True, exist_ok=True)
             page.screenshot(path=folder / "screenshot.png", full_page=True)
