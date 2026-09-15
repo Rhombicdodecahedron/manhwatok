@@ -268,7 +268,8 @@ def _stamp(when: datetime) -> str:
 
 
 class HistoryTable:
-    """Which titles each account has exported, and when (the first export of each post)."""
+    """Which titles each account has posted, and when: a post's first export, or a later
+    upload the user confirmed."""
 
     def __init__(self, store: SqliteStore) -> None:
         self._store = store
@@ -276,11 +277,12 @@ class HistoryTable:
     def record(
         self, account: str, post_id: str, anilist_ids: list[int], exported_at: datetime
     ) -> None:
-        stamp = _stamp(exported_at)
+        stamp = _stamp(exported_at)  # fixed-width UTC text, so MAX() picks the later instant
         self._store.write_many(
             StorageError,
-            "INSERT OR IGNORE INTO history (account, anilist_id, post_id, exported_at) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO history (account, anilist_id, post_id, exported_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (account, anilist_id, post_id) "
+            "DO UPDATE SET exported_at = MAX(exported_at, excluded.exported_at)",
             [(account, anilist_id, post_id, stamp) for anilist_id in anilist_ids],
         )
 

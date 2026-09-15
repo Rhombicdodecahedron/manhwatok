@@ -336,11 +336,21 @@ def test_history_is_per_account(store):
     assert store.history.recent("bravo", T0) == set()
 
 
-def test_record_is_idempotent_and_keeps_the_first_date(store):
-    store.history.record("alpha", "20260901-aaaa", [1, 2], T0)
-    store.history.record("alpha", "20260901-aaaa", [1, 2], T0 + timedelta(days=10))
+@pytest.mark.parametrize("first_days, then_days", [(0, 10), (10, 0)])
+def test_record_is_idempotent_and_keeps_the_later_date(store, first_days, then_days):
+    """E.g. an old post uploaded (and confirmed) today counts as posted from today."""
+    store.history.record("alpha", "20260901-aaaa", [1, 2], T0 + timedelta(days=first_days))
+    store.history.record("alpha", "20260901-aaaa", [1, 2], T0 + timedelta(days=then_days))
     assert store.query(StorageError, "SELECT COUNT(*) FROM history") == [(2,)]
-    assert store.history.recent("alpha", T0 + timedelta(days=5)) == set()
+    assert store.history.recent("alpha", T0 + timedelta(days=10)) == {1, 2}
+    assert store.history.recent("alpha", T0 + timedelta(days=10, microseconds=1)) == set()
+
+
+def test_the_later_date_is_compared_as_an_instant(store):
+    earlier = datetime(2026, 9, 1, 13, 0, tzinfo=timezone(timedelta(hours=2)))
+    store.history.record("alpha", "20260901-aaaa", [1], T0)
+    store.history.record("alpha", "20260901-aaaa", [1], earlier)
+    assert store.history.recent("alpha", T0) == {1}  # 13:00+02:00 is before 12:00 UTC
 
 
 def test_removing_an_account_keeps_its_history(store):

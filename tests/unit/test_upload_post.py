@@ -136,6 +136,14 @@ def test_uploading_a_sent_post_again_says_so(tmp_path, store):
     assert messages[0] == f"post {POST_ID} was already marked sent on 2026-09-14 — uploading again"
 
 
+def test_yes_on_an_old_post_counts_its_titles_as_posted_now(tmp_path, store):
+    posts = _posts(tmp_path, sent_at=datetime(2026, 7, 1, tzinfo=timezone.utc))
+    store.history.record("reads", POST_ID, [1, 2, 3], datetime(2026, 7, 1, tzinfo=timezone.utc))
+    _upload(posts, store, FakeUploader())
+    assert store.history.recent("reads", NOW) == {1, 2, 3}
+    assert posts.get(POST_ID).sent_at == NOW
+
+
 @pytest.mark.parametrize(
     ("fields", "render", "error", "match"),
     [

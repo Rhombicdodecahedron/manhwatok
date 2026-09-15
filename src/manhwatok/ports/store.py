@@ -37,7 +37,7 @@ class HistoryRepository(Protocol):
     def record(
         self, account: str, post_id: str, anilist_ids: list[int], exported_at: datetime
     ) -> None:
-        """Idempotent: re-recording a post keeps its first date."""
+        """Idempotent: re-recording a post keeps the later of the two dates."""
         ...
 
     def recent(self, account: str, since: datetime) -> set[int]:
