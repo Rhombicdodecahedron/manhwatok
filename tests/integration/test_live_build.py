@@ -11,7 +11,12 @@ import pytest
 from PIL import Image
 
 from manhwatok.app.build_post import build_post
-from manhwatok.app.container import build_chapter_source, build_metadata, build_post_tools
+from manhwatok.app.container import (
+    build_chapter_source,
+    build_metadata,
+    build_post_tools,
+    build_store,
+)
 from manhwatok.config import Settings
 from manhwatok.domain.models import SearchQuery
 
@@ -35,16 +40,17 @@ def _keep_first_five(text: str) -> str:
 def test_build_real_post(tmp_path):
     settings = Settings(data_dir=tmp_path)
     tools = build_post_tools(settings, _keep_first_five, print)
-    built = build_post(
-        SearchQuery(tags=["Time Manipulation", "Revenge"], limit=8),
-        "Manhwa where the MC *regresses* for *revenge*",
-        "#manhwa #webtoon",
-        "#43c9e4",
-        build_metadata(settings),
-        build_chapter_source(settings),
-        tools,
-        now=datetime.now(timezone.utc),
-    )
+    with build_store(settings) as store:
+        built = build_post(
+            SearchQuery(tags=["Time Manipulation", "Revenge"], limit=8),
+            "Manhwa where the MC *regresses* for *revenge*",
+            "#manhwa #webtoon",
+            "#43c9e4",
+            build_metadata(settings),
+            build_chapter_source(settings, store.cache),
+            tools,
+            now=datetime.now(timezone.utc),
+        )
     assert built is not None
     post, slides = built
     assert len(post.items) == 5

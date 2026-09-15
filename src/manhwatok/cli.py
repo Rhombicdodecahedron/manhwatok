@@ -72,12 +72,13 @@ def suggest(
     query = _query(tag, genre, sort, limit, min_tag_rank)
     settings = Settings()
     try:
-        results = suggest_titles(
-            query,
-            container.build_metadata(settings),
-            container.build_chapter_source(settings) if chapters else None,
-            progress=_progress,
-        )
+        with container.build_store(settings) as store:
+            results = suggest_titles(
+                query,
+                container.build_metadata(settings),
+                container.build_chapter_source(settings, store.cache) if chapters else None,
+                progress=_progress,
+            )
     except ManhwatokError as e:
         _fail(e)
     if not results:
@@ -142,16 +143,17 @@ def build(
     settings = Settings()
     try:
         tools = _tools(settings)
-        built = build_post(
-            query,
-            title,
-            hashtags,
-            accent,
-            container.build_metadata(settings),
-            container.build_chapter_source(settings) if chapters else None,
-            tools,
-            now=datetime.now(timezone.utc),
-        )
+        with container.build_store(settings) as store:
+            built = build_post(
+                query,
+                title,
+                hashtags,
+                accent,
+                container.build_metadata(settings),
+                container.build_chapter_source(settings, store.cache) if chapters else None,
+                tools,
+                now=datetime.now(timezone.utc),
+            )
     except ManhwatokError as e:
         _fail(e)
     if built is None:

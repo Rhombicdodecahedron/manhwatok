@@ -38,7 +38,9 @@ def wire(tmp_path, monkeypatch):
         editor = ScriptedEditor(respond)
         repo = FsPostRepository(tmp_path / "data" / "posts")
         monkeypatch.setattr(container, "build_metadata", lambda settings: FakeMetadata(results))
-        monkeypatch.setattr(container, "build_chapter_source", lambda settings: FakeChapters({}))
+        monkeypatch.setattr(
+            container, "build_chapter_source", lambda settings, cache: FakeChapters({})
+        )
         monkeypatch.setattr(
             container,
             "build_post_tools",

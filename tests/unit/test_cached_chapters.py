@@ -1,10 +1,9 @@
 import pytest
 
 from manhwatok.adapters.cached_chapters import CachedChapterSource
-from manhwatok.adapters.sqlite_cache import SqliteCache
+from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.domain.errors import CacheError, MetadataError
-from tests.unit.fakes import FakeChapters, manhwa
-from tests.unit.test_sqlite_cache import Clock
+from tests.unit.fakes import Clock, FakeChapters, manhwa
 
 
 class BrokenCache:
@@ -18,7 +17,8 @@ class BrokenCache:
 
 
 def _cached(tmp_path, inner, clock):
-    return CachedChapterSource(inner, SqliteCache(tmp_path / "c.db", clock=clock), max_age=3600)
+    cache = SqliteStore(tmp_path / "c.db", clock=clock).cache
+    return CachedChapterSource(inner, cache, max_age=3600)
 
 
 def test_second_lookup_hits_cache(tmp_path):

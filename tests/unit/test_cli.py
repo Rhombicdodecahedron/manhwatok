@@ -24,7 +24,7 @@ def _isolated_data_dir(tmp_path, monkeypatch):
 def _wire(monkeypatch, metadata, chapters=None):
     monkeypatch.setattr(container, "build_metadata", lambda settings: metadata)
     monkeypatch.setattr(
-        container, "build_chapter_source", lambda settings: chapters or FakeChapters({})
+        container, "build_chapter_source", lambda settings, cache: chapters or FakeChapters({})
     )
 
 
@@ -57,7 +57,7 @@ def test_suggest_prints_ranked_titles_with_chapter_labels(monkeypatch):
 def test_suggest_no_chapters_skips_mangaupdates(monkeypatch):
     _wire(monkeypatch, FakeMetadata([manhwa()]))
 
-    def boom(settings):
+    def boom(settings, cache):
         raise AssertionError("chapter source must not be built")
 
     monkeypatch.setattr(container, "build_chapter_source", boom)
