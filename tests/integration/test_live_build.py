@@ -17,6 +17,7 @@ from manhwatok.app.container import (
     build_post_tools,
     build_store,
 )
+from manhwatok.app.suggest import suggest_titles
 from manhwatok.config import Settings
 from manhwatok.domain.models import SearchQuery
 
@@ -40,14 +41,15 @@ def _keep_first_five(text: str) -> str:
 def test_build_real_post(tmp_path):
     settings = Settings(data_dir=tmp_path)
     tools = build_post_tools(settings, _keep_first_five, print)
+    query = SearchQuery(tags=["Time Manipulation", "Revenge"], limit=8)
     with build_store(settings) as store:
+        chapters = build_chapter_source(settings, store.cache)
         built = build_post(
-            SearchQuery(tags=["Time Manipulation", "Revenge"], limit=8),
+            lambda: suggest_titles(query, build_metadata(settings), chapters),
             "Manhwa where the MC *regresses* for *revenge*",
+            None,
             "#manhwa #webtoon",
             "#43c9e4",
-            build_metadata(settings),
-            build_chapter_source(settings, store.cache),
             tools,
             now=datetime.now(timezone.utc),
         )

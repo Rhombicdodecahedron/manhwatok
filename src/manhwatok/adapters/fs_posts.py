@@ -22,10 +22,18 @@ class FsPostRepository:
         self._dir = posts_dir
 
     def new_id(self, today: date) -> str:
-        while True:
-            post_id = f"{today:%Y%m%d}-{secrets.token_hex(2)}"
-            if not (self._dir / post_id).exists():
-                return post_id
+        """A fresh id whose folder is created right here, so two builds can't both get it."""
+        try:
+            self._dir.mkdir(parents=True, exist_ok=True)
+            while True:
+                post_id = f"{today:%Y%m%d}-{secrets.token_hex(2)}"
+                try:
+                    (self._dir / post_id).mkdir()
+                    return post_id
+                except FileExistsError:
+                    continue
+        except OSError as e:
+            raise StorageError(f"could not create a post folder in {self._dir}: {e}") from e
 
     def folder(self, post_id: str) -> Path:
         if not _ID.fullmatch(post_id):

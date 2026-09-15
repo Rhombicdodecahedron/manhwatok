@@ -14,6 +14,18 @@ def test_new_id_is_date_plus_hex_and_unique(tmp_path):
     assert all(re.fullmatch(r"20260914-[0-9a-f]{4}", i) for i in ids)
 
 
+def test_new_id_reserves_its_folder(tmp_path):
+    repo = FsPostRepository(tmp_path / "posts")
+    post_id = repo.new_id(date(2026, 9, 14))
+    assert (tmp_path / "posts" / post_id).is_dir()
+
+
+def test_new_id_blocked_posts_dir_raises_storage_error(tmp_path):
+    (tmp_path / "posts").write_bytes(b"not a directory")
+    with pytest.raises(StorageError):
+        FsPostRepository(tmp_path / "posts").new_id(date(2026, 9, 14))
+
+
 def test_new_id_skips_existing_folders(tmp_path, monkeypatch):
     (tmp_path / "20260914-aaaa").mkdir()
     tokens = iter(["aaaa", "bbbb"])

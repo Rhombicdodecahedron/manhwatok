@@ -138,19 +138,22 @@ def build(
     """Build a post: pick titles and hooks in your editor, then render the slides."""
     from manhwatok.app import container
     from manhwatok.app.build_post import build_post
+    from manhwatok.app.suggest import suggest_titles
 
     query = _query(tag, genre, sort, limit, min_tag_rank)
     settings = Settings()
     try:
         tools = _tools(settings)
         with container.build_store(settings) as store:
+            source = container.build_chapter_source(settings, store.cache) if chapters else None
             built = build_post(
-                query,
+                lambda: suggest_titles(
+                    query, container.build_metadata(settings), source, progress=_progress
+                ),
                 title,
+                None,
                 hashtags,
                 accent,
-                container.build_metadata(settings),
-                container.build_chapter_source(settings, store.cache) if chapters else None,
                 tools,
                 now=datetime.now(timezone.utc),
             )

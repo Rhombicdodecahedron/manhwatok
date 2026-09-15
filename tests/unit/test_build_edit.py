@@ -2,26 +2,73 @@ from datetime import datetime, timezone
 
 import pytest
 
-from manhwatok.app.build_post import build_post
+from manhwatok.app.build_post import build_post, create_post
 from manhwatok.app.edit_post import edit_post
-from manhwatok.domain.errors import DraftError, ManhwatokError
-from manhwatok.domain.models import SearchQuery
-from manhwatok.domain.post import MAX_ITEMS
-from tests.unit.fakes import FakeCovers, FakeMetadata, ScriptedEditor, make_tools, manhwa, post
+from manhwatok.domain.account import Account
+from manhwatok.domain.errors import DraftError, InvalidName, ManhwatokError
+from manhwatok.domain.post import (
+    DEFAULT_ACCENT,
+    DEFAULT_CTA_FOLLOW,
+    DEFAULT_CTA_TITLE,
+    DEFAULT_HASHTAGS,
+    MAX_ITEMS,
+    PostItem,
+)
+from tests.unit.fakes import FakeCovers, ScriptedEditor, make_tools, manhwa, post
 
 NOW = datetime(2026, 9, 14, 12, 0, tzinfo=timezone.utc)
-Q = SearchQuery(tags=["Revenge"])
 CANDIDATES = [
     manhwa(anilist_id=11, title="Doom Breaker", description="Sent back ten years. More."),
     manhwa(anilist_id=22, title="Kubera", description="Gods and more gods. More."),
 ]
+ACCOUNT = Account(
+    handle="reads",
+    hashtags="#reads",
+    accent="#ff00aa",
+    cta_title="Seen *these*?",
+    cta_follow="More tomorrow",
+)
+
+
+# --- create_post (pure) --------------------------------------------------------------------
+
+
+def _create(account=None, hashtags=None, accent=None):
+    items = [PostItem(manhwa=CANDIDATES[0], hook="h")]
+    return create_post("20260914-a3f9", NOW, CANDIDATES, "T", items, account, hashtags, accent)
+
+
+def test_create_post_without_account_uses_defaults():
+    p = _create()
+    assert (p.id, p.created_at, p.title, p.candidates) == ("20260914-a3f9", NOW, "T", CANDIDATES)
+    assert p.account is None
+    assert (p.hashtags, p.accent) == (DEFAULT_HASHTAGS, DEFAULT_ACCENT)
+    assert (p.cta_title, p.cta_follow) == (DEFAULT_CTA_TITLE, DEFAULT_CTA_FOLLOW)
+
+
+def test_create_post_takes_style_and_cta_from_the_account():
+    p = _create(ACCOUNT)
+    assert p.account == "reads"
+    assert (p.hashtags, p.accent) == ("#reads", "#ff00aa")
+    assert (p.cta_title, p.cta_follow) == ("Seen *these*?", "More tomorrow")
+
+
+def test_create_post_overrides_beat_the_account():
+    p = _create(ACCOUNT, hashtags="#once", accent="#ABCDEF")
+    assert (p.hashtags, p.accent) == ("#once", "#abcdef")
+    assert p.cta_title == "Seen *these*?"
+
+
+def test_create_post_rejects_a_bad_accent():
+    with pytest.raises(InvalidName, match="accent must look like #43c9e4"):
+        _create(accent="cyan")
 
 
 # --- build -------------------------------------------------------------------------------
 
 
-def _build(tools, title="MC *regresses*", accent="#43C9E4", results=CANDIDATES):
-    return build_post(Q, title, "#manhwa", accent, FakeMetadata(results), None, tools, now=NOW)
+def _build(tools, title="MC *regresses*", accent="#43C9E4", results=CANDIDATES, account=None):
+    return build_post(lambda: results, title, account, "#manhwa", accent, tools, now=NOW)
 
 
 def test_build_prefills_draft_saves_and_renders(tmp_path):
@@ -104,10 +151,38 @@ def test_build_no_matches(tmp_path):
 
 
 def test_build_rejects_bad_accent_before_searching(tmp_path):
+    searched = []
+
+    def find():
+        searched.append(True)
+        return CANDIDATES
+
     editor = ScriptedEditor(lambda text: text)
-    with pytest.raises(ManhwatokError, match="accent must look like #43c9e4"):
-        _build(make_tools(tmp_path, editor=editor), accent="cyan")
+    with pytest.raises(InvalidName, match="accent must look like #43c9e4"):
+        build_post(find, "T", None, None, "cyan", make_tools(tmp_path, editor=editor), now=NOW)
+    assert searched == []
     assert editor.shown == []
+
+
+def test_build_for_an_account(tmp_path):
+    tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: text))
+    built, _ = build_post(lambda: CANDIDATES, "T", ACCOUNT, None, None, tools, now=NOW)
+    assert built.account == "reads"
+    assert (built.hashtags, built.accent, built.cta_follow) == (
+        "#reads",
+        "#ff00aa",
+        "More tomorrow",
+    )
+    assert tools.posts.get(built.id) == built
+
+
+def test_build_bad_draft_for_an_account_keeps_the_account(tmp_path):
+    tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: "title: T\n"))
+    with pytest.raises(DraftError):
+        _build(tools, account=ACCOUNT)
+    [saved] = tools.posts.list()
+    assert saved.account == "reads"
+    assert saved.is_unfinished
 
 
 # --- edit --------------------------------------------------------------------------------
