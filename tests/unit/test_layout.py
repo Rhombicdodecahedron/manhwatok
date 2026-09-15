@@ -1,6 +1,6 @@
 import pytest
 
-from manhwatok.adapters.fonts import anton, inter_semibold
+from manhwatok.adapters.fonts import body, display
 from manhwatok.adapters.layout import (
     SAFE,
     Box,
@@ -33,7 +33,7 @@ def test_stack_up_ends_at_bottom_with_gaps():
 
 
 def test_wrap_respects_width_and_breaks_huge_words():
-    font = inter_semibold(40)
+    font = body(40)
     lines = wrap_words(plain_words("short words " * 10 + "x" * 80), font, 400)
     assert all(font.getlength(_line_text(line)) <= 400 for line in lines)
     assert "".join(_word_text(w) for line in lines for w in line).count("x") == 80
@@ -56,7 +56,7 @@ def test_words_of_merges_a_word_split_by_one_accent_run():
 
 def test_fitted_line_has_no_stray_space_before_punctuation():
     fitted = fit_words(
-        words_of(accent_spans("MC *regresses*, then *revenge*!")), anton, 900, 4, 124, 72
+        words_of(accent_spans("MC *regresses*, then *revenge*!")), display, 900, 4, 124, 72
     )
     text = " ".join(fitted.line_text(i) for i in range(len(fitted.lines)))
     assert " ," not in text
@@ -64,13 +64,13 @@ def test_fitted_line_has_no_stray_space_before_punctuation():
 
 
 def test_fit_shrinks_before_giving_up():
-    fitted = fit_words(plain_words(LONG_NAME.upper()), anton, 870, 2, 84, 56)
+    fitted = fit_words(plain_words(LONG_NAME.upper()), display, 870, 2, 84, 56)
     assert len(fitted.lines) <= 2
     assert fitted.font.size < 84
 
 
 def test_fit_ellipsizes_at_min_size():
-    fitted = fit_words(plain_words(LONG_HOOK), inter_semibold, 870, 3, 40, 32)
+    fitted = fit_words(plain_words(LONG_HOOK), body, 870, 3, 40, 32)
     assert fitted.font.size == 32
     assert len(fitted.lines) == 3
     assert fitted.line_text(2).endswith("…")
@@ -79,7 +79,7 @@ def test_fit_ellipsizes_at_min_size():
 
 def test_accent_flags_survive_wrapping():
     fitted = fit_words(
-        words_of(accent_spans("MC *REGRESSES* FOR *REVENGE*")), anton, 900, 4, 124, 72
+        words_of(accent_spans("MC *REGRESSES* FOR *REVENGE*")), display, 900, 4, 124, 72
     )
     flags = {}
     for line in fitted.lines:
@@ -140,3 +140,17 @@ def test_end_layout_uses_big_text_for_short_lists():
     layout = layout_end(["A", "B"])
     assert layout.rows[0].name.text.font.size == 44
     assert [r.number.text.line_text(0) for r in layout.rows] == ["1", "2"]
+
+
+def test_end_layout_shrinks_the_list_so_a_long_name_fits():
+    layout = layout_end(["I Became the Tyrant of a Defense Game", "Kubera"])
+    first = layout.rows[0].name.text
+    assert first.font.size < 44
+    assert "…" not in first.line_text(0)
+
+
+def test_end_layout_ellipsizes_huge_names_instead_of_shrinking_below_34():
+    layout = layout_end([LONG_NAME])
+    name = layout.rows[0].name.text
+    assert name.font.size == 34
+    assert name.line_text(0).endswith("…")

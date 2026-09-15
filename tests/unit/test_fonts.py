@@ -1,16 +1,23 @@
-from manhwatok.adapters.fonts import anton, inter, inter_extrabold, inter_semibold
+from importlib.resources import files
+
+from manhwatok.adapters.fonts import body, bold, display, montserrat
 
 
 def test_fonts_load_at_requested_size():
-    assert anton(84).size == 84
-    assert inter_semibold(40).size == 40
+    assert display(84).size == 84
+    assert body(40).size == 40
 
 
-def test_inter_weights_really_differ():
+def test_weights_really_differ():
     text = "Hello World"
-    assert inter_extrabold(40).getlength(text) > inter_semibold(40).getlength(text)
+    assert display(40).getlength(text) > bold(40).getlength(text) > body(40).getlength(text)
 
 
 def test_fonts_are_cached():
-    assert anton(84) is anton(84)
-    assert inter(40, 600) is inter_semibold(40)
+    assert display(84) is display(84)
+    assert montserrat(40, 600) is body(40)
+
+
+def test_only_montserrat_is_bundled():
+    bundled = {p.name for p in (files("manhwatok") / "assets" / "fonts").iterdir()}
+    assert bundled == {"Montserrat-Variable.ttf", "OFL-Montserrat.txt"}

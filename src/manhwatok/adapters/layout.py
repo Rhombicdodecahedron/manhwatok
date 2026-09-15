@@ -12,7 +12,7 @@ from typing import Callable
 
 from PIL.ImageFont import FreeTypeFont
 
-from manhwatok.adapters.fonts import anton, inter_extrabold, inter_semibold
+from manhwatok.adapters.fonts import body, bold, display
 from manhwatok.domain.text import accent_spans
 
 SLIDE_W, SLIDE_H = 1080, 1920
@@ -302,11 +302,11 @@ class ItemLayout:
 
 def layout_item(rank: int, name: str, pill_label: str, hook: str) -> ItemLayout:
     x = SAFE.x
-    rank_t = fit_words(plain_words(f"#{rank}"), anton, ITEM_TEXT_W, 1, 120, 120)
-    name_t = fit_words(plain_words(name.upper() or "?"), anton, ITEM_TEXT_W, 2, 84, 56, 1.04)
-    pill = make_pill(pill_label.upper(), inter_extrabold, 36, ITEM_TEXT_W, x)
+    rank_t = fit_words(plain_words(f"#{rank}"), display, ITEM_TEXT_W, 1, 96, 96)
+    name_t = fit_words(plain_words(name.upper() or "?"), display, ITEM_TEXT_W, 2, 62, 42, 1.08)
+    pill = make_pill(pill_label.upper(), bold, 32, ITEM_TEXT_W, x)
     hook_t = (
-        fit_words(plain_words(hook), inter_semibold, ITEM_TEXT_W, 3, 40, 32, 1.32)
+        fit_words(plain_words(hook), body, ITEM_TEXT_W, 3, 36, 28, 1.34)
         if hook.strip()
         else None
     )
@@ -340,8 +340,8 @@ class CoverLayout:
 
 def layout_cover(title: str, count: int) -> CoverLayout:
     x, w = SAFE.x, SAFE.w
-    kicker = make_pill(f"{count} PICKS", inter_extrabold, 36, w, x)
-    title_t = fit_words(words_of(accent_spans(title.upper())), anton, w, 4, 124, 72, 1.02)
+    kicker = make_pill(f"{count} PICKS", bold, 32, w, x)
+    title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 92, 56, 1.06)
     tops = stack_up([kicker.box.h, title_t.height, BAR_H], SAFE.bottom)
     seg_w = (w - BAR_GAP * (count - 1)) / max(count, 1)
     bar = [
@@ -353,8 +353,10 @@ def layout_cover(title: str, count: int) -> CoverLayout:
 
 # --- end slide ----------------------------------------------------------------------------
 
-LIST_X, LIST_RIGHT, LIST_BOTTOM = 160, 920, 1460
+LIST_X, LIST_RIGHT, LIST_BOTTOM = 130, 960, 1460
 FOLLOW_BOTTOM = 1560
+LIST_MAX, LIST_MIN, LIST_SHRINK_FLOOR = 44, 28, 34  # recap text sizes
+ROW_PITCH = 1.9  # row height / text size
 
 
 @dataclass(frozen=True)
@@ -376,35 +378,47 @@ class EndLayout:
         return boxes
 
 
+def _num_col(size: int, count: int) -> int:
+    """Width of the rank-number column: the widest number plus a gap."""
+    return math.ceil(display(size).getlength(str(count))) + 24
+
+
+def _list_size(names: list[str], avail: int) -> int:
+    """Largest recap size whose rows fit `avail` and whose longest name fits one line; below
+    LIST_SHRINK_FLOOR names are ellipsized instead of shrinking the whole list further."""
+    for s in range(LIST_MAX, LIST_MIN - 1, -2):
+        if round(s * ROW_PITCH) * len(names) > avail:
+            continue
+        widest = max((body(s).getlength(n) for n in names), default=0)
+        if s <= LIST_SHRINK_FLOOR or widest <= LIST_RIGHT - LIST_X - _num_col(s, len(names)):
+            return s
+    return LIST_MIN
+
+
 def layout_end(names: list[str]) -> EndLayout:
     x, w = SAFE.x, SAFE.w
-    title_t = fit_words(words_of(accent_spans(END_TITLE.upper())), anton, w, 3, 136, 96, 1.02)
+    title_t = fit_words(words_of(accent_spans(END_TITLE.upper())), display, w, 3, 100, 68, 1.06)
     title = Placed(title_t, x, 480, w, "center")
-    follow_t = fit_words(plain_words(FOLLOW.upper()), inter_extrabold, w, 1, 48, 48)
+    follow_t = fit_words(plain_words(FOLLOW.upper()), bold, w, 1, 44, 44)
     follow = Placed(follow_t, x, FOLLOW_BOTTOM - follow_t.height, w, "center")
 
     top = title.box.bottom + 40
     avail = LIST_BOTTOM - top
-    size = 28
-    for s in range(44, 27, -2):
-        if round(s * 1.9) * len(names) <= avail:
-            size = s
-            break
-    pitch = round(size * 1.9)
+    size = _list_size(names, avail)
+    pitch = round(size * ROW_PITCH)
     max_rows = max(1, avail // pitch)
     shown: list[tuple[str | None, str]] = [(str(i), n) for i, n in enumerate(names, 1)]
     if len(shown) > max_rows:
         rest = len(shown) - (max_rows - 1)
         shown = shown[: max_rows - 1] + [(None, f"+{rest} more")]
 
-    num_font = anton(size)
-    num_col = math.ceil(num_font.getlength(str(len(names)))) + 24
+    num_col = _num_col(size, len(names))
     name_w = LIST_RIGHT - LIST_X - num_col
     rows: list[EndRow] = []
     for i, (num, name) in enumerate(shown):
-        name_t = fit_words(plain_words(name), inter_semibold, name_w, 1, size, size)
-        num_t = fit_words(plain_words(num), anton, num_col, 1, size, size) if num else None
-        # shared baseline so the Anton number and Inter name sit on one line
+        name_t = fit_words(plain_words(name), body, name_w, 1, size, size)
+        num_t = fit_words(plain_words(num), display, num_col, 1, size, size) if num else None
+        # shared baseline so the Black-weight number and the name sit on one line
         ascent = max(-name_t.ink_top, -(num_t.ink_top if num_t else 0))
         baseline = top + i * pitch + ascent
         rows.append(
