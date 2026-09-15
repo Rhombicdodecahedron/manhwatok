@@ -329,12 +329,16 @@ def delete(
 ) -> None:
     """Delete a post's folder. An exported post's titles still count as posted."""
     from manhwatok.app import container
-    from manhwatok.app.delete_post import delete_post
+    from manhwatok.app.delete_post import delete_post, leftover_state
+    from manhwatok.domain.errors import PostNotFound
 
     try:
         repo = container.build_posts(Settings())
-        post = repo.get(post_id)
-        size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
+        try:
+            post = repo.get(post_id)
+            size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
+        except PostNotFound:
+            size = leftover_state(post_id, repo)  # an empty or broken folder can still go
         if not yes and not typer.confirm(f"Delete post {post_id} ({size})?", default=False):
             typer.echo("kept")
             return

@@ -372,11 +372,39 @@ def test_delete_yes_skips_the_question(wire):
     assert not repo.folder("20260914-a3f9").exists()
 
 
+def test_delete_an_empty_leftover_folder(wire):
+    """A build that died right after reserving its id leaves a folder with no post in it."""
+    repo, _ = wire()
+    leftover = repo.new_id(datetime(2026, 9, 14).date())
+    result = runner.invoke(app, ["delete", leftover], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert f"Delete post {leftover} (empty)? [y/N]" in result.output
+    assert repo.folder(leftover).is_dir()
+
+    result = runner.invoke(app, ["delete", leftover, "--yes"])
+    assert result.exit_code == 0, result.output
+    assert f"deleted post {leftover}" in result.output
+    assert not repo.folder(leftover).exists()
+
+
+def test_delete_an_unreadable_post(wire):
+    repo, _ = wire()
+    repo.folder("20260914-a3f9").mkdir(parents=True)
+    (repo.folder("20260914-a3f9") / "post.json").write_text("{not json")
+    result = runner.invoke(app, ["delete", "20260914-a3f9"], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert "Delete post 20260914-a3f9 (unreadable)? [y/N]" in result.output
+    assert not repo.folder("20260914-a3f9").exists()
+
+
 def test_delete_unknown_post(wire):
     wire()
     result = runner.invoke(app, ["delete", "20260914-ffff", "--yes"])
     assert result.exit_code == 1
     assert "error: no post 20260914-ffff" in result.output
+    result = runner.invoke(app, ["delete", "../etc", "--yes"])
+    assert result.exit_code == 1
+    assert "error: '../etc' is not a post id" in result.output
 
 
 def test_help_lists_delete():

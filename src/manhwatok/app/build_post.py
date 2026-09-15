@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from manhwatok.app.delete_post import delete_post
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_post
 from manhwatok.domain.account import Account
@@ -23,6 +24,7 @@ from manhwatok.domain.post import (
     PostItem,
 )
 from manhwatok.domain.text import first_sentence
+from manhwatok.ports.posts import PostRepository
 
 
 def check_accent(accent: str) -> str:
@@ -88,9 +90,23 @@ def build_post(
     try:
         title, items = parse_draft(edited, candidates)
     except DraftError as e:
-        tools.posts.save(create_post(post_id, now, candidates, "", [], account, hashtags, accent))
+        draft = create_post(post_id, now, candidates, "", [], account, hashtags, accent)
+        _save_new(draft, tools.posts)
         tools.posts.save_draft(post_id, edited)
         raise DraftError(f"{e} — your draft is saved; fix with: manhwatok edit {post_id}") from e
     post = create_post(post_id, now, candidates, title, items, account, hashtags, accent)
-    tools.posts.save(post)
+    _save_new(post, tools.posts)
     return post, render_post(post.id, tools)
+
+
+def _save_new(post: ListPost, posts: PostRepository) -> None:
+    """Save a post into the folder `new_id` just reserved. If that fails, remove the folder
+    (best effort) so it doesn't linger as a leftover `posts` can't show."""
+    try:
+        posts.save(post)
+    except BaseException:
+        try:
+            delete_post(post.id, posts)
+        except ManhwatokError:
+            pass
+        raise

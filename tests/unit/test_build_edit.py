@@ -5,7 +5,7 @@ import pytest
 from manhwatok.app.build_post import build_post, create_post
 from manhwatok.app.edit_post import edit_post
 from manhwatok.domain.account import Account
-from manhwatok.domain.errors import DraftError, InvalidName, ManhwatokError
+from manhwatok.domain.errors import DraftError, InvalidName, ManhwatokError, StorageError
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
@@ -183,6 +183,21 @@ def test_build_bad_draft_for_an_account_keeps_the_account(tmp_path):
     [saved] = tools.posts.list()
     assert saved.account == "reads"
     assert saved.is_unfinished
+
+
+@pytest.mark.parametrize(
+    "draft", ["title: T\n11 | Doom Breaker | h\n", "title: T\n999 | bad | x\n"], ids=["ok", "bad"]
+)
+def test_build_gives_back_its_reserved_folder_when_saving_fails(tmp_path, monkeypatch, draft):
+    tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: draft))
+
+    def disk_full(post):
+        raise StorageError(f"could not save post {post.id}: disk full")
+
+    monkeypatch.setattr(tools.posts, "save", disk_full)
+    with pytest.raises(StorageError, match="disk full"):
+        _build(tools)
+    assert list((tmp_path / "posts").iterdir()) == []
 
 
 # --- edit --------------------------------------------------------------------------------
