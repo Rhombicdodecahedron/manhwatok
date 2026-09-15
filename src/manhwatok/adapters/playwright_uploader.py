@@ -15,7 +15,12 @@ import time
 from pathlib import Path
 
 from manhwatok.adapters.tiktok_page import TikTokPage
-from manhwatok.domain.errors import ManhwatokError, StorageError, UploadUnavailable
+from manhwatok.domain.errors import (
+    ManhwatokError,
+    NotLoggedIn,
+    StorageError,
+    UploadUnavailable,
+)
 from manhwatok.ports.uploader import UploadReport
 
 INSTALL_HINT = "upload needs: uv sync --extra upload && uv run playwright install chromium"
@@ -70,7 +75,7 @@ class PlaywrightUploader:
         problems: list[str] = []
         try:
             self._goto(page, self._page.upload_url)
-            file_input = self._upload_input(page)
+            file_input = self._upload_input(page, handle)
             if file_input is None:
                 problems.append("upload button not found — drag the slides in yourself")
             else:
@@ -172,9 +177,17 @@ class PlaywrightUploader:
                 return None
             page.wait_for_timeout(POLL_MS)
 
-    def _upload_input(self, page):
-        """The upload page's file input, or None if it doesn't show up in time."""
-        return self._find(page, [self._page.file_input], self._page.page_timeout, visible=False)
+    def _upload_input(self, page, handle: str):
+        """The upload page's file input, or None if it doesn't show up in time. Raises
+        NotLoggedIn when TikTok sends the browser to its login page instead."""
+        deadline = time.monotonic() + self._page.page_timeout
+        while True:
+            if self._page.login_url_marker in page.url:
+                raise NotLoggedIn(f"@{handle} is not logged in — run: manhwatok login @{handle}")
+            found = self._find(page, [self._page.file_input], 0, visible=False)
+            if found is not None or time.monotonic() >= deadline:
+                return found
+            page.wait_for_timeout(POLL_MS)
 
     def _attach(self, page, file_input, slides: list[Path]) -> str | None:
         """None once the slides are attached (in order), else what went wrong."""

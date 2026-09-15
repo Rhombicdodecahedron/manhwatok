@@ -12,6 +12,7 @@ import pytest
 
 from manhwatok.adapters.playwright_uploader import PlaywrightUploader
 from manhwatok.adapters.tiktok_page import TikTokPage
+from manhwatok.domain.errors import NotLoggedIn
 from manhwatok.ports.uploader import UploadReport
 
 sync_api = pytest.importorskip(
@@ -34,7 +35,18 @@ def _chromium():
         pytest.skip(f"needs Chromium: uv run playwright install chromium ({first})")
 
 
-class _QuietHandler(SimpleHTTPRequestHandler):
+class _Site(SimpleHTTPRequestHandler):
+    """Serves tests/fixtures. Like TikTok, it sends a browser without a session cookie from
+    a `?needs-session` page to the login page."""
+
+    def do_GET(self):
+        if "needs-session" in self.path and "session=yes" not in self.headers.get("Cookie", ""):
+            self.send_response(302)
+            self.send_header("Location", "/login.html?redirect_url=/fake_upload.html")
+            self.end_headers()
+            return
+        super().do_GET()
+
     def log_message(self, format, *args):
         pass
 
@@ -42,7 +54,7 @@ class _QuietHandler(SimpleHTTPRequestHandler):
 @pytest.fixture(scope="module")
 def site():
     """tests/fixtures over http://127.0.0.1:<free port>."""
-    handler = functools.partial(_QuietHandler, directory=str(FIXTURES))
+    handler = functools.partial(_Site, directory=str(FIXTURES))
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever)
     thread.start()
@@ -52,12 +64,14 @@ def site():
     thread.join()
 
 
-def _uploader(tmp_path, site, upload="fake_upload.html", **page_fields) -> PlaywrightUploader:
+def _uploader(
+    tmp_path, site, upload="fake_upload.html", cls=PlaywrightUploader, **page_fields
+) -> PlaywrightUploader:
     fields = {"page_timeout": 5, "editor_timeout": 0.6, "caption_timeout": 0.3, **page_fields}
     page = TikTokPage(
         login_url=f"{site}/login.html?log-in", upload_url=f"{site}/{upload}", **fields
     )
-    return PlaywrightUploader(
+    return cls(
         tmp_path / "browser",
         tmp_path / "debug",
         page,
@@ -139,3 +153,43 @@ def test_a_page_without_a_file_input_is_a_problem(tmp_path, site):
             "caption not typed — paste caption.txt yourself",
         ],
     )
+
+
+def test_not_logged_in_says_how_to_log_in_and_closes_the_browser(tmp_path, site):
+    uploader = _uploader(tmp_path, site, "fake_upload.html?needs-session")
+    try:
+        with pytest.raises(NotLoggedIn) as e:
+            uploader.upload("reads", _slides(tmp_path), CAPTION, debug=False)
+        assert uploader._context is None  # already closed
+    finally:
+        uploader.close()
+    assert str(e.value) == "@reads is not logged in — run: manhwatok login @reads"
+
+
+class _UserClosesTheWindow(PlaywrightUploader):
+    """login() waits for the user to close the window; this "user" closes it right away,
+    after noting which page it showed."""
+
+    def _wait_until_closed(self):
+        window = self._context.pages[0]
+        self.shown = window.url
+        window.close()
+        super()._wait_until_closed()
+
+
+def test_a_login_is_kept_in_the_accounts_own_profile(tmp_path, site):
+    login = _uploader(tmp_path, site, cls=_UserClosesTheWindow)
+    try:
+        login.login("reads")
+    finally:
+        login.close()
+    assert login.shown == f"{site}/login.html?log-in"
+
+    uploader = _uploader(tmp_path, site, "fake_upload.html?needs-session")
+    try:
+        report = uploader.upload("reads", _slides(tmp_path), CAPTION, debug=False)
+        assert (report.attached, report.captioned) == (True, True)
+        with pytest.raises(NotLoggedIn):  # another account: its own profile, never logged in
+            uploader.upload("other", _slides(tmp_path / "other"), CAPTION, debug=False)
+    finally:
+        uploader.close()

@@ -1,0 +1,14 @@
+<!doctype html>
+<!-- Stands in for TikTok's login page in tests/browser. Opening it with ?log-in stands for the
+     user logging in by hand: it leaves a session cookie in this browser profile. -->
+<html lang="en">
+<head><meta charset="utf-8"><title>Log in</title></head>
+<body>
+  <h1>Log in</h1>
+  <script>
+    if (new URLSearchParams(location.search).has("log-in")) {
+      document.cookie = "session=yes; max-age=86400; path=/";
+    }
+  </script>
+</body>
+</html>
