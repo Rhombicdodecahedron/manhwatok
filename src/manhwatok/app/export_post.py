@@ -8,8 +8,8 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from manhwatok.app.render_post import CAPTION_FILE, unfinished_error
-from manhwatok.domain.errors import NotRendered, StorageError
+from manhwatok.app.render_post import rendered_files, unfinished_error
+from manhwatok.domain.errors import StorageError
 from manhwatok.ports.posts import PostRepository
 from manhwatok.ports.store import HistoryRepository
 
@@ -24,13 +24,7 @@ def export_post(
     post = posts.get(post_id)
     if post.is_unfinished:
         raise unfinished_error(post_id)
-    folder = posts.folder(post_id)
-    slides = sorted(folder.glob("[0-9][0-9].png"))
-    caption = folder / CAPTION_FILE
-    if len(slides) != post.slide_count or not caption.is_file():
-        raise NotRendered(
-            f"post {post_id} has no up-to-date slides — run: manhwatok render {post_id}"
-        )
+    slides, caption = rendered_files(post, posts)
     dest = dest_root / post_id
     try:
         dest.mkdir(parents=True, exist_ok=True)

@@ -174,3 +174,33 @@ class FakeHistory:
         self, account: str, post_id: str, anilist_ids: list[int], exported_at: datetime
     ) -> None:
         self.records.append((account, post_id, list(anilist_ids), exported_at))
+
+
+class FakeUploader:
+    """Stands in for the browser. Records every call in `events` (login/upload/close);
+    `upload()` returns `report`; `login()` and `upload()` raise `error` if one is given."""
+
+    def __init__(self, report=None, error: Exception | None = None):
+        from manhwatok.ports.uploader import UploadReport
+
+        self.report = report or UploadReport(attached=True, captioned=True, problems=[])
+        self.error = error
+        self.events: list[str] = []
+        self.logins: list[str] = []
+        self.uploads: list[tuple[str, list[Path], str, bool]] = []
+
+    def login(self, handle: str) -> None:
+        self.events.append("login")
+        self.logins.append(handle)
+        if self.error:
+            raise self.error
+
+    def upload(self, handle: str, slides: list[Path], caption: str, debug: bool):
+        self.events.append("upload")
+        self.uploads.append((handle, list(slides), caption, debug))
+        if self.error:
+            raise self.error
+        return self.report
+
+    def close(self) -> None:
+        self.events.append("close")
