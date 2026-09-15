@@ -136,3 +136,16 @@ manhwatok delete <id> [--yes]
 
 ## Out of scope for 3a
 TUI (3b), uploading (Phase 4), LLM hooks, per-account fonts, AniList search-response caching.
+
+## Plan-time adjustments (from prototyping; details in `plans/2026-09-14-phase3a-accounts.md` → "Deviations from the spec")
+- `SqliteStore` exposes table objects `store.cache`, `store.accounts`, `store.themes`, `store.history`
+  (port method names collide); `build_chapter_source(settings, cache)` takes `store.cache`.
+- Store open/migration failures are `StorageError`; a database with a newer schema version is refused.
+- `build_post(find_candidates, title, account, hashtags, accent, tools, now)` takes a search callable.
+- Non-name validation errors (repeat days, empty CTA text, theme without tag/genre or title, tag rank)
+  are plain `ManhwatokError`; theme names are lowercased; genre/tag names saved in AniList spelling.
+- `--sort`/`--min-tag-rank` default to "not given" so they can override a theme's values.
+- Name checks only when a list is given; one AniList failure → one warning, no further lookups.
+- Suggestions report skipped repeats; `delete` shows "(draft)" for unfinished posts.
+- Layout: recap names shrink 44→34 to fit and span x 130–960; the follow line may wrap to 2 lines;
+  a single-item cover says "1 PICK".
