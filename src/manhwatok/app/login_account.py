@@ -32,7 +32,7 @@ def _validate_profile_path(browser_dir: Path, name: str) -> Path:
         raise InvalidName(f"invalid profile folder name: {name!r}")
     path = browser_dir / name
     if path.resolve().parent != browser_dir.resolve():
-        raise InvalidName(f"profile path would escape the browser directory")
+        raise InvalidName("profile path would escape the browser directory")
     return path
 
 
@@ -43,9 +43,12 @@ def saved_login(browser_dir: Path, handle: str) -> Path | None:
     return folder if folder.is_dir() else None
 
 
-def forget_login(folder: Path) -> None:
-    if folder.name in (".", ".."):
-        raise InvalidName(f"invalid profile folder name: {folder.name!r}")
+def forget_login(browser_dir: Path, handle: str) -> None:
+    """Delete the account's saved browser profile, if it exists."""
+    name = normalize_handle(handle)
+    folder = _validate_profile_path(browser_dir, name)
+    if not folder.exists():
+        return
     try:
         shutil.rmtree(folder)
     except OSError as e:

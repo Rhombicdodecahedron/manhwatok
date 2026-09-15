@@ -48,22 +48,26 @@ def test_saved_login_is_the_accounts_profile_folder(tmp_path):
 
 
 def test_forget_login_deletes_the_folder(tmp_path):
-    folder = tmp_path / "reads"
+    browser_dir = tmp_path / "browsers"
+    browser_dir.mkdir()
+    folder = browser_dir / "reads"
     (folder / "Default").mkdir(parents=True)
     (folder / "Default" / "Cookies").write_bytes(b"x")
-    forget_login(folder)
+    forget_login(browser_dir, "reads")
     assert not folder.exists()
 
 
 def test_forget_login_failure_is_a_storage_error(tmp_path, monkeypatch):
-    (tmp_path / "reads").mkdir()
+    browser_dir = tmp_path / "browsers"
+    browser_dir.mkdir()
+    (browser_dir / "reads").mkdir()
 
     def boom(path):
         raise OSError("busy")
 
     monkeypatch.setattr("manhwatok.app.login_account.shutil.rmtree", boom)
     with pytest.raises(StorageError, match="could not delete the saved login"):
-        forget_login(tmp_path / "reads")
+        forget_login(browser_dir, "reads")
 
 
 def test_saved_login_and_forget_reject_paths_outside_browser_dir(tmp_path, monkeypatch):
@@ -80,10 +84,31 @@ def test_saved_login_and_forget_reject_paths_outside_browser_dir(tmp_path, monke
     with pytest.raises(InvalidName):
         saved_login(browser_dir, "@anything")
 
-    # forget_login should reject the path
+    # forget_login should reject the path with new signature
     with pytest.raises(InvalidName):
-        forget_login(browser_dir / "..")
+        forget_login(browser_dir, "@anything")
 
     # Verify the sentinel and parent directory still exist
     assert sentinel.exists()
     assert tmp_path.exists()
+
+
+def test_forget_login_cannot_delete_sibling_directories(tmp_path, monkeypatch):
+    # Create a sibling directory to protect
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    (sibling / "data.txt").write_text("important")
+
+    browser_dir = tmp_path / "browsers"
+    browser_dir.mkdir()
+
+    # Monkeypatch normalize_handle to return "../sibling" to try to escape
+    monkeypatch.setattr("manhwatok.app.login_account.normalize_handle", lambda h: "../sibling")
+
+    # forget_login should reject the path
+    with pytest.raises(InvalidName):
+        forget_login(browser_dir, "@attacker")
+
+    # Verify sibling directory and its contents still exist
+    assert sibling.exists()
+    assert (sibling / "data.txt").read_text() == "important"
