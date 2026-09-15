@@ -4,6 +4,7 @@ Skipped unless the upload extra and its Chromium are installed:
     uv sync --extra upload && uv run playwright install chromium"""
 
 import functools
+import re
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -193,3 +194,16 @@ def test_a_login_is_kept_in_the_accounts_own_profile(tmp_path, site):
             uploader.upload("other", _slides(tmp_path / "other"), CAPTION, debug=False)
     finally:
         uploader.close()
+
+
+def test_debug_saves_a_screenshot_and_the_page_when_something_is_missing(tmp_path, site):
+    uploader = _uploader(tmp_path, site, "fake_upload.html?no-caption")
+    try:
+        report = uploader.upload("reads", _slides(tmp_path), CAPTION, debug=True)
+    finally:
+        uploader.close()
+    [folder] = (tmp_path / "debug").iterdir()
+    assert report.debug_dir == folder
+    assert re.fullmatch(r"20260914-a3f9-\d{8}-\d{6}", folder.name)  # <post id>-<local time>
+    assert (folder / "screenshot.png").read_bytes().startswith(b"\x89PNG")
+    assert 'data-e2e="post_video_button"' in (folder / "page.html").read_text()

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import random
 import time
+from datetime import datetime
 from pathlib import Path
 
 from manhwatok.adapters.tiktok_page import TikTokPage
@@ -104,7 +105,10 @@ class PlaywrightUploader:
                     problems.append("caption box not found — paste caption.txt yourself")
         except self._error as e:  # e.g. the user closed the window while the caption was typed
             problems.append(f"the browser stopped: {_first_line(e)}")
-        return UploadReport(attached=attached, captioned=captioned, problems=problems)
+        report = UploadReport(attached=attached, captioned=captioned, problems=problems)
+        if debug and problems:
+            report.debug_dir = self._save_debug(page, slides, problems)
+        return report
 
     def close(self) -> None:
         context, playwright = self._context, self._playwright
@@ -213,6 +217,20 @@ class PlaywrightUploader:
             if high > 0:
                 page.wait_for_timeout(random.uniform(low, high))
         return True
+
+    def _save_debug(self, page, slides: list[Path], problems: list[str]) -> Path | None:
+        """screenshot.png and page.html in <debug_dir>/<post id>-<time>/ (the slides' folder is
+        named after the post). Failing to save them is one more problem, not an error."""
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        folder = self._debug_dir / f"{slides[0].parent.name}-{stamp}"
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            page.screenshot(path=folder / "screenshot.png", full_page=True)
+            (folder / "page.html").write_text(page.content(), encoding="utf-8")
+        except (OSError, self._error) as e:
+            problems.append(f"couldn't save the debug files: {_first_line(e)}")
+            return None
+        return folder
 
     def _wait_until_closed(self) -> None:
         """Block until the user has closed every tab, or the whole browser."""
