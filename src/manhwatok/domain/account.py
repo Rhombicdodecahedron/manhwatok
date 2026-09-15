@@ -1,0 +1,77 @@
+"""A TikTok account the tool posts for: its genre filters, hashtags, accent and end-slide texts."""
+
+from __future__ import annotations
+
+import re
+
+from pydantic import BaseModel, Field, field_validator
+
+from manhwatok.domain.color import is_hex_color
+from manhwatok.domain.errors import InvalidName, ManhwatokError
+from manhwatok.domain.post import (
+    DEFAULT_ACCENT,
+    DEFAULT_CTA_FOLLOW,
+    DEFAULT_CTA_TITLE,
+    DEFAULT_HASHTAGS,
+)
+from manhwatok.domain.text import clean_names
+
+DEFAULT_REPEAT_DAYS = 30
+MAX_REPEAT_DAYS = 3650
+_HANDLE = re.compile(r"[a-z0-9._]{2,24}")
+
+
+def normalize_handle(raw: str) -> str:
+    """'@Manhwa.Daily' -> 'manhwa.daily'. Raises InvalidName unless 2–24 of a-z 0-9 . _"""
+    handle = raw.strip().lower().removeprefix("@")
+    if not _HANDLE.fullmatch(handle):
+        raise InvalidName(f"{raw!r} is not a TikTok handle — use 2–24 letters, digits, '.' or '_'")
+    return handle
+
+
+class Account(BaseModel):
+    # Validators raise ManhwatokError subclasses, which pydantic lets propagate unchanged.
+    handle: str  # stored lowercase without "@"
+    genres: list[str] = Field(default_factory=list)  # allow-list: a title needs at least one
+    block_genres: list[str] = Field(default_factory=list)
+    block_tags: list[str] = Field(default_factory=list)
+    hashtags: str = DEFAULT_HASHTAGS
+    accent: str = DEFAULT_ACCENT
+    cta_title: str = DEFAULT_CTA_TITLE
+    cta_follow: str = DEFAULT_CTA_FOLLOW
+    repeat_days: int = DEFAULT_REPEAT_DAYS
+
+    @field_validator("handle")
+    @classmethod
+    def _handle(cls, value: str) -> str:
+        return normalize_handle(value)
+
+    @field_validator("genres", "block_genres", "block_tags")
+    @classmethod
+    def _names(cls, value: list[str]) -> list[str]:
+        return clean_names(value)
+
+    @field_validator("accent")
+    @classmethod
+    def _accent(cls, value: str) -> str:
+        if not is_hex_color(value):
+            raise InvalidName(f"accent must look like #43c9e4, got {value!r}")
+        return value.lower()
+
+    @field_validator("cta_title", "cta_follow")
+    @classmethod
+    def _cta(cls, value: str) -> str:
+        if not value.strip():
+            raise ManhwatokError("end-slide texts can't be empty")
+        return value.strip()
+
+    @field_validator("repeat_days")
+    @classmethod
+    def _repeat_days(cls, value: int) -> int:
+        if not 1 <= value <= MAX_REPEAT_DAYS:
+            raise ManhwatokError(f"repeat days must be 1–{MAX_REPEAT_DAYS}, got {value}")
+        return value
+
+    @property
+    def display(self) -> str:
+        return f"@{self.handle}"

@@ -1,6 +1,12 @@
 import pytest
 
-from manhwatok.domain.text import accent_spans, first_sentence, plain_title
+from manhwatok.domain.text import (
+    accent_spans,
+    clean_names,
+    first_sentence,
+    plain_title,
+    split_names,
+)
 
 
 @pytest.mark.parametrize(
@@ -47,3 +53,12 @@ def test_accent_spans_keeps_a_lone_star_literal():
 
 def test_plain_title_drops_markers():
     assert plain_title("MC *regresses* for *revenge*") == "MC regresses for revenge"
+
+
+def test_split_names_trims_and_drops_empties():
+    assert split_names(" Action, Fantasy,,Martial Arts ") == ["Action", "Fantasy", "Martial Arts"]
+    assert split_names("") == []
+
+
+def test_clean_names_dedupes_keeping_order():
+    assert clean_names(["B", " A", "B ", ""]) == ["B", "A"]

@@ -39,3 +39,13 @@ def accent_spans(title: str) -> list[tuple[str, bool]]:
 
 def plain_title(title: str) -> str:
     return "".join(text for text, _ in accent_spans(title))
+
+
+def clean_names(names: list[str]) -> list[str]:
+    """Trim genre/tag names, drop blanks and duplicates (first one wins)."""
+    return list(dict.fromkeys(n.strip() for n in names if n.strip()))
+
+
+def split_names(raw: str) -> list[str]:
+    """'Action, Fantasy,,' -> ['Action', 'Fantasy']; '' -> [] (used to clear a list)."""
+    return clean_names(raw.split(","))

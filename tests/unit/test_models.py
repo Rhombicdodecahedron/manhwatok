@@ -23,3 +23,8 @@ def test_search_query_defaults():
 def test_search_query_limit_bounds(limit):
     with pytest.raises(ValidationError):
         SearchQuery(limit=limit)
+
+
+def test_search_query_exclusions_default_empty():
+    q = SearchQuery(genres=["Action"])
+    assert (q.exclude_genres, q.exclude_tags) == ([], [])

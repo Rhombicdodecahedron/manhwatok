@@ -50,6 +50,8 @@ class SearchQuery(BaseModel):
     sort: Sort = Sort.SCORE
     limit: int = Field(default=12, ge=1, le=50)
     min_tag_rank: int = Field(default=60, ge=0, le=100)
+    exclude_genres: list[str] = Field(default_factory=list)  # AniList genre_not_in
+    exclude_tags: list[str] = Field(default_factory=list)  # AniList tag_not_in
 
 
 class TagInfo(BaseModel):
