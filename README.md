@@ -109,6 +109,16 @@ uv run manhwatok posts --account @manhwa.daily
 - `account remove` keeps the account's posting history, so re-adding the handle keeps its repeat
   protection. `--cta-title` / `--cta-follow` set the end slide's texts (`*word*` = accent colour).
 
+## Upgrading from earlier versions
+
+- The database upgrades itself the first time you run any command; cached chapter counts are
+  kept.
+- Existing posts show `-` in the `posts` account column and don't count toward any account's
+  repeat history.
+- Re-rendering an old post (`render`, `edit`) uses the new Montserrat style.
+- A post keeps the end-slide texts it was built with: a later `account set --cta-title` /
+  `--cta-follow` doesn't change existing posts.
+
 ## Tests
 
 ```bash
