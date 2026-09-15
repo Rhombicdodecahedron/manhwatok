@@ -156,3 +156,21 @@ class Clock:
 
     def __call__(self) -> float:
         return self.now
+
+
+class FakeHistory:
+    """In-memory HistoryRepository: `recent()` returns `recent_ids` and records its calls."""
+
+    def __init__(self, recent_ids=()):
+        self.recent_ids = set(recent_ids)
+        self.calls: list[tuple[str, datetime]] = []
+        self.records: list[tuple[str, str, list[int], datetime]] = []
+
+    def recent(self, account: str, since: datetime) -> set[int]:
+        self.calls.append((account, since))
+        return set(self.recent_ids)
+
+    def record(
+        self, account: str, post_id: str, anilist_ids: list[int], exported_at: datetime
+    ) -> None:
+        self.records.append((account, post_id, list(anilist_ids), exported_at))
