@@ -31,6 +31,12 @@ def test_bad_handles_raise_invalid_name(raw):
         normalize_handle(raw)
 
 
+@pytest.mark.parametrize("raw", ["..", "._", "__", "...."])
+def test_handles_need_a_letter_or_digit(raw):
+    with pytest.raises(InvalidName, match="not a TikTok handle"):
+        normalize_handle(raw)
+
+
 def test_defaults():
     a = Account(handle="@Reads")
     assert a.handle == "reads"

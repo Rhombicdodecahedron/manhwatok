@@ -22,10 +22,12 @@ _HANDLE = re.compile(r"[a-z0-9._]{2,24}")
 
 
 def normalize_handle(raw: str) -> str:
-    """'@Manhwa.Daily' -> 'manhwa.daily'. Raises InvalidName unless 2–24 of a-z 0-9 . _"""
+    """'@Manhwa.Daily' -> 'manhwa.daily'. Raises InvalidName unless 2–24 of a-z 0-9 . _, with at least one letter or digit"""
     handle = raw.strip().lower().removeprefix("@")
     if not _HANDLE.fullmatch(handle):
         raise InvalidName(f"{raw!r} is not a TikTok handle — use 2–24 letters, digits, '.' or '_'")
+    if not any(c in handle for c in "abcdefghijklmnopqrstuvwxyz0123456789"):
+        raise InvalidName(f"{raw!r} is not a TikTok handle — use 2–24 letters, digits, '.' or '_', and at least one letter or digit")
     return handle
 
 

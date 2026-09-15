@@ -64,3 +64,26 @@ def test_forget_login_failure_is_a_storage_error(tmp_path, monkeypatch):
     monkeypatch.setattr("manhwatok.app.login_account.shutil.rmtree", boom)
     with pytest.raises(StorageError, match="could not delete the saved login"):
         forget_login(tmp_path / "reads")
+
+
+def test_saved_login_and_forget_reject_paths_outside_browser_dir(tmp_path, monkeypatch):
+    # Create a sentinel file in the parent directory
+    sentinel = tmp_path / "sentinel.txt"
+    sentinel.write_text("data")
+    browser_dir = tmp_path / "browsers"
+    browser_dir.mkdir()
+
+    # Monkeypatch normalize_handle to return ".." so the path would escape
+    monkeypatch.setattr("manhwatok.app.login_account.normalize_handle", lambda h: "..")
+
+    # saved_login should reject the path
+    with pytest.raises(InvalidName):
+        saved_login(browser_dir, "@anything")
+
+    # forget_login should reject the path
+    with pytest.raises(InvalidName):
+        forget_login(browser_dir / "..")
+
+    # Verify the sentinel and parent directory still exist
+    assert sentinel.exists()
+    assert tmp_path.exists()

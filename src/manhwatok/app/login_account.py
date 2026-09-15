@@ -8,7 +8,7 @@ from pathlib import Path
 
 from manhwatok.app.post_tools import ProgressFn
 from manhwatok.domain.account import Account, normalize_handle
-from manhwatok.domain.errors import StorageError
+from manhwatok.domain.errors import InvalidName, StorageError
 from manhwatok.ports.store import AccountRepository
 from manhwatok.ports.uploader import Uploader
 
@@ -26,13 +26,26 @@ def login_account(
     return account
 
 
+def _validate_profile_path(browser_dir: Path, name: str) -> Path:
+    """Build and validate the profile path stays within browser_dir."""
+    if name in (".", ".."):
+        raise InvalidName(f"invalid profile folder name: {name!r}")
+    path = browser_dir / name
+    if path.resolve().parent != browser_dir.resolve():
+        raise InvalidName(f"profile path would escape the browser directory")
+    return path
+
+
 def saved_login(browser_dir: Path, handle: str) -> Path | None:
     """The account's browser profile folder, if `manhwatok login` ever created one."""
-    folder = browser_dir / normalize_handle(handle)
+    name = normalize_handle(handle)
+    folder = _validate_profile_path(browser_dir, name)
     return folder if folder.is_dir() else None
 
 
 def forget_login(folder: Path) -> None:
+    if folder.name in (".", ".."):
+        raise InvalidName(f"invalid profile folder name: {folder.name!r}")
     try:
         shutil.rmtree(folder)
     except OSError as e:
