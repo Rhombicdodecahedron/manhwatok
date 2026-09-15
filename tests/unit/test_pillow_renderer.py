@@ -104,3 +104,35 @@ def test_end_slide_uses_accent_gradient_when_no_covers(tmp_path):
         top = img.getpixel((20, 20))
     assert top != (0, 0, 0)
     assert top[2] > top[0]  # default accent #43c9e4 is blue-dominant
+
+
+def test_end_slide_grid_is_blurred_as_one_image_without_seams(tmp_path):
+    colors = [(230, 40, 40), (40, 40, 230), (40, 230, 40), (230, 230, 40)]
+    items = [PostItem(manhwa=manhwa(anilist_id=i, title=f"T{i}")) for i in range(1, 5)]
+    covers = {i: cover_file(tmp_path / "c", i, color=colors[i - 1]) for i in range(1, 5)}
+    PillowRenderer().render(post(items=items), covers, tmp_path / "out")
+    with Image.open(tmp_path / "out" / "06.png") as img:
+        across_x = [img.getpixel((x, 300)) for x in (538, 539, 540, 541)]  # above the title
+        across_y = [img.getpixel((50, y)) for y in (958, 959, 960, 961)]  # left of the list
+
+    def biggest_step(pixels):
+        return max(abs(a - b) for p, q in zip(pixels, pixels[1:]) for a, b in zip(p, q))
+
+    assert biggest_step(across_x) <= 6
+    assert biggest_step(across_y) <= 6
+
+
+def test_end_slide_uses_the_posts_cta_texts(tmp_path, monkeypatch):
+    from manhwatok.adapters import pillow_renderer
+
+    seen = []
+    real = pillow_renderer.layout_end
+
+    def spy(names, cta_title, cta_follow):
+        seen.append((names, cta_title, cta_follow))
+        return real(names, cta_title, cta_follow)
+
+    monkeypatch.setattr(pillow_renderer, "layout_end", spy)
+    p = _post(1).model_copy(update={"cta_title": "Seen *these*?", "cta_follow": "More tomorrow"})
+    PillowRenderer().render(p, {1: None}, tmp_path / "out")
+    assert seen == [(["Title 1"], "Seen *these*?", "More tomorrow")]

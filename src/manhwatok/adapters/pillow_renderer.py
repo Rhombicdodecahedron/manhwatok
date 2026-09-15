@@ -248,15 +248,16 @@ class PillowRenderer:
         tiles = [images.get(it.manhwa.anilist_id) for it in post.items[:4]]
         tiles = [t for t in tiles if t is not None]
         if tiles:
-            canvas = Image.new("RGBA", SIZE, (0, 0, 0, 255))
+            # 2×2 grid of sharp covers, blurred once as a whole so there are no seams
+            half = (SLIDE_W // 2, SLIDE_H // 2)
+            grid = Image.new("RGB", SIZE)
+            for k in range(4):
+                tile = ImageOps.fit(tiles[k % len(tiles)], half, Image.Resampling.LANCZOS)
+                grid.paste(tile, ((k % 2) * half[0], (k // 2) * half[1]))
+            canvas = _blurred(grid, SIZE, 30, 0.30).convert("RGBA")
         else:
             canvas = _accent_gradient(SIZE, readable_accent(post.accent)).convert("RGBA")
-        if tiles:
-            half = (SLIDE_W // 2, SLIDE_H // 2)
-            for k in range(4):
-                tile = _blurred(tiles[k % len(tiles)], half, 30, 0.30)
-                canvas.paste(tile, ((k % 2) * half[0], (k // 2) * half[1]))
-        layout = layout_end([it.manhwa.title for it in post.items])
+        layout = layout_end([it.manhwa.title for it in post.items], post.cta_title, post.cta_follow)
         draw = ImageDraw.Draw(canvas)
         _draw_text(draw, layout.title, WHITE, accent)
         for i, row in enumerate(layout.rows):

@@ -18,8 +18,6 @@ from manhwatok.domain.text import accent_spans
 SLIDE_W, SLIDE_H = 1080, 1920
 GAP = 24
 PILL_PAD_X, PILL_PAD_Y, PILL_BORDER = 28, 16, 6
-END_TITLE = "Which one have you *read?*"
-FOLLOW = "Follow for part 2"
 
 Run = tuple[str, bool]  # (text, accent)
 Word = tuple[Run, ...]  # one or more runs, concatenated with no space, forming one word
@@ -340,7 +338,7 @@ class CoverLayout:
 
 def layout_cover(title: str, count: int) -> CoverLayout:
     x, w = SAFE.x, SAFE.w
-    kicker = make_pill(f"{count} PICKS", bold, 32, w, x)
+    kicker = make_pill(f"{count} PICK" if count == 1 else f"{count} PICKS", bold, 32, w, x)
     title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 92, 56, 1.06)
     tops = stack_up([kicker.box.h, title_t.height, BAR_H], SAFE.bottom)
     seg_w = (w - BAR_GAP * (count - 1)) / max(count, 1)
@@ -353,8 +351,9 @@ def layout_cover(title: str, count: int) -> CoverLayout:
 
 # --- end slide ----------------------------------------------------------------------------
 
-LIST_X, LIST_RIGHT, LIST_BOTTOM = 130, 960, 1460
-FOLLOW_BOTTOM = 1560
+END_TITLE_TOP, FOLLOW_BOTTOM = 480, 1560
+LIST_X, LIST_RIGHT = 130, 960
+LIST_GAP = 56  # clear space between the recap band and the title / the follow line
 LIST_MAX, LIST_MIN, LIST_SHRINK_FLOOR = 44, 28, 34  # recap text sizes
 ROW_PITCH = 1.9  # row height / text size
 
@@ -395,25 +394,12 @@ def _list_size(names: list[str], avail: int) -> int:
     return LIST_MIN
 
 
-def layout_end(names: list[str]) -> EndLayout:
-    x, w = SAFE.x, SAFE.w
-    title_t = fit_words(words_of(accent_spans(END_TITLE.upper())), display, w, 3, 100, 68, 1.06)
-    title = Placed(title_t, x, 480, w, "center")
-    follow_t = fit_words(plain_words(FOLLOW.upper()), bold, w, 1, 44, 44)
-    follow = Placed(follow_t, x, FOLLOW_BOTTOM - follow_t.height, w, "center")
-
-    top = title.box.bottom + 40
-    avail = LIST_BOTTOM - top
-    size = _list_size(names, avail)
-    pitch = round(size * ROW_PITCH)
-    max_rows = max(1, avail // pitch)
-    shown: list[tuple[str | None, str]] = [(str(i), n) for i, n in enumerate(names, 1)]
-    if len(shown) > max_rows:
-        rest = len(shown) - (max_rows - 1)
-        shown = shown[: max_rows - 1] + [(None, f"+{rest} more")]
-
-    num_col = _num_col(size, len(names))
+def _recap_rows(
+    shown: list[tuple[str | None, str]], size: int, count: int, top: int
+) -> list[EndRow]:
+    num_col = _num_col(size, count)
     name_w = LIST_RIGHT - LIST_X - num_col
+    pitch = round(size * ROW_PITCH)
     rows: list[EndRow] = []
     for i, (num, name) in enumerate(shown):
         name_t = fit_words(plain_words(name), body, name_w, 1, size, size)
@@ -427,4 +413,33 @@ def layout_end(names: list[str]) -> EndLayout:
                 Placed(name_t, LIST_X + num_col, baseline + name_t.ink_top, name_w),
             )
         )
-    return EndLayout(title, rows, follow)
+    return rows
+
+
+def _ink_span(rows: list[EndRow]) -> tuple[int, int]:
+    boxes = [b for r in rows for b in ([r.number.box] if r.number else []) + [r.name.box]]
+    return min(b.y for b in boxes), max(b.bottom for b in boxes)
+
+
+def layout_end(names: list[str], cta_title: str, cta_follow: str) -> EndLayout:
+    """Title near the top, follow line near the bottom, and the numbered recap centred
+    vertically in the band between them (a long list fills it and ends in "+N more")."""
+    x, w = SAFE.x, SAFE.w
+    title_t = fit_words(words_of(accent_spans(cta_title.upper())), display, w, 3, 100, 68, 1.06)
+    title = Placed(title_t, x, END_TITLE_TOP, w, "center")
+    follow_t = fit_words(plain_words(cta_follow.upper()), bold, w, 2, 44, 32, 1.2)
+    follow = Placed(follow_t, x, FOLLOW_BOTTOM - follow_t.height, w, "center")
+
+    band_top = title.box.bottom + LIST_GAP
+    band_bottom = follow.box.y - LIST_GAP
+    avail = band_bottom - band_top
+    size = _list_size(names, avail)
+    max_rows = max(1, avail // round(size * ROW_PITCH))
+    shown: list[tuple[str | None, str]] = [(str(i), n) for i, n in enumerate(names, 1)]
+    if len(shown) > max_rows:
+        rest = len(shown) - (max_rows - 1)
+        shown = shown[: max_rows - 1] + [(None, f"+{rest} more")]
+
+    ink_top, ink_bottom = _ink_span(_recap_rows(shown, size, len(names), 0))
+    top = band_top + (avail - (ink_bottom - ink_top)) // 2 - ink_top
+    return EndLayout(title, _recap_rows(shown, size, len(names), top), follow)

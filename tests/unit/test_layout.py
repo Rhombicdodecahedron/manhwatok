@@ -14,6 +14,7 @@ from manhwatok.adapters.layout import (
     words_of,
     wrap_words,
 )
+from manhwatok.domain.post import DEFAULT_CTA_FOLLOW, DEFAULT_CTA_TITLE
 from manhwatok.domain.text import accent_spans
 
 LONG_NAME = "The Reincarnated Assassin Who Became the Strongest Swordmaster of the Northern Duchy"
@@ -26,6 +27,10 @@ def _word_text(word) -> str:
 
 def _line_text(line) -> str:
     return " ".join(_word_text(w) for w in line)
+
+
+def _end(names):
+    return layout_end(names, DEFAULT_CTA_TITLE, DEFAULT_CTA_FOLLOW)
 
 
 def test_stack_up_ends_at_bottom_with_gaps():
@@ -123,12 +128,12 @@ def test_cover_layout_stays_in_safe_area(count):
 
 @pytest.mark.parametrize("n", [1, 5, 33])
 def test_end_layout_stays_in_safe_area(n):
-    layout = layout_end([LONG_NAME] * n)
+    layout = _end([LONG_NAME] * n)
     assert all(SAFE.contains(b) for b in layout.text_boxes())
 
 
 def test_end_layout_collapses_overflow_into_more_row():
-    layout = layout_end([f"Title {i}" for i in range(33)])
+    layout = _end([f"Title {i}" for i in range(33)])
     last = layout.rows[-1]
     assert last.number is None
     assert last.name.text.line_text(0).startswith("+")
@@ -137,20 +142,64 @@ def test_end_layout_collapses_overflow_into_more_row():
 
 
 def test_end_layout_uses_big_text_for_short_lists():
-    layout = layout_end(["A", "B"])
+    layout = _end(["A", "B"])
     assert layout.rows[0].name.text.font.size == 44
     assert [r.number.text.line_text(0) for r in layout.rows] == ["1", "2"]
 
 
 def test_end_layout_shrinks_the_list_so_a_long_name_fits():
-    layout = layout_end(["I Became the Tyrant of a Defense Game", "Kubera"])
+    layout = _end(["I Became the Tyrant of a Defense Game", "Kubera"])
     first = layout.rows[0].name.text
     assert first.font.size < 44
     assert "…" not in first.line_text(0)
 
 
 def test_end_layout_ellipsizes_huge_names_instead_of_shrinking_below_34():
-    layout = layout_end([LONG_NAME])
+    layout = _end([LONG_NAME])
     name = layout.rows[0].name.text
     assert name.font.size == 34
     assert name.line_text(0).endswith("…")
+
+
+@pytest.mark.parametrize("n", [1, 3, 5])
+def test_end_layout_centres_a_short_list_between_title_and_follow(n):
+    layout = _end([f"Title {i}" for i in range(n)])
+    boxes = [
+        b for row in layout.rows for b in ([row.number.box] if row.number else []) + [row.name.box]
+    ]
+    above = min(b.y for b in boxes) - layout.title.box.bottom
+    below = layout.follow.box.y - max(b.bottom for b in boxes)
+    assert abs(above - below) <= 2
+
+
+def test_end_layout_full_list_still_fits_between_title_and_follow():
+    layout = _end([f"Title {i}" for i in range(33)])
+    assert layout.rows[0].name.box.y > layout.title.box.bottom
+    assert layout.rows[-1].name.box.bottom < layout.follow.box.y
+
+
+def test_end_layout_uses_the_given_cta_texts():
+    layout = layout_end(["A"], "Seen *these*?", "More tomorrow")
+    title_words = [w for line in layout.title.text.lines for w in line]
+    assert [_word_text(w) for w in title_words] == ["SEEN", "THESE?"]
+    assert [any(a for _, a in w) for w in title_words] == [False, True]
+    assert layout.follow.text.line_text(0) == "MORE TOMORROW"
+
+
+def test_end_layout_wraps_a_long_follow_line_onto_two_lines():
+    layout = layout_end(["A"], "T", "Follow @manhwa.daily for part 2 every Friday")
+    follow = layout.follow.text
+    assert len(follow.lines) == 2
+    assert "…" not in follow.line_text(1)
+    assert layout.follow.box.bottom == 1560
+
+
+@pytest.mark.parametrize("n", [1, 5, 33])
+def test_end_layout_with_long_custom_ctas_stays_in_safe_area(n):
+    layout = layout_end([LONG_NAME] * n, LONG_NAME + " *" + LONG_NAME + "*", LONG_NAME)
+    assert all(SAFE.contains(b) for b in layout.text_boxes())
+
+
+def test_cover_kicker_is_singular_for_one_pick():
+    assert layout_cover("T", 1).kicker.text.line_text(0) == "1 PICK"
+    assert layout_cover("T", 5).kicker.text.line_text(0) == "5 PICKS"
