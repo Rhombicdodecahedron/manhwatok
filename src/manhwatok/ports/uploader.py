@@ -31,5 +31,6 @@ class Uploader(Protocol):
         ...
 
     def close(self) -> None:
-        """Close the browser. Safe to call twice, or after the user closed the window."""
+        """Close the browser. Never raises; safe to call twice, after the user closed the
+        window, or after a Ctrl-C (KeyboardInterrupt) out of login() or upload()."""
         ...

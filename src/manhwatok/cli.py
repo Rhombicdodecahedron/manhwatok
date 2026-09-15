@@ -362,6 +362,14 @@ def _ask(question: str) -> bool:
         return False
 
 
+def _ctrl_c(message: str) -> NoReturn:
+    """Ctrl-C while the browser was open; it's closed by now. Exit like an interrupted
+    command (130), without a traceback."""
+    typer.echo()
+    typer.echo(message)
+    raise typer.Exit(code=130)
+
+
 @app.command()
 def login(handle: str = typer.Argument(..., help="TikTok handle, e.g. @manhwa.daily")) -> None:
     """Log in to TikTok as an account, once, in that account's own browser window."""
@@ -376,6 +384,8 @@ def login(handle: str = typer.Argument(..., help="TikTok handle, e.g. @manhwa.da
             )
     except ManhwatokError as e:
         _fail(e)
+    except KeyboardInterrupt:
+        _ctrl_c("stopped — browser closed")
     typer.echo(f"browser closed — once logged in, `manhwatok upload` posts as {account.display}")
 
 
@@ -407,6 +417,8 @@ def upload(
             )
     except ManhwatokError as e:
         _fail(e)
+    except KeyboardInterrupt:
+        _ctrl_c("nothing recorded")
     typer.echo(f"recorded post {post_id} as sent" if posted else "nothing recorded")
 
 

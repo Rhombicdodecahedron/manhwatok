@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import random
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -43,6 +44,16 @@ def _first_line(error: Exception) -> str:
     return text.splitlines()[0] if text else type(error).__name__
 
 
+def _forget_cut_short_calls(context) -> None:
+    """The Playwright call a Ctrl-C cut short stays pending in Playwright's event loop, and
+    asyncio would print "Task was destroyed but it is pending!" about it on the way out. That
+    loop is thrown away with Playwright, so it may report nothing. `_loop` isn't public
+    Playwright API; without it the only harm is that noise."""
+    loop = getattr(context, "_loop", None)
+    if loop is not None:
+        loop.set_exception_handler(lambda loop, details: None)
+
+
 class PlaywrightUploader:
     def __init__(
         self,
@@ -65,13 +76,51 @@ class PlaywrightUploader:
         self._playwright = None
         self._context = None
         self._error: type[Exception] = Exception  # playwright's Error, once it's loaded
+        self._interrupted = False  # Ctrl-C while Playwright was at work
 
     def login(self, handle: str) -> None:
-        page = self._open(handle)
-        self._goto(page, self._page.login_url)
-        self._wait_until_closed()
+        with self._noting_ctrl_c():
+            page = self._open(handle)
+            self._goto(page, self._page.login_url)
+            self._wait_until_closed()
 
     def upload(self, handle: str, slides: list[Path], caption: str, debug: bool) -> UploadReport:
+        with self._noting_ctrl_c():
+            return self._upload(handle, slides, caption, debug)
+
+    def close(self) -> None:
+        """Best effort, never raises. A Ctrl-C in the terminal also stops Playwright's driver
+        (it shares the terminal's process group), so the browser may no longer answer:
+        context.close() then fails, or waits forever when the Ctrl-C cut a Playwright call
+        short. Stopping Playwright ends the browser either way."""
+        context, playwright = self._context, self._playwright
+        interrupted, self._interrupted = self._interrupted, False
+        self._context = self._playwright = None
+        if context is not None:
+            if interrupted:
+                _forget_cut_short_calls(context)
+            else:
+                try:
+                    context.close()
+                except Exception:
+                    pass  # the user already closed the browser, or the driver is gone
+        if playwright is not None:
+            try:
+                playwright.stop()
+            except Exception:
+                pass
+
+    # --- steps ---------------------------------------------------------------------------
+
+    @contextmanager
+    def _noting_ctrl_c(self):
+        try:
+            yield
+        except KeyboardInterrupt:
+            self._interrupted = True
+            raise
+
+    def _upload(self, handle: str, slides: list[Path], caption: str, debug: bool) -> UploadReport:
         page = self._open(handle)
         problems: list[str] = []
         try:
@@ -109,19 +158,6 @@ class PlaywrightUploader:
         if debug and problems:
             report.debug_dir = self._save_debug(page, slides, problems)
         return report
-
-    def close(self) -> None:
-        context, playwright = self._context, self._playwright
-        self._context = self._playwright = None
-        if context is not None:
-            try:
-                context.close()
-            except self._error:
-                pass  # the user already closed the browser
-        if playwright is not None:
-            playwright.stop()
-
-    # --- steps ---------------------------------------------------------------------------
 
     def _open(self, handle: str):
         """Start Chromium on the account's own profile; returns its first tab."""

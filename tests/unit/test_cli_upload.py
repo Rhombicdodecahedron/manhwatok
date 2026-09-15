@@ -1,6 +1,7 @@
 import sys
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from manhwatok.adapters.sqlite_store import SqliteStore
@@ -70,6 +71,32 @@ def test_upload_without_a_yes_records_nothing(tmp_path, monkeypatch, answer):
     assert posts.get(POST_ID).sent_at is None
 
 
+def test_ctrl_c_at_the_question_records_nothing(tmp_path, monkeypatch):
+    posts = _account_post(tmp_path)
+    browser = _browser(monkeypatch)
+
+    def ctrl_c(*args, **kwargs):
+        raise typer.Abort()  # what typer.confirm raises on Ctrl-C
+
+    monkeypatch.setattr(typer, "confirm", ctrl_c)
+    result = runner.invoke(app, ["upload", POST_ID])
+    assert result.exit_code == 0, result.output
+    assert result.output.endswith("nothing recorded\n")
+    assert browser.events == ["upload", "close"]
+    assert posts.get(POST_ID).sent_at is None
+
+
+def test_ctrl_c_while_the_browser_works_records_nothing(tmp_path, monkeypatch):
+    posts = _account_post(tmp_path)
+    browser = _browser(monkeypatch, error=KeyboardInterrupt())
+    result = runner.invoke(app, ["upload", POST_ID])
+    assert result.exit_code == 130
+    assert result.output.endswith("\nnothing recorded\n")
+    assert "Traceback" not in result.output
+    assert browser.events == ["upload", "close"]
+    assert posts.get(POST_ID).sent_at is None
+
+
 def test_upload_problems_come_before_the_question(tmp_path, monkeypatch):
     _account_post(tmp_path)
     problem = "caption box not found — paste caption.txt yourself"
@@ -119,6 +146,16 @@ def test_login_opens_the_accounts_browser(tmp_path, monkeypatch):
     assert result.output.startswith("Log in to @reads in the browser, then close the window.\n")
     assert "browser closed" in result.output
     assert browser.logins == ["reads"]
+    assert browser.events == ["login", "close"]
+
+
+def test_ctrl_c_during_login_closes_the_browser(tmp_path, monkeypatch):
+    with _store(tmp_path) as store:
+        store.accounts.add(Account(handle="reads"))
+    browser = _browser(monkeypatch, error=KeyboardInterrupt())
+    result = runner.invoke(app, ["login", "reads"])
+    assert result.exit_code == 130
+    assert result.output.endswith("\nstopped — browser closed\n")
     assert browser.events == ["login", "close"]
 
 
