@@ -206,11 +206,19 @@ def export(
     ),
 ) -> None:
     """Copy a post's slides and caption.txt to a folder for uploading."""
-    from manhwatok.app.export_post import export_post
+    from manhwatok.app import container
 
     settings = Settings()
     try:
-        dest = export_post(post_id, _tools(settings).posts, out or settings.export_dir)
+        from manhwatok.app.export_post import export_post
+        with container.build_store(settings) as store:
+            dest = export_post(
+                post_id,
+                container.build_posts(settings),
+                store.history,
+                out or settings.export_dir,
+                now=datetime.now(timezone.utc),
+            )
     except ManhwatokError as e:
         _fail(e)
     typer.echo(f"exported → {dest}")

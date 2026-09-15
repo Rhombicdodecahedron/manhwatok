@@ -1,13 +1,23 @@
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from manhwatok.adapters.pillow_renderer import PillowRenderer
+from manhwatok.adapters.sqlite_store import SqliteStore
+from manhwatok.app.delete_post import delete_post
 from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import CAPTION_FILE, render_post
 from manhwatok.domain.errors import DraftError, NotRendered, PostNotFound, StorageError
 from manhwatok.domain.post import PostItem
-from tests.unit.fakes import FakeCovers, cover_file, make_tools, manhwa, post
+from tests.unit.fakes import FakeCovers, FakeHistory, cover_file, make_tools, manhwa, post
+
+NOW = datetime(2026, 9, 15, 9, 30, tzinfo=timezone.utc)
+
+
+def _export(tools, dest, history=None, now=NOW):
+    history = history if history is not None else FakeHistory()
+    return export_post("20260914-a3f9", tools.posts, history, dest, now=now)
 
 
 # --- render ------------------------------------------------------------------------------
@@ -109,7 +119,7 @@ def test_export_copies_slides_and_caption(tmp_path):
     tools = make_tools(tmp_path)
     tools.posts.save(post())
     render_post("20260914-a3f9", tools)
-    dest = export_post("20260914-a3f9", tools.posts, tmp_path / "exports")
+    dest = _export(tools, tmp_path / "exports")
     assert dest == tmp_path / "exports" / "20260914-a3f9"
     assert sorted(f.name for f in dest.iterdir()) == [
         "01.png",
@@ -128,7 +138,7 @@ def test_export_replaces_stale_slides_in_destination(tmp_path):
     stale = tmp_path / "exports" / "20260914-a3f9"
     stale.mkdir(parents=True)
     (stale / "09.png").write_bytes(b"old")
-    export_post("20260914-a3f9", tools.posts, tmp_path / "exports")
+    _export(tools, tmp_path / "exports")
     assert not (stale / "09.png").exists()
 
 
@@ -136,14 +146,14 @@ def test_export_before_render(tmp_path):
     tools = make_tools(tmp_path)
     tools.posts.save(post())
     with pytest.raises(NotRendered, match="run: manhwatok render 20260914-a3f9"):
-        export_post("20260914-a3f9", tools.posts, tmp_path / "exports")
+        _export(tools, tmp_path / "exports")
 
 
 def test_export_unfinished_post(tmp_path):
     tools = make_tools(tmp_path)
     tools.posts.save(post(items=[]))
     with pytest.raises(DraftError):
-        export_post("20260914-a3f9", tools.posts, tmp_path / "exports")
+        _export(tools, tmp_path / "exports")
 
 
 def test_export_destination_blocked_by_a_file_raises_storage_error(tmp_path):
@@ -153,4 +163,67 @@ def test_export_destination_blocked_by_a_file_raises_storage_error(tmp_path):
     blocker = tmp_path / "exports"
     blocker.write_bytes(b"not a directory")
     with pytest.raises(StorageError):
-        export_post("20260914-a3f9", tools.posts, blocker)
+        _export(tools, blocker)
+
+
+def test_first_export_of_an_account_post_records_history(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post(account="reads"))
+    render_post("20260914-a3f9", tools)
+    history = FakeHistory()
+    _export(tools, tmp_path / "exports", history)
+    assert history.records == [("reads", "20260914-a3f9", [1, 2, 3], NOW)]
+    assert tools.posts.get("20260914-a3f9").exported_at == NOW
+
+
+def test_re_export_keeps_the_first_date_and_records_once(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post(account="reads"))
+    render_post("20260914-a3f9", tools)
+    history = FakeHistory()
+    _export(tools, tmp_path / "exports", history)
+    _export(tools, tmp_path / "again", history, now=NOW + timedelta(days=3))
+    assert len(history.records) == 1
+    assert tools.posts.get("20260914-a3f9").exported_at == NOW
+
+
+def test_export_without_account_records_nothing(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post())
+    render_post("20260914-a3f9", tools)
+    history = FakeHistory()
+    _export(tools, tmp_path / "exports", history)
+    assert history.records == []
+    assert tools.posts.get("20260914-a3f9").exported_at is None
+
+
+# --- delete ------------------------------------------------------------------------------
+
+
+def test_delete_removes_the_post_folder_and_keeps_history(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post(account="reads"))
+    render_post("20260914-a3f9", tools)
+    with SqliteStore(tmp_path / "m.db") as store:
+        _export(tools, tmp_path / "exports", store.history)
+        delete_post("20260914-a3f9", tools.posts)
+        assert not tools.posts.folder("20260914-a3f9").exists()
+        assert store.history.recent("reads", NOW) == {1, 2, 3}
+    assert (tmp_path / "exports" / "20260914-a3f9" / "caption.txt").is_file()
+
+
+def test_delete_unknown_post(tmp_path):
+    with pytest.raises(PostNotFound, match="no post 20260914-ffff"):
+        delete_post("20260914-ffff", make_tools(tmp_path).posts)
+
+
+def test_delete_failure_raises_storage_error(tmp_path, monkeypatch):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post())
+
+    def boom(path):
+        raise OSError("busy")
+
+    monkeypatch.setattr("manhwatok.app.delete_post.shutil.rmtree", boom)
+    with pytest.raises(StorageError, match="could not delete post 20260914-a3f9"):
+        delete_post("20260914-a3f9", tools.posts)
