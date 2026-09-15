@@ -146,3 +146,13 @@ def make_tools(tmp_path: Path, editor=None, covers=None, renderer=None, messages
         editor=editor or ScriptedEditor(lambda text: text + "\n"),
         progress=(messages.append if messages is not None else lambda _: None),
     )
+
+
+class Clock:
+    """A settable time.time() stand-in for cache expiry tests."""
+
+    def __init__(self, now: float = 1000.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
