@@ -41,8 +41,9 @@ def suggest_for_account(
     progress: Callable[[str], None] = _noop,
 ) -> list[Manhwa]:
     """`suggest_titles` when there is no account. Otherwise: exclude the account's blocked
-    genres/tags, search once per allowed genre (AniList's genre_in is AND, an allow-list is OR),
-    and drop titles the account exported within its repeat window (fetching extra to make up)."""
+    genres/tags (in the search and again locally), search once per allowed genre (AniList's
+    genre_in is AND, an allow-list is OR), and drop titles the account exported within its
+    repeat window (fetching extra to make up)."""
     if account is None:
         return suggest_titles(query, metadata, chapters, progress)
     query = query.model_copy(
@@ -63,6 +64,7 @@ def suggest_for_account(
         results = merge_results(lists, query.sort)
     else:
         results = metadata.search(fetch)
+    results = _drop_blocked(results, query)
     skipped = sum(1 for m in results if m.anilist_id in recent)
     if skipped:
         progress(
@@ -71,6 +73,19 @@ def suggest_for_account(
         )
     fresh = [m for m in results if m.anilist_id not in recent][: query.limit]
     return _fill_chapters(fresh, chapters, progress)
+
+
+def _drop_blocked(results: list[Manhwa], query: SearchQuery) -> list[Manhwa]:
+    """The search's excluded genres/tags, enforced again here ignoring case: names saved while
+    AniList was down are stored as typed, and AniList may compare them case-sensitively."""
+    genres = {g.casefold() for g in query.exclude_genres}
+    tags = {t.casefold() for t in query.exclude_tags}
+    return [
+        m
+        for m in results
+        if genres.isdisjoint(g.casefold() for g in m.genres)
+        and tags.isdisjoint(t.casefold() for t in m.tags)
+    ]
 
 
 def merge_results(lists: list[list[Manhwa]], sort: Sort) -> list[Manhwa]:

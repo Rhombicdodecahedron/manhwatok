@@ -133,6 +133,22 @@ def test_block_lists_become_exclusions():
     assert sent.tags == ["Revenge"]
 
 
+def test_blocked_genres_and_tags_are_also_dropped_locally_ignoring_case():
+    """Names saved while AniList was down stay as typed, and AniList may match them
+    case-sensitively; a block must still hold."""
+    meta = FakeMetadata(
+        [
+            _m(1).model_copy(update={"genres": ["Action", "Romance"]}),
+            _m(2).model_copy(update={"tags": ["Revenge", "Harem"]}),
+            _m(3).model_copy(update={"genres": ["Action"], "tags": ["Revenge"]}),
+            _m(4),
+        ]
+    )
+    account = Account(handle="ab", block_genres=["romance"], block_tags=["HAREM"])
+    out = _suggest(meta, account, query=SearchQuery(tags=["x"], limit=2))
+    assert [m.anilist_id for m in out] == [3, 4]
+
+
 def test_allow_list_searches_each_genre_and_merges_by_score():
     meta = ByGenre(
         {
