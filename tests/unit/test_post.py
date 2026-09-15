@@ -85,8 +85,14 @@ def test_phase2_post_json_loads_with_new_defaults():
     assert p.exported_at is None
     assert p.cta_title == DEFAULT_CTA_TITLE == "Which one have you *read?*"
     assert p.cta_follow == DEFAULT_CTA_FOLLOW == "Follow for part 2"
+    assert p.sent_at is None
 
 
 def test_exported_at_must_be_timezone_aware():
     with pytest.raises(ValidationError):
         post(exported_at=datetime(2026, 9, 14, 12, 0))
+
+
+def test_sent_at_must_be_timezone_aware():
+    with pytest.raises(ValidationError):
+        post(sent_at=datetime(2026, 9, 15, 12, 0))

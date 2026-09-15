@@ -24,6 +24,12 @@ def test_posts_and_covers_live_in_data_dir():
     assert s.covers_dir == Path("/x/covers")
 
 
+def test_browser_profiles_and_debug_files_live_in_data_dir():
+    s = Settings(data_dir=Path("/x"))
+    assert s.browser_dir == Path("/x/browser")
+    assert s.debug_dir == Path("/x/debug")
+
+
 def test_export_dir_env_override(monkeypatch, tmp_path):
     monkeypatch.setenv("MANHWATOK_EXPORT_DIR", str(tmp_path / "e"))
     assert Settings().export_dir == tmp_path / "e"

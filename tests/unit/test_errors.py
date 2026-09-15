@@ -5,10 +5,15 @@ from manhwatok.domain.errors import (
     AlreadyExists,
     InvalidName,
     ManhwatokError,
+    NotLoggedIn,
     ThemeNotFound,
+    UploadUnavailable,
 )
 
 
-@pytest.mark.parametrize("error", [AccountNotFound, ThemeNotFound, InvalidName, AlreadyExists])
+@pytest.mark.parametrize(
+    "error",
+    [AccountNotFound, ThemeNotFound, InvalidName, AlreadyExists, UploadUnavailable, NotLoggedIn],
+)
 def test_new_errors_are_user_facing(error):
     assert issubclass(error, ManhwatokError)

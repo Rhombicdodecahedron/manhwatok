@@ -31,6 +31,7 @@ class ListPost(BaseModel):
     exported_at: AwareDatetime | None = None  # first export; its titles count as posted
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
+    sent_at: AwareDatetime | None = None  # Phase 4: when the user confirmed it was posted
 
     @property
     def slide_count(self) -> int:

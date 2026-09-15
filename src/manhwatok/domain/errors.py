@@ -40,3 +40,11 @@ class InvalidName(ManhwatokError):
 
 class AlreadyExists(ManhwatokError):
     """An account or theme with that handle/name is already saved."""
+
+
+class UploadUnavailable(ManhwatokError):
+    """The upload extra (Playwright) or its Chromium isn't installed."""
+
+
+class NotLoggedIn(ManhwatokError):
+    """TikTok sent the account's browser profile to its login page."""

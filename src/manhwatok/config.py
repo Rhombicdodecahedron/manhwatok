@@ -37,3 +37,13 @@ class Settings:
     @property
     def covers_dir(self) -> Path:
         return self.data_dir / "covers"
+
+    @property
+    def browser_dir(self) -> Path:
+        """One persistent Chromium profile (TikTok login) per account handle."""
+        return self.data_dir / "browser"
+
+    @property
+    def debug_dir(self) -> Path:
+        """Screenshots and page HTML saved by `upload --debug`."""
+        return self.data_dir / "debug"
