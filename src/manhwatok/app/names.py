@@ -43,6 +43,18 @@ def canonical_names(names: list[str], known: list[str], kind: str) -> list[str]:
     return clean_names(out)
 
 
+def _name_list(text: str) -> list[str] | None:
+    """A cached name list, or None if the cached text is corrupt (then it's fetched again and
+    overwritten)."""
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return value
+    return None
+
+
 class AniListNames:
     """NameCheck backed by AniList's genre and tag lists, cached in the store. If AniList can't
     be reached, warns once and accepts names as typed."""
@@ -70,8 +82,9 @@ class AniListNames:
             hit = self._cache.get(key, NAMES_MAX_AGE)
         except CacheError:
             hit = None
-        if hit is not None:
-            return json.loads(hit)
+        cached = _name_list(hit) if hit is not None else None
+        if cached is not None:
+            return cached
         if self._down:
             return None
         try:

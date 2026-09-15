@@ -63,3 +63,15 @@ def test_errors_are_not_cached(tmp_path):
     inner.error = None
     inner.latest[7] = 55
     assert src.latest_chapter(manhwa(anilist_id=7)) == 55
+
+
+@pytest.mark.parametrize("corrupt", ["not json", '"55"', "[55]", "true", "5.5"])
+def test_corrupt_cached_value_is_a_miss_and_gets_overwritten(tmp_path, corrupt):
+    inner = FakeChapters({7: 55})
+    with SqliteStore(tmp_path / "c.db", clock=Clock()) as store:
+        src = CachedChapterSource(inner, store.cache, max_age=3600)
+        src.latest_chapter(manhwa(anilist_id=7))
+        store.write(CacheError, "UPDATE cache SET value = ?", (corrupt,))
+        assert src.latest_chapter(manhwa(anilist_id=7)) == 55
+        assert src.latest_chapter(manhwa(anilist_id=7)) == 55
+    assert inner.calls == [7, 7]

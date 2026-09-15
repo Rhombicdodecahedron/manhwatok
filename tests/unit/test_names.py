@@ -99,3 +99,14 @@ def test_anilist_down_warns_once_and_keeps_names_as_typed(tmp_path):
 def test_broken_cache_still_checks_names():
     meta = CountingMetadata()
     assert AniListNames(meta, BrokenCache(), print).genres(["action"]) == ["Action"]
+
+
+@pytest.mark.parametrize("corrupt", ["not json", '{"Action": 1}', '"Action"', "[1, 2]"])
+def test_corrupt_cached_list_is_a_miss_and_gets_overwritten(tmp_path, corrupt):
+    meta = CountingMetadata()
+    with SqliteStore(tmp_path / "m.db") as store:
+        AniListNames(meta, store.cache, print).genres(["action"])
+        store.write(CacheError, "UPDATE cache SET value = ?", (corrupt,))
+        assert AniListNames(meta, store.cache, print).genres(["action"]) == ["Action"]
+        assert AniListNames(meta, store.cache, print).genres(["drama"]) == ["Drama"]
+    assert meta.fetches == ["genres", "genres"]
