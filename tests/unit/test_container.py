@@ -42,3 +42,14 @@ def test_build_post_tools_wires_real_adapters(tmp_path):
     assert isinstance(tools.renderer, PillowRenderer)
     assert tools.editor is editor
     assert tools.posts.folder("20260914-a3f9") == tmp_path / "posts" / "20260914-a3f9"
+
+
+def test_build_uploader_is_a_visible_playwright_browser(tmp_path):
+    from manhwatok.adapters.playwright_uploader import PlaywrightUploader
+    from manhwatok.app.container import build_uploader
+
+    uploader = build_uploader(Settings(data_dir=tmp_path))
+    assert isinstance(uploader, PlaywrightUploader)
+    assert uploader._profiles_dir == tmp_path / "browser"
+    assert uploader._debug_dir == tmp_path / "debug"
+    assert uploader._headless is False

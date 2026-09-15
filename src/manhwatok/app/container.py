@@ -10,6 +10,7 @@ from manhwatok.config import Settings
 from manhwatok.ports.cache import Cache
 from manhwatok.ports.metadata import ChapterSource, MetadataSource
 from manhwatok.ports.posts import PostRepository
+from manhwatok.ports.uploader import Uploader
 
 if TYPE_CHECKING:
     from manhwatok.adapters.sqlite_store import SqliteStore
@@ -58,3 +59,11 @@ def build_post_tools(settings: Settings, editor: EditorFn, progress: ProgressFn)
         editor=editor,
         progress=progress,
     )
+
+
+def build_uploader(settings: Settings) -> Uploader:
+    """The assisted-upload browser: a visible Chromium with one profile per account. Playwright
+    itself is only imported once a browser is opened (it's the optional `upload` extra)."""
+    from manhwatok.adapters.playwright_uploader import PlaywrightUploader
+
+    return PlaywrightUploader(settings.browser_dir, settings.debug_dir)

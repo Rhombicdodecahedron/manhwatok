@@ -348,6 +348,66 @@ def delete(
     typer.echo(f"deleted post {post_id}")
 
 
+# --- assisted upload -----------------------------------------------------------------------
+
+
+def _ask(question: str) -> bool:
+    """A yes/no question that defaults to no; no answer at all (Ctrl-D, Ctrl-C) is a no too."""
+    try:
+        return typer.confirm(question, default=False)
+    except typer.Abort:
+        typer.echo()
+        return False
+
+
+@app.command()
+def login(handle: str = typer.Argument(..., help="TikTok handle, e.g. @manhwa.daily")) -> None:
+    """Log in to TikTok as an account, once, in that account's own browser window."""
+    from manhwatok.app import container
+    from manhwatok.app.login_account import login_account
+
+    settings = Settings()
+    try:
+        with container.build_store(settings) as store:
+            account = login_account(
+                handle, store.accounts, container.build_uploader(settings), typer.echo
+            )
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo(f"browser closed — once logged in, `manhwatok upload` posts as {account.display}")
+
+
+@app.command()
+def upload(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    debug: bool = typer.Option(
+        False, "--debug", help="Save a screenshot and the page's HTML if something isn't found."
+    ),
+) -> None:
+    """Open TikTok's upload page as the post's account with the slides and caption filled in.
+    You check it and click Post yourself, then answer y here to record the post as sent."""
+    from manhwatok.app import container
+    from manhwatok.app.upload_post import upload_post
+
+    settings = Settings()
+    try:
+        with container.build_store(settings) as store:
+            posted = upload_post(
+                post_id,
+                container.build_posts(settings),
+                store.accounts,
+                store.history,
+                container.build_uploader(settings),
+                _ask,
+                typer.echo,
+                now=datetime.now(timezone.utc),
+                debug=debug,
+            )
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo(f"recorded post {post_id} as sent" if posted else "nothing recorded")
+
+
 # --- accounts and themes -------------------------------------------------------------------
 
 account_app = typer.Typer(
