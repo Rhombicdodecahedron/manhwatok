@@ -176,6 +176,39 @@ def test_account_remove_missing():
     assert "error: no account @ghost" in _err(["account", "remove", "ghost"])
 
 
+def test_account_remove_without_a_saved_login_asks_nothing():
+    _ok(["account", "add", "reads"])
+    assert _ok(["account", "remove", "reads"]) == "removed @reads (its posting history is kept)\n"
+
+
+@pytest.mark.parametrize(
+    ("answer", "kept", "message"),
+    [
+        ("n\n", True, "kept the saved TikTok login in"),
+        ("\n", True, "kept the saved TikTok login in"),
+        ("y\n", False, "deleted the saved TikTok login for @reads"),
+    ],
+)
+def test_account_remove_offers_to_delete_the_saved_login(tmp_path, answer, kept, message):
+    _ok(["account", "add", "reads"])
+    profile = tmp_path / "browser" / "reads"
+    (profile / "Default").mkdir(parents=True)
+    result = runner.invoke(app, ["account", "remove", "@reads"], input=answer)
+    assert result.exit_code == 0, result.output
+    assert "Also delete the saved TikTok login for @reads? [y/N]" in result.output
+    assert message in result.output
+    assert profile.exists() is kept
+
+
+def test_account_remove_yes_deletes_the_saved_login_without_asking(tmp_path):
+    _ok(["account", "add", "reads"])
+    (tmp_path / "browser" / "reads").mkdir(parents=True)
+    out = _ok(["account", "remove", "reads", "--yes"])
+    assert "Also delete" not in out
+    assert "deleted the saved TikTok login for @reads" in out
+    assert not (tmp_path / "browser" / "reads").exists()
+
+
 # --- themes --------------------------------------------------------------------------------
 
 

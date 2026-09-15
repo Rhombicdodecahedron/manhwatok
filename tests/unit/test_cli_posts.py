@@ -409,3 +409,19 @@ def test_delete_unknown_post(wire):
 
 def test_help_lists_delete():
     assert "delete" in runner.invoke(app, ["--help"]).output
+
+
+def test_posts_marks_sent_posts(wire):
+    repo, _ = wire()
+    repo.save(post(id="20260913-0001", created_at=datetime(2026, 9, 13, tzinfo=timezone.utc)))
+    repo.save(
+        post(
+            id="20260914-0002",
+            account="reads",
+            created_at=datetime(2026, 9, 14, tzinfo=timezone.utc),
+            sent_at=datetime(2026, 9, 15, tzinfo=timezone.utc),
+        )
+    )
+    lines = runner.invoke(app, ["posts"]).output.strip().splitlines()
+    assert re.match(r"20260914-0002  \S+ \S+  @reads   5 slides  sent  Manhwa", lines[0])
+    assert re.match(r"20260913-0001  \S+ \S+  -        5 slides        Manhwa", lines[1])

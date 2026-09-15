@@ -297,7 +297,7 @@ def posts(
         None, "--account", "-a", help="Only this account's posts."
     ),
 ) -> None:
-    """List saved posts, newest first."""
+    """List saved posts, newest first; `sent` marks posts confirmed after `upload`."""
     from manhwatok.app import container
     from manhwatok.domain.account import normalize_handle
     from manhwatok.domain.text import plain_title
@@ -315,11 +315,13 @@ def posts(
         return
     who = {p.id: f"@{p.account}" if p.account else "-" for p in saved}
     width = max(len(w) for w in who.values())
+    any_sent = any(p.sent_at for p in saved)
     for post in saved:
         when = post.created_at.astimezone().strftime("%Y-%m-%d %H:%M")
         size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
+        sent = f"{'sent' if post.sent_at else '':<4}  " if any_sent else ""
         title = plain_title(post.title) or "(untitled)"
-        typer.echo(f"{post.id}  {when}  {who[post.id]:<{width}}  {size:>9}  {title}")
+        typer.echo(f"{post.id}  {when}  {who[post.id]:<{width}}  {size:>9}  {sent}{title}")
 
 
 @app.command()
@@ -576,18 +578,36 @@ def account_show(handle: str = typer.Argument(..., help="TikTok handle.")) -> No
 
 
 @account_app.command("remove")
-def account_remove(handle: str = typer.Argument(..., help="TikTok handle.")) -> None:
+def account_remove(
+    handle: str = typer.Argument(..., help="TikTok handle."),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Also delete its saved TikTok login without asking."
+    ),
+) -> None:
     """Remove an account. Its posting history is kept, so re-adding it keeps repeat protection."""
     from manhwatok.app import container
+    from manhwatok.app.login_account import forget_login, saved_login
     from manhwatok.domain.account import normalize_handle
 
+    settings = Settings()
     try:
-        with container.build_store(Settings()) as store:
+        with container.build_store(settings) as store:
             h = normalize_handle(handle)
             store.accounts.remove(h)
     except ManhwatokError as e:
         _fail(e)
     typer.echo(f"removed @{h} (its posting history is kept)")
+    profile = saved_login(settings.browser_dir, h)
+    if profile is None:
+        return
+    if not yes and not _ask(f"Also delete the saved TikTok login for @{h}?"):
+        typer.echo(f"kept the saved TikTok login in {profile}")
+        return
+    try:
+        forget_login(settings.browser_dir, h)
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo(f"deleted the saved TikTok login for @{h}")
 
 
 def _print_theme(t) -> None:
