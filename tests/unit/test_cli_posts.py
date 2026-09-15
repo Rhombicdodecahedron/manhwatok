@@ -1,12 +1,17 @@
 import re
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from typer.testing import CliRunner
 
 from manhwatok.adapters.fs_posts import FsPostRepository
+from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app import container
 from manhwatok.app.post_tools import PostTools
 from manhwatok.cli import app
+from manhwatok.domain.account import Account
+from manhwatok.domain.models import Sort
+from manhwatok.domain.theme import Theme
 from tests.unit.fakes import (
     FakeChapters,
     FakeCovers,
@@ -34,10 +39,11 @@ def _dirs(tmp_path, monkeypatch):
 def wire(tmp_path, monkeypatch):
     """Fake network, editor and renderer; real post folders under tmp_path."""
 
-    def _wire(respond=lambda text: text + "\n", results=CANDIDATES):
+    def _wire(respond=lambda text: text + "\n", results=CANDIDATES, meta=None):
         editor = ScriptedEditor(respond)
         repo = FsPostRepository(tmp_path / "data" / "posts")
-        monkeypatch.setattr(container, "build_metadata", lambda settings: FakeMetadata(results))
+        meta = meta or FakeMetadata(results)
+        monkeypatch.setattr(container, "build_metadata", lambda settings: meta)
         monkeypatch.setattr(
             container, "build_chapter_source", lambda settings, cache: FakeChapters({})
         )
@@ -195,3 +201,183 @@ def test_help_lists_post_commands():
     result = runner.invoke(app, ["--help"])
     for command in ("build", "edit", "render", "export", "posts"):
         assert command in result.output
+
+
+# --- accounts, themes, history, delete ---------------------------------------------------
+
+
+def _store(tmp_path) -> SqliteStore:
+    return SqliteStore(tmp_path / "data" / "manhwatok.db")
+
+
+def _save(tmp_path, *items):
+    with _store(tmp_path) as store:
+        for item in items:
+            (store.accounts if isinstance(item, Account) else store.themes).add(item)
+
+
+REVENGE = Theme(
+    name="revenge",
+    tags=["Revenge"],
+    genres=["Action"],
+    sort=Sort.POPULARITY,
+    min_tag_rank=75,
+    title="MC gets *revenge*",
+)
+
+
+def test_build_from_a_theme(wire, tmp_path):
+    meta = FakeMetadata(CANDIDATES)
+    repo, editor = wire(meta=meta)
+    _save(tmp_path, REVENGE)
+    result = runner.invoke(app, ["build", "--theme", "Revenge", "-n", "5", "--no-chapters"])
+    assert result.exit_code == 0, result.output
+    [q] = meta.queries
+    assert (q.tags, q.genres, q.sort, q.min_tag_rank, q.limit) == (
+        ["Revenge"],
+        ["Action"],
+        Sort.POPULARITY,
+        75,
+        5,
+    )
+    assert "title: MC gets *revenge*" in editor.shown[0]
+    assert repo.get(_post_id(result.output)).account is None
+
+
+def test_build_flags_override_the_theme(wire, tmp_path):
+    meta = FakeMetadata(CANDIDATES)
+    _, editor = wire(meta=meta)
+    _save(tmp_path, REVENGE)
+    args = ["build", "--theme", "revenge", "--title", "Other", "--sort", "score"]
+    result = runner.invoke(app, args + ["--min-tag-rank", "50", "--no-chapters"])
+    assert result.exit_code == 0, result.output
+    assert (meta.queries[0].sort, meta.queries[0].min_tag_rank) == (Sort.SCORE, 50)
+    assert "title: Other" in editor.shown[0]
+
+
+def test_build_theme_and_tags_conflict(wire, tmp_path):
+    wire()
+    _save(tmp_path, REVENGE)
+    result = runner.invoke(app, ["build", "--theme", "revenge", "-t", "Revenge"])
+    assert result.exit_code == 1
+    assert "error: use either --theme or -t/-g, not both" in result.output
+
+
+def test_build_unknown_theme(wire):
+    wire()
+    result = runner.invoke(app, ["build", "--theme", "nope"])
+    assert result.exit_code == 1
+    assert "error: no theme nope" in result.output
+
+
+def test_build_for_an_account_uses_its_filters_style_and_history(wire, tmp_path):
+    meta = FakeMetadata(CANDIDATES)
+    repo, editor = wire(respond=lambda text: text, meta=meta)
+    _save(tmp_path, Account(handle="reads", block_genres=["Romance"], hashtags="#reads"))
+    with _store(tmp_path) as store:
+        store.history.record("reads", "20260901-0001", [22], datetime.now(timezone.utc))
+    args = ["build", "-a", "@reads", "-t", "Revenge", "--title", "T", "--no-chapters"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert meta.queries[0].exclude_genres == ["Romance"]
+    assert "Kubera" not in editor.shown[0]
+    assert "skipping 1 title(s) @reads" in result.output
+    built = repo.get(_post_id(result.output))
+    assert (built.account, built.hashtags) == ("reads", "#reads")
+
+
+def test_build_allow_repeats_keeps_recent_titles(wire, tmp_path):
+    _, editor = wire(respond=lambda text: text)
+    _save(tmp_path, Account(handle="reads"))
+    with _store(tmp_path) as store:
+        store.history.record("reads", "20260901-0001", [22], datetime.now(timezone.utc))
+    args = ["build", "-a", "reads", "-t", "Revenge", "--title", "T", "--allow-repeats"]
+    result = runner.invoke(app, args + ["--no-chapters"])
+    assert result.exit_code == 0, result.output
+    assert "Kubera" in editor.shown[0]
+
+
+def test_build_unknown_account(wire):
+    wire()
+    result = runner.invoke(app, ["build", "-a", "ghost", "-t", "Revenge"])
+    assert result.exit_code == 1
+    assert "error: no account @ghost" in result.output
+
+
+def test_export_of_an_account_post_counts_its_titles_as_posted(wire, tmp_path):
+    wire(respond=lambda text: text)
+    _save(tmp_path, Account(handle="reads"))
+    args = ["build", "-a", "reads", "-t", "Revenge", "--title", "T", "--no-chapters"]
+    built = runner.invoke(app, args)
+    post_id = _post_id(built.output)
+    result = runner.invoke(app, ["export", post_id])
+    assert result.exit_code == 0, result.output
+    with _store(tmp_path) as store:
+        since = datetime.now(timezone.utc) - timedelta(hours=1)
+        assert store.history.recent("reads", since) == {11, 22}
+
+
+def test_suggest_for_an_account_skips_recent_titles(wire, tmp_path):
+    meta = FakeMetadata(CANDIDATES)
+    wire(meta=meta)
+    _save(tmp_path, Account(handle="reads", block_tags=["Harem"]))
+    with _store(tmp_path) as store:
+        store.history.record("reads", "20260901-0001", [11], datetime.now(timezone.utc))
+    result = runner.invoke(app, ["suggest", "-a", "reads", "-t", "Revenge", "--no-chapters"])
+    assert result.exit_code == 0, result.output
+    assert "Doom Breaker" not in result.output
+    assert " 1. Kubera" in result.output
+    assert meta.queries[0].exclude_tags == ["Harem"]
+
+
+def test_posts_show_and_filter_by_account(wire):
+    repo, _ = wire()
+    repo.save(post(id="20260913-0001", created_at=datetime(2026, 9, 13, tzinfo=timezone.utc)))
+    repo.save(
+        post(
+            id="20260914-0002",
+            account="reads",
+            created_at=datetime(2026, 9, 14, tzinfo=timezone.utc),
+        )
+    )
+    lines = runner.invoke(app, ["posts"]).output.strip().splitlines()
+    assert re.match(r"20260914-0002  \S+ \S+  @reads   5 slides  Manhwa", lines[0])
+    assert re.match(r"20260913-0001  \S+ \S+  -        5 slides  Manhwa", lines[1])
+    only = runner.invoke(app, ["posts", "--account", "@READS"]).output.strip().splitlines()
+    assert [line[:13] for line in only] == ["20260914-0002"]
+    assert "no posts for @other yet" in runner.invoke(app, ["posts", "-a", "other"]).output
+
+
+def test_delete_asks_first(wire):
+    repo, _ = wire()
+    repo.save(post())
+    result = runner.invoke(app, ["delete", "20260914-a3f9"], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert "Delete post 20260914-a3f9 (5 slides)? [y/N]" in result.output
+    assert "kept" in result.output
+    assert repo.folder("20260914-a3f9").exists()
+
+    result = runner.invoke(app, ["delete", "20260914-a3f9"], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert "deleted post 20260914-a3f9" in result.output
+    assert not repo.folder("20260914-a3f9").exists()
+
+
+def test_delete_yes_skips_the_question(wire):
+    repo, _ = wire()
+    repo.save(post(items=[]))
+    result = runner.invoke(app, ["delete", "20260914-a3f9", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert "Delete post" not in result.output
+    assert not repo.folder("20260914-a3f9").exists()
+
+
+def test_delete_unknown_post(wire):
+    wire()
+    result = runner.invoke(app, ["delete", "20260914-ffff", "--yes"])
+    assert result.exit_code == 1
+    assert "error: no post 20260914-ffff" in result.output
+
+
+def test_help_lists_delete():
+    assert "delete" in runner.invoke(app, ["--help"]).output

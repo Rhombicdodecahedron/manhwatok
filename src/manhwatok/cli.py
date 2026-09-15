@@ -9,7 +9,6 @@ import typer
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import SearchQuery, Sort
-from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS
 
 app = typer.Typer(
     help="Themed manhwa recommendation slideshows for TikTok.", no_args_is_help=True
@@ -30,53 +29,104 @@ def _fail(e: Exception) -> NoReturn:
     raise typer.Exit(code=1)
 
 
-# Search options shared by `suggest` and `build`.
+# Search options shared by `suggest` and `build`. Sort and min tag rank default to None so an
+# explicit value can override a theme's; plain searches fall back to score / 60.
 TAG = typer.Option(
     None, "--tag", "-t", help="AniList tag; repeat to require several (see `manhwatok tags`)."
 )
 GENRE = typer.Option(None, "--genre", "-g", help="AniList genre; repeat to require several.")
-SORT = typer.Option(Sort.SCORE, help="Ranking order.")
+SORT = typer.Option(None, help="Ranking order (default: score, or the theme's).")
 LIMIT = typer.Option(12, "--limit", "-n", min=1, max=50, help="How many titles.")
 MIN_TAG_RANK = typer.Option(
-    60, min=0, max=100, help="Ignore titles where the tag is weaker than this rank."
+    None,
+    min=0,
+    max=100,
+    help="Ignore titles where the tag is weaker than this rank (default: 60, or the theme's).",
 )
 CHAPTERS = typer.Option(
     True, "--chapters/--no-chapters", help="Look up missing chapter counts on MangaUpdates."
 )
+ACCOUNT = typer.Option(
+    None, "--account", "-a", help="Use this account's filters and skip its recent titles."
+)
 
 
 def _query(
-    tag: Optional[list[str]], genre: Optional[list[str]], sort: Sort, limit: int, min_tag_rank: int
+    tag: Optional[list[str]],
+    genre: Optional[list[str]],
+    sort: Optional[Sort],
+    limit: int,
+    min_tag_rank: Optional[int],
 ) -> SearchQuery:
     if not tag and not genre:
-        _fail(ValueError("give at least one --tag or --genre"))
+        raise ManhwatokError("give at least one --tag or --genre")
     return SearchQuery(
-        tags=tag or [], genres=genre or [], sort=sort, limit=limit, min_tag_rank=min_tag_rank
+        tags=tag or [],
+        genres=genre or [],
+        sort=sort or Sort.SCORE,
+        limit=limit,
+        min_tag_rank=60 if min_tag_rank is None else min_tag_rank,
     )
+
+
+def _theme_query(
+    store,
+    theme: Optional[str],
+    tag: Optional[list[str]],
+    genre: Optional[list[str]],
+    sort: Optional[Sort],
+    limit: int,
+    min_tag_rank: Optional[int],
+) -> tuple[SearchQuery, str]:
+    """(query, default title) from --theme or from -t/-g, never both."""
+    from manhwatok.domain.theme import normalize_theme_name
+
+    if theme is None:
+        if not tag and not genre:
+            raise ManhwatokError("give --theme or at least one --tag or --genre")
+        return _query(tag, genre, sort, limit, min_tag_rank), ""
+    if tag or genre:
+        raise ManhwatokError("use either --theme or -t/-g, not both")
+    saved = store.themes.get(normalize_theme_name(theme))
+    overrides = {"sort": sort, "min_tag_rank": min_tag_rank}
+    query = saved.to_query(limit).model_copy(
+        update={k: v for k, v in overrides.items() if v is not None}
+    )
+    return query, saved.title
+
+
+def _account(store, handle: Optional[str]):
+    from manhwatok.domain.account import normalize_handle
+
+    return store.accounts.get(normalize_handle(handle)) if handle else None
 
 
 @app.command()
 def suggest(
     tag: Optional[list[str]] = TAG,
     genre: Optional[list[str]] = GENRE,
-    sort: Sort = SORT,
+    sort: Optional[Sort] = SORT,
     limit: int = LIMIT,
-    min_tag_rank: int = MIN_TAG_RANK,
+    min_tag_rank: Optional[int] = MIN_TAG_RANK,
     chapters: bool = CHAPTERS,
+    account: Optional[str] = ACCOUNT,
 ) -> None:
     """Suggest top Korean manhwa matching tags/genres."""
     from manhwatok.app import container
-    from manhwatok.app.suggest import suggest_titles
+    from manhwatok.app.suggest import suggest_for_account
     from manhwatok.domain.labels import chapter_label
 
-    query = _query(tag, genre, sort, limit, min_tag_rank)
     settings = Settings()
     try:
+        query = _query(tag, genre, sort, limit, min_tag_rank)
         with container.build_store(settings) as store:
-            results = suggest_titles(
+            results = suggest_for_account(
                 query,
+                _account(store, account),
                 container.build_metadata(settings),
                 container.build_chapter_source(settings, store.cache) if chapters else None,
+                store.history,
+                now=datetime.now(timezone.utc),
                 progress=_progress,
             )
     except ManhwatokError as e:
@@ -125,37 +175,53 @@ def _tools(settings: Settings):
 
 @app.command()
 def build(
+    account: Optional[str] = ACCOUNT,
+    theme: Optional[str] = typer.Option(
+        None, "--theme", help="Saved theme to build from (see `manhwatok theme list`)."
+    ),
     tag: Optional[list[str]] = TAG,
     genre: Optional[list[str]] = GENRE,
-    sort: Sort = SORT,
+    sort: Optional[Sort] = SORT,
     limit: int = LIMIT,
-    min_tag_rank: int = MIN_TAG_RANK,
+    min_tag_rank: Optional[int] = MIN_TAG_RANK,
     chapters: bool = CHAPTERS,
-    title: str = typer.Option("", help="Post title; wrap words in *stars* to colour them."),
-    hashtags: str = typer.Option(DEFAULT_HASHTAGS, help="Hashtags appended to the caption."),
-    accent: str = typer.Option(DEFAULT_ACCENT, help="Accent colour for cover and end slides."),
+    allow_repeats: bool = typer.Option(
+        False, "--allow-repeats", help="Also suggest titles the account exported recently."
+    ),
+    title: Optional[str] = typer.Option(
+        None, help="Post title (default: the theme's); wrap words in *stars* to colour them."
+    ),
+    hashtags: Optional[str] = typer.Option(
+        None, help="Caption hashtags (default: the account's, else the standard set)."
+    ),
+    accent: Optional[str] = typer.Option(
+        None, help="Accent colour for cover and end slides (default: the account's, else #43c9e4)."
+    ),
 ) -> None:
     """Build a post: pick titles and hooks in your editor, then render the slides."""
     from manhwatok.app import container
     from manhwatok.app.build_post import build_post
-    from manhwatok.app.suggest import suggest_titles
+    from manhwatok.app.suggest import suggest_for_account
 
-    query = _query(tag, genre, sort, limit, min_tag_rank)
     settings = Settings()
+    now = datetime.now(timezone.utc)
     try:
         tools = _tools(settings)
         with container.build_store(settings) as store:
+            query, theme_title = _theme_query(store, theme, tag, genre, sort, limit, min_tag_rank)
+            acct = _account(store, account)
+            metadata = container.build_metadata(settings)
             source = container.build_chapter_source(settings, store.cache) if chapters else None
             built = build_post(
-                lambda: suggest_titles(
-                    query, container.build_metadata(settings), source, progress=_progress
+                lambda: suggest_for_account(
+                    query, acct, metadata, source, store.history, now, allow_repeats, _progress
                 ),
-                title,
-                None,
+                theme_title if title is None else title,
+                acct,
                 hashtags,
                 accent,
                 tools,
-                now=datetime.now(timezone.utc),
+                now=now,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -205,12 +271,13 @@ def export(
         None, help="Folder to export into (default: ~/Downloads/manhwatok)."
     ),
 ) -> None:
-    """Copy a post's slides and caption.txt to a folder for uploading."""
+    """Copy a post's slides and caption.txt to a folder for uploading. The first export of an
+    account's post counts its titles as posted."""
     from manhwatok.app import container
+    from manhwatok.app.export_post import export_post
 
     settings = Settings()
     try:
-        from manhwatok.app.export_post import export_post
         with container.build_store(settings) as store:
             dest = export_post(
                 post_id,
@@ -225,21 +292,56 @@ def export(
 
 
 @app.command()
-def posts() -> None:
+def posts(
+    account: Optional[str] = typer.Option(
+        None, "--account", "-a", help="Only this account's posts."
+    ),
+) -> None:
     """List saved posts, newest first."""
+    from manhwatok.app import container
+    from manhwatok.domain.account import normalize_handle
     from manhwatok.domain.text import plain_title
 
     try:
-        saved = _tools(Settings()).posts.list()
+        saved = container.build_posts(Settings()).list()
+        if account:
+            handle = normalize_handle(account)
+            saved = [p for p in saved if p.account == handle]
     except ManhwatokError as e:
         _fail(e)
     if not saved:
-        typer.echo("no posts yet — try: manhwatok build -t Revenge")
+        hint = "try: manhwatok build -t Revenge"
+        typer.echo(f"no posts for @{handle} yet" if account else f"no posts yet — {hint}")
         return
+    who = {p.id: f"@{p.account}" if p.account else "-" for p in saved}
+    width = max(len(w) for w in who.values())
     for post in saved:
         when = post.created_at.astimezone().strftime("%Y-%m-%d %H:%M")
         size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
-        typer.echo(f"{post.id}  {when}  {size:>9}  {plain_title(post.title) or '(untitled)'}")
+        title = plain_title(post.title) or "(untitled)"
+        typer.echo(f"{post.id}  {when}  {who[post.id]:<{width}}  {size:>9}  {title}")
+
+
+@app.command()
+def delete(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask for confirmation."),
+) -> None:
+    """Delete a post's folder. An exported post's titles still count as posted."""
+    from manhwatok.app import container
+    from manhwatok.app.delete_post import delete_post
+
+    try:
+        repo = container.build_posts(Settings())
+        post = repo.get(post_id)
+        size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
+        if not yes and not typer.confirm(f"Delete post {post_id} ({size})?", default=False):
+            typer.echo("kept")
+            return
+        delete_post(post_id, repo)
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo(f"deleted post {post_id}")
 
 
 # --- accounts and themes -------------------------------------------------------------------
