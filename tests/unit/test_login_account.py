@@ -1,0 +1,66 @@
+import pytest
+
+from manhwatok.adapters.sqlite_store import SqliteStore
+from manhwatok.app.login_account import forget_login, login_account, saved_login
+from manhwatok.domain.account import Account
+from manhwatok.domain.errors import AccountNotFound, InvalidName, StorageError, UploadUnavailable
+from tests.unit.fakes import FakeUploader
+
+
+@pytest.fixture
+def store(tmp_path):
+    with SqliteStore(tmp_path / "m.db") as s:
+        s.accounts.add(Account(handle="reads"))
+        yield s
+
+
+def test_login_tells_the_user_then_opens_the_accounts_browser(store):
+    uploader = FakeUploader()
+    messages = []
+    account = login_account("@Reads", store.accounts, uploader, messages.append)
+    assert account.handle == "reads"
+    assert messages == ["Log in to @reads in the browser, then close the window."]
+    assert uploader.logins == ["reads"]
+    assert uploader.events == ["login", "close"]
+
+
+def test_login_unknown_account_opens_nothing(store):
+    uploader = FakeUploader()
+    messages = []
+    with pytest.raises(AccountNotFound, match="no account @ghost"):
+        login_account("ghost", store.accounts, uploader, messages.append)
+    with pytest.raises(InvalidName):
+        login_account("no spaces", store.accounts, uploader, messages.append)
+    assert (uploader.events, messages) == ([], [])
+
+
+def test_login_closes_the_browser_when_it_fails(store):
+    uploader = FakeUploader(error=UploadUnavailable("upload needs: …"))
+    with pytest.raises(UploadUnavailable):
+        login_account("reads", store.accounts, uploader, lambda _: None)
+    assert uploader.events == ["login", "close"]
+
+
+def test_saved_login_is_the_accounts_profile_folder(tmp_path):
+    assert saved_login(tmp_path, "reads") is None
+    (tmp_path / "reads").mkdir()
+    assert saved_login(tmp_path, "@Reads") == tmp_path / "reads"
+
+
+def test_forget_login_deletes_the_folder(tmp_path):
+    folder = tmp_path / "reads"
+    (folder / "Default").mkdir(parents=True)
+    (folder / "Default" / "Cookies").write_bytes(b"x")
+    forget_login(folder)
+    assert not folder.exists()
+
+
+def test_forget_login_failure_is_a_storage_error(tmp_path, monkeypatch):
+    (tmp_path / "reads").mkdir()
+
+    def boom(path):
+        raise OSError("busy")
+
+    monkeypatch.setattr("manhwatok.app.login_account.shutil.rmtree", boom)
+    with pytest.raises(StorageError, match="could not delete the saved login"):
+        forget_login(tmp_path / "reads")
