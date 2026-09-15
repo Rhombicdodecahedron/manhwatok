@@ -6,7 +6,7 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
-from manhwatok.domain.color import is_hex_color
+from manhwatok.domain.color import check_accent
 from manhwatok.domain.errors import InvalidName, ManhwatokError
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
@@ -54,9 +54,7 @@ class Account(BaseModel):
     @field_validator("accent")
     @classmethod
     def _accent(cls, value: str) -> str:
-        if not is_hex_color(value):
-            raise InvalidName(f"accent must look like #43c9e4, got {value!r}")
-        return value.lower()
+        return check_accent(value)
 
     @field_validator("cta_title", "cta_follow")
     @classmethod

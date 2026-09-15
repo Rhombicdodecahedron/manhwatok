@@ -2,11 +2,13 @@ import pytest
 
 from manhwatok.domain.color import (
     MIN_LUMINANCE,
+    check_accent,
     hex_to_rgb,
     is_hex_color,
     luminance,
     readable_accent,
 )
+from manhwatok.domain.errors import InvalidName
 from manhwatok.domain.post import DEFAULT_ACCENT
 
 
@@ -45,6 +47,12 @@ def test_is_hex_color():
     assert is_hex_color("#43c9e4")
     assert not is_hex_color("43c9e4")
     assert not is_hex_color("#43c9e")
+
+
+def test_check_accent_lowercases_or_raises():
+    assert check_accent("#43C9E4") == "#43c9e4"
+    with pytest.raises(InvalidName, match=r"^accent must look like #43c9e4, got 'cyan'$"):
+        check_accent("cyan")
 
 
 def test_luminance_extremes():

@@ -150,11 +150,11 @@ def test_account_set_missing_account():
 
 def test_account_list_and_show():
     assert "no accounts yet" in _ok(["account", "list"])
-    _ok(["account", "add", "bravo"])
+    _ok(["account", "add", "bravo.reads"])
     _ok(["account", "add", "alpha", "--genres", "Action,Fantasy", "--block-tags", "Harem"])
     assert _ok(["account", "list"]).splitlines() == [
-        "@alpha  Action, Fantasy  blocks Harem  repeat 30d",
-        "@bravo  any genre  no blocks  repeat 30d",
+        "@alpha        Action, Fantasy  blocks Harem  repeat 30d",
+        "@bravo.reads  any genre  no blocks  repeat 30d",
     ]
     shown = _ok(["account", "show", "@ALPHA"])
     assert "  block tags    Harem\n" in shown

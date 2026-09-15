@@ -10,9 +10,9 @@ from manhwatok.app.delete_post import delete_post
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_post
 from manhwatok.domain.account import Account
-from manhwatok.domain.color import is_hex_color
+from manhwatok.domain.color import check_accent
 from manhwatok.domain.draft import is_empty_draft, parse_draft, render_draft
-from manhwatok.domain.errors import DraftError, InvalidName, ManhwatokError
+from manhwatok.domain.errors import DraftError, ManhwatokError
 from manhwatok.domain.models import Manhwa
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
@@ -25,12 +25,6 @@ from manhwatok.domain.post import (
 )
 from manhwatok.domain.text import first_sentence
 from manhwatok.ports.posts import PostRepository
-
-
-def check_accent(accent: str) -> str:
-    if not is_hex_color(accent):
-        raise InvalidName(f"accent must look like #43c9e4, got {accent!r}")
-    return accent.lower()
 
 
 def create_post(

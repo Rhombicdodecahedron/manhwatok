@@ -492,10 +492,11 @@ def account_list() -> None:
     if not accounts:
         typer.echo("no accounts yet — try: manhwatok account add @yourhandle")
         return
+    width = max(len(a.display) for a in accounts)
     for a in accounts:
         blocks = a.block_genres + a.block_tags
         typer.echo(
-            f"{a.display}  {', '.join(a.genres) or 'any genre'}  "
+            f"{a.display:<{width}}  {', '.join(a.genres) or 'any genre'}  "
             f"{'blocks ' + ', '.join(blocks) if blocks else 'no blocks'}  repeat {a.repeat_days}d"
         )
 

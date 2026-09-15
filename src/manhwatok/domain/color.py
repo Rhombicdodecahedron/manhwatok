@@ -5,6 +5,7 @@ from __future__ import annotations
 import colorsys
 import re
 
+from manhwatok.domain.errors import InvalidName
 from manhwatok.domain.post import DEFAULT_ACCENT
 
 MIN_LUMINANCE = 0.30
@@ -24,6 +25,13 @@ def luminance(rgb: tuple[int, int, int]) -> float:
 
 def is_hex_color(value: str) -> bool:
     return bool(_HEX.match(value))
+
+
+def check_accent(accent: str) -> str:
+    """A user-given accent as lowercase #rrggbb; raises InvalidName otherwise."""
+    if not is_hex_color(accent):
+        raise InvalidName(f"accent must look like #43c9e4, got {accent!r}")
+    return accent.lower()
 
 
 def hex_to_rgb(color: str) -> tuple[int, int, int]:

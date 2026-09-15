@@ -59,35 +59,43 @@ def test_unknown_tag_without_close_match_points_to_tags_command():
         canonical_names(["Zzz"], ["Revenge"], "tag")
 
 
-def test_lists_are_fetched_once_and_cached(tmp_path):
+@pytest.fixture
+def clock():
+    return Clock()
+
+
+@pytest.fixture
+def store(tmp_path, clock):
+    with SqliteStore(tmp_path / "m.db", clock=clock) as s:
+        yield s
+
+
+def test_lists_are_fetched_once_and_cached(store):
     meta = CountingMetadata()
-    store = SqliteStore(tmp_path / "m.db")
     assert AniListNames(meta, store.cache, print).genres(["romance"]) == ["Romance"]
     assert AniListNames(meta, store.cache, print).genres(["drama"]) == ["Drama"]
     assert AniListNames(meta, store.cache, print).tags(["revenge"]) == ["Revenge"]
     assert meta.fetches == ["genres", "tags"]
 
 
-def test_cached_lists_expire_after_a_day(tmp_path):
+def test_cached_lists_expire_after_a_day(store, clock):
     meta = CountingMetadata()
-    clock = Clock()
-    cache = SqliteStore(tmp_path / "m.db", clock=clock).cache
-    AniListNames(meta, cache, print).genres(["Action"])
+    AniListNames(meta, store.cache, print).genres(["Action"])
     clock.now += 24 * 3600 + 1
-    AniListNames(meta, cache, print).genres(["Action"])
+    AniListNames(meta, store.cache, print).genres(["Action"])
     assert meta.fetches == ["genres", "genres"]
 
 
-def test_empty_list_needs_no_lookup(tmp_path):
+def test_empty_list_needs_no_lookup(store):
     meta = CountingMetadata()
-    assert AniListNames(meta, SqliteStore(tmp_path / "m.db").cache, print).genres([]) == []
+    assert AniListNames(meta, store.cache, print).genres([]) == []
     assert meta.fetches == []
 
 
-def test_anilist_down_warns_once_and_keeps_names_as_typed(tmp_path):
+def test_anilist_down_warns_once_and_keeps_names_as_typed(store):
     meta = CountingMetadata(error=MetadataError("AniList unreachable: boom"))
     warnings = []
-    names = AniListNames(meta, SqliteStore(tmp_path / "m.db").cache, warnings.append)
+    names = AniListNames(meta, store.cache, warnings.append)
     assert names.genres(["Actoin"]) == ["Actoin"]
     assert names.tags(["revenge"]) == ["revenge"]
     assert meta.fetches == ["genres"]  # no second attempt once AniList is known to be down
@@ -102,11 +110,10 @@ def test_broken_cache_still_checks_names():
 
 
 @pytest.mark.parametrize("corrupt", ["not json", '{"Action": 1}', '"Action"', "[1, 2]"])
-def test_corrupt_cached_list_is_a_miss_and_gets_overwritten(tmp_path, corrupt):
+def test_corrupt_cached_list_is_a_miss_and_gets_overwritten(store, corrupt):
     meta = CountingMetadata()
-    with SqliteStore(tmp_path / "m.db") as store:
-        AniListNames(meta, store.cache, print).genres(["action"])
-        store.write(CacheError, "UPDATE cache SET value = ?", (corrupt,))
-        assert AniListNames(meta, store.cache, print).genres(["action"]) == ["Action"]
-        assert AniListNames(meta, store.cache, print).genres(["drama"]) == ["Drama"]
+    AniListNames(meta, store.cache, print).genres(["action"])
+    store.write(CacheError, "UPDATE cache SET value = ?", (corrupt,))
+    assert AniListNames(meta, store.cache, print).genres(["action"]) == ["Action"]
+    assert AniListNames(meta, store.cache, print).genres(["drama"]) == ["Drama"]
     assert meta.fetches == ["genres", "genres"]

@@ -21,12 +21,12 @@ from tests.unit.fakes import Clock
 
 
 def _version(path) -> int:
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn:
         return conn.execute("PRAGMA user_version").fetchone()[0]
 
 
 def _tables(path) -> set[str]:
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn:
         rows = conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
         return {name for (name,) in rows if not name.startswith("sqlite_")}
 
@@ -196,32 +196,38 @@ def test_connection_can_be_used_from_another_thread(tmp_path):
 # --- cache (moved from the Phase 2 SqliteCache tests) --------------------------------------
 
 
-def test_cache_miss_returns_none(tmp_path):
-    assert SqliteStore(tmp_path / "m.db").cache.get("k", 60) is None
+@pytest.fixture
+def clock():
+    return Clock()
 
 
-def test_cache_put_then_get(tmp_path):
-    cache = SqliteStore(tmp_path / "m.db").cache
-    cache.put("k", "v")
-    assert cache.get("k", 60) == "v"
+@pytest.fixture
+def store(tmp_path, clock):
+    with SqliteStore(tmp_path / "m.db", clock=clock) as s:
+        yield s
 
 
-def test_cache_expired_entry_is_a_miss(tmp_path):
-    clock = Clock()
-    cache = SqliteStore(tmp_path / "m.db", clock=clock).cache
-    cache.put("k", "v")
+def test_cache_miss_returns_none(store):
+    assert store.cache.get("k", 60) is None
+
+
+def test_cache_put_then_get(store):
+    store.cache.put("k", "v")
+    assert store.cache.get("k", 60) == "v"
+
+
+def test_cache_expired_entry_is_a_miss(store, clock):
+    store.cache.put("k", "v")
     clock.now += 61
-    assert cache.get("k", 60) is None
+    assert store.cache.get("k", 60) is None
 
 
-def test_cache_put_overwrites_and_refreshes_age(tmp_path):
-    clock = Clock()
-    cache = SqliteStore(tmp_path / "m.db", clock=clock).cache
-    cache.put("k", "old")
+def test_cache_put_overwrites_and_refreshes_age(store, clock):
+    store.cache.put("k", "old")
     clock.now += 50
-    cache.put("k", "new")
+    store.cache.put("k", "new")
     clock.now += 50
-    assert cache.get("k", 60) == "new"
+    assert store.cache.get("k", 60) == "new"
 
 
 def test_cache_errors_after_close_are_cache_errors(tmp_path):
@@ -235,12 +241,6 @@ def test_cache_errors_after_close_are_cache_errors(tmp_path):
 
 
 # --- accounts and themes -------------------------------------------------------------------
-
-
-@pytest.fixture
-def store(tmp_path):
-    with SqliteStore(tmp_path / "m.db") as s:
-        yield s
 
 
 def test_accounts_round_trip_sorted_by_handle(store):
