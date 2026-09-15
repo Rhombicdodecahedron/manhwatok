@@ -114,6 +114,7 @@ class PlaywrightUploader:
 
     @contextmanager
     def _noting_ctrl_c(self):
+        """Remember a Ctrl-C on its way out, so close() doesn't wait on the browser."""
         try:
             yield
         except KeyboardInterrupt:
