@@ -20,9 +20,10 @@ def manhwa(**overrides) -> Manhwa:
 
 
 class FakeMetadata:
-    def __init__(self, results=(), tags=()):
+    def __init__(self, results=(), tags=(), genres=()):
         self.results: list[Manhwa] = list(results)
         self.tags: list[TagInfo] = list(tags)
+        self.genres: list[str] = list(genres)
         self.queries: list[SearchQuery] = []
 
     def search(self, query: SearchQuery) -> list[Manhwa]:
@@ -31,6 +32,9 @@ class FakeMetadata:
 
     def list_tags(self) -> list[TagInfo]:
         return list(self.tags)
+
+    def list_genres(self) -> list[str]:
+        return list(self.genres)
 
 
 class FakeChapters:

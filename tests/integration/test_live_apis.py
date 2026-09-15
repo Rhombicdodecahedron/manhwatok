@@ -35,3 +35,7 @@ def test_anilist_tag_list_has_revenge():
 def test_mangaupdates_finds_doom_breaker():
     m = Manhwa(anilist_id=0, title="Doom Breaker", romaji="", status=Status.HIATUS, start_year=2021)
     assert (MangaUpdatesSource().latest_chapter(m) or 0) >= 101
+
+
+def test_anilist_genre_list_has_action():
+    assert "Action" in AniListSource().list_genres()

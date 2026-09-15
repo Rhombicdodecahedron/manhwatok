@@ -13,12 +13,15 @@ from manhwatok.domain.models import Manhwa, SearchQuery, Sort, Status, TagInfo
 ANILIST_URL = "https://graphql.anilist.co"
 USER_AGENT = "manhwatok/0.1"
 
-# tag_in / genre_in are AND filters; minimumTagRank drops weak tag matches.
+# tag_in / genre_in are AND filters; *_not_in drop titles with any of those; minimumTagRank
+# drops weak tag matches.
 _SEARCH = """
-query ($perPage: Int, $genres: [String], $tags: [String], $sort: [MediaSort], $minTagRank: Int) {
+query ($perPage: Int, $genres: [String], $tags: [String], $sort: [MediaSort], $minTagRank: Int,
+       $excludeGenres: [String], $excludeTags: [String]) {
   Page(page: 1, perPage: $perPage) {
     media(type: MANGA, countryOfOrigin: "KR", isAdult: false,
-          genre_in: $genres, tag_in: $tags, sort: $sort, minimumTagRank: $minTagRank) {
+          genre_in: $genres, tag_in: $tags, sort: $sort, minimumTagRank: $minTagRank,
+          genre_not_in: $excludeGenres, tag_not_in: $excludeTags) {
       id
       title { english romaji }
       status
@@ -37,6 +40,7 @@ query ($perPage: Int, $genres: [String], $tags: [String], $sort: [MediaSort], $m
 """
 
 _TAGS = "{ MediaTagCollection { name category description isAdult } }"
+_GENRES = "{ GenreCollection }"
 
 _SORT = {
     Sort.SCORE: "SCORE_DESC",
@@ -70,6 +74,10 @@ class AniListSource:
             variables["genres"] = query.genres
         if query.tags:
             variables["tags"] = query.tags
+        if query.exclude_genres:
+            variables["excludeGenres"] = query.exclude_genres
+        if query.exclude_tags:
+            variables["excludeTags"] = query.exclude_tags
         data = self._post(_SEARCH, variables)
         return [_to_manhwa(m) for m in data["Page"]["media"]]
 
@@ -80,6 +88,9 @@ class AniListSource:
             for t in data["MediaTagCollection"]
             if not t["isAdult"]
         ]
+
+    def list_genres(self) -> list[str]:
+        return [g for g in self._post(_GENRES, {})["GenreCollection"] if g]
 
     def _post(self, query: str, variables: dict) -> dict:
         try:

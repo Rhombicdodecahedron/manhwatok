@@ -165,3 +165,31 @@ def test_list_tags_drops_adult_tags():
 )
 def test_clean_description(raw, expected):
     assert clean_description(raw) == expected
+
+
+def test_search_sends_exclusions_only_when_given():
+    seen = {}
+    _source(_capture(seen)).search(
+        SearchQuery(genres=["Action"], exclude_genres=["Romance"], exclude_tags=["Harem"])
+    )
+    assert "genre_not_in: $excludeGenres" in seen["query"]
+    assert "tag_not_in: $excludeTags" in seen["query"]
+    assert seen["variables"]["excludeGenres"] == ["Romance"]
+    assert seen["variables"]["excludeTags"] == ["Harem"]
+
+
+def test_list_genres():
+    body = {"data": {"GenreCollection": ["Action", "Romance", "Slice of Life"]}}
+    assert _source(lambda r: httpx.Response(200, json=body)).list_genres() == [
+        "Action",
+        "Romance",
+        "Slice of Life",
+    ]
+
+
+def test_list_genres_network_failure():
+    def handler(request):
+        raise httpx.ConnectError("boom")
+
+    with pytest.raises(MetadataError, match="unreachable"):
+        _source(handler).list_genres()
