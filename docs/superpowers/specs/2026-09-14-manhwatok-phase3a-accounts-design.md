@@ -101,8 +101,10 @@ manhwatok delete <id> [--yes]
   (pure; fills account, cta texts, hashtags/accent from overrides → account → defaults). `build_post`
   uses it; the draft/editor flow is unchanged.
 - `FsPostRepository.new_id` reserves the id with `mkdir(exist_ok=False)` (retry on collision).
-- `export_post(post_id, posts, history, dest_root, now)`: after copying, if the post has an account and
-  no `exported_at`, set it to `now`, save the post, `history.record(...)`. Re-export keeps the first date.
+- `export_post(post_id, posts, history, dest_root, now)`: after copying, if the post has an account, always
+  `history.record(account, post_id, current item ids, post.exported_at or now)` (idempotent — re-export after an
+  edit protects newly added titles, dated with the first export); set `exported_at = now` and save only when it
+  was None. Re-export keeps the first date.
 - `delete_post(post_id, posts)`: `shutil.rmtree` of the post folder (errors → `StorageError`); the CLI
   asks for confirmation.
 - `container`: `build_store(settings)` (one `SqliteStore` per command), `build_posts(settings)` (repository only,

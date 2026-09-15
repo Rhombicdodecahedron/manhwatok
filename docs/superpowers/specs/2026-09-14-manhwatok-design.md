@@ -129,3 +129,18 @@ Each phase gets its own task-level implementation plan under `docs/superpowers/p
 - Live: `manhwatok suggest` against real AniList returns KR manhwa with covers; render one post
   and view the PNGs; `publish` produces the export folder with caption.txt. Phase 4: send a
   draft to a sandbox account and confirm it lands in the TikTok inbox.
+
+## Carry-forward from Phase 3a review (address in the named phase's plan)
+- Phase 3b: one app-lifetime `SqliteStore` in the TUI (closed on exit); a lifecycle container that owns and closes
+  the httpx clients (AniList, MangaUpdates, CoverCache); `PRAGMA journal_mode=WAL` so TUI and CLI coexist
+  (busy timeout 10 s already set by the 3a fix wave).
+- Phase 3b: TUI flow = `suggest_for_account` → shared `prefill_items()` pulled out of `build_post` → user picks →
+  `posts.new_id` only at save time → `create_post` → save → `render_post` in a worker (one render worker at a time —
+  cached FreeTypeFont objects are shared).
+- Phase 3b: `history show @x` / `history forget <post-id>` (an accidental export blocks titles for the window);
+  `posts` could list empty leftover folders; recap block horizontally centred for short lists.
+- Phase 3b/4: consider AniList `id_not_in` (verify live) instead of over-fetching for repeats (removes the 50 cap);
+  cache AniList search responses (allow-lists multiply calls per genre).
+- Phase 4: a successful draft upload becomes the "posted" event → `ListPost` status / `sent_at`; PNG vs JPEG/WebP.
+- Still open: glyphs Montserrat lacks (Hangul/CJK/emoji) in hooks; re-download undecodable cached covers; CLI usage
+  errors exit 2. `SlideStyle` is superseded by per-post style fields (accent, cta_title, cta_follow) — closed.
