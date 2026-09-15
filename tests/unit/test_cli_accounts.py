@@ -132,6 +132,18 @@ def test_account_set_empty_string_clears_a_list(tmp_path):
         assert store.accounts.get("reads").genres == []
 
 
+def test_account_set_without_options_changes_nothing(tmp_path):
+    _ok(["account", "add", "reads", "--hashtags", "#old"])
+    out = _err(["account", "set", "reads"])
+    assert (
+        "error: nothing to change — give at least one option "
+        "(see `manhwatok account set --help`)" in out
+    )
+    assert "updated" not in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").hashtags == "#old"
+
+
 def test_account_set_missing_account():
     assert "error: no account @ghost" in _err(["account", "set", "ghost", "--hashtags", "#x"])
 

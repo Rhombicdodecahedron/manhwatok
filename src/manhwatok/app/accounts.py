@@ -7,6 +7,7 @@ from typing import Any
 
 from manhwatok.app.names import NameCheck
 from manhwatok.domain.account import Account, normalize_handle
+from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import Sort
 from manhwatok.domain.theme import Theme
 from manhwatok.ports.store import AccountRepository, ThemeRepository
@@ -36,6 +37,10 @@ def update_account(
     accounts: AccountRepository, names: NameCheck, handle: str, changes: dict[str, Any]
 ) -> Account:
     """Change only the fields in `changes`; raises AccountNotFound."""
+    if not changes:
+        raise ManhwatokError(
+            "nothing to change — give at least one option (see `manhwatok account set --help`)"
+        )
     current = accounts.get(normalize_handle(handle))
     account = Account.model_validate({**current.model_dump(), **changes})
     account = _checked_account(account, names, changes)

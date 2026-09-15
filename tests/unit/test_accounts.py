@@ -3,7 +3,7 @@ import pytest
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app.accounts import add_account, add_theme, update_account
 from manhwatok.app.names import AniListNames
-from manhwatok.domain.errors import AccountNotFound, AlreadyExists, InvalidName
+from manhwatok.domain.errors import AccountNotFound, AlreadyExists, InvalidName, ManhwatokError
 from manhwatok.domain.models import Sort, TagInfo
 from manhwatok.domain.post import DEFAULT_HASHTAGS
 from tests.unit.fakes import FakeMetadata
@@ -91,6 +91,13 @@ def test_update_missing_account(env):
     store, names, _ = env
     with pytest.raises(AccountNotFound, match="no account @ghost"):
         update_account(store.accounts, names, "ghost", {"hashtags": "#x"})
+
+
+def test_update_without_changes_fails(env):
+    store, names, _ = env
+    add_account(store.accounts, names, "reads", {})
+    with pytest.raises(ManhwatokError, match="nothing to change"):
+        update_account(store.accounts, names, "reads", {})
 
 
 def test_add_theme_checks_names(env):
