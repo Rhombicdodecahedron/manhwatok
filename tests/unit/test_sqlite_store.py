@@ -1,12 +1,21 @@
 import re
 import sqlite3
 import threading
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from manhwatok.adapters import sqlite_store
 from manhwatok.adapters.sqlite_store import MIGRATIONS, SCHEMA_VERSION, SqliteStore
-from manhwatok.domain.errors import CacheError, StorageError
+from manhwatok.domain.account import Account
+from manhwatok.domain.errors import (
+    AccountNotFound,
+    AlreadyExists,
+    CacheError,
+    StorageError,
+    ThemeNotFound,
+)
+from manhwatok.domain.theme import Theme
 from tests.unit.fakes import Clock
 
 
@@ -159,3 +168,119 @@ def test_cache_errors_after_close_are_cache_errors(tmp_path):
         store.cache.get("k", 60)
     with pytest.raises(CacheError, match=re.escape(str(path))):
         store.cache.put("k", "v")
+
+
+# --- accounts and themes -------------------------------------------------------------------
+
+
+@pytest.fixture
+def store(tmp_path):
+    with SqliteStore(tmp_path / "m.db") as s:
+        yield s
+
+
+def test_accounts_round_trip_sorted_by_handle(store):
+    b = Account(handle="bravo", genres=["Action"], repeat_days=7)
+    a = Account(handle="alpha", block_tags=["Harem"])
+    store.accounts.add(b)
+    store.accounts.add(a)
+    assert store.accounts.get("bravo") == b
+    assert store.accounts.list() == [a, b]
+
+
+def test_account_update_and_remove(store):
+    store.accounts.add(Account(handle="alpha"))
+    store.accounts.update(Account(handle="alpha", hashtags="#x"))
+    assert store.accounts.get("alpha").hashtags == "#x"
+    store.accounts.remove("alpha")
+    assert store.accounts.list() == []
+
+
+def test_adding_an_existing_account_fails(store):
+    store.accounts.add(Account(handle="alpha"))
+    with pytest.raises(AlreadyExists, match="account @alpha already exists"):
+        store.accounts.add(Account(handle="alpha", hashtags="#other"))
+    assert store.accounts.get("alpha").hashtags != "#other"
+
+
+@pytest.mark.parametrize("op", ["get", "remove", "update"])
+def test_missing_account(store, op):
+    arg = Account(handle="ghost") if op == "update" else "ghost"
+    with pytest.raises(AccountNotFound, match="no account @ghost"):
+        getattr(store.accounts, op)(arg)
+
+
+def test_themes_round_trip_and_errors(store):
+    t = Theme(name="revenge", tags=["Revenge"], title="MC gets *revenge*")
+    store.themes.add(t)
+    assert store.themes.get("revenge") == t
+    assert store.themes.list() == [t]
+    with pytest.raises(AlreadyExists, match="theme revenge already exists"):
+        store.themes.add(t)
+    store.themes.update(t.model_copy(update={"title": "New"}))
+    assert store.themes.get("revenge").title == "New"
+    store.themes.remove("revenge")
+    with pytest.raises(ThemeNotFound, match="no theme revenge"):
+        store.themes.get("revenge")
+
+
+def test_corrupt_row_raises_storage_error(store):
+    store.write(StorageError, "INSERT INTO accounts VALUES ('alpha', '{\"handle\": \"!\"}')")
+    with pytest.raises(StorageError, match="account @alpha .* is unreadable"):
+        store.accounts.get("alpha")
+    with pytest.raises(StorageError, match="unreadable"):
+        store.accounts.list()
+
+
+def test_repository_errors_after_close_are_storage_errors(tmp_path):
+    with SqliteStore(tmp_path / "m.db") as closed:
+        pass
+    with pytest.raises(StorageError, match="unusable"):
+        closed.accounts.list()
+    with pytest.raises(StorageError, match="unusable"):
+        closed.history.recent("alpha", datetime(2026, 1, 1, tzinfo=timezone.utc))
+
+
+# --- history -------------------------------------------------------------------------------
+
+T0 = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+
+
+def test_recent_returns_ids_exported_since(store):
+    store.history.record("alpha", "20260901-aaaa", [1, 2], T0)
+    store.history.record("alpha", "20260911-bbbb", [3], T0 + timedelta(days=10))
+    assert store.history.recent("alpha", T0) == {1, 2, 3}
+    assert store.history.recent("alpha", T0 + timedelta(days=5)) == {3}
+
+
+def test_recent_window_boundary_is_inclusive(store):
+    store.history.record("alpha", "20260901-aaaa", [1], T0)
+    assert store.history.recent("alpha", T0) == {1}
+    assert store.history.recent("alpha", T0 + timedelta(microseconds=1)) == set()
+    assert store.history.recent("alpha", T0 - timedelta(microseconds=1)) == {1}
+
+
+def test_recent_compares_instants_across_timezones(store):
+    store.history.record("alpha", "20260901-aaaa", [1], T0)
+    plus_two = timezone(timedelta(hours=2))
+    assert store.history.recent("alpha", datetime(2026, 9, 1, 14, 0, tzinfo=plus_two)) == {1}
+    assert store.history.recent("alpha", datetime(2026, 9, 1, 14, 1, tzinfo=plus_two)) == set()
+
+
+def test_history_is_per_account(store):
+    store.history.record("alpha", "20260901-aaaa", [1], T0)
+    assert store.history.recent("bravo", T0) == set()
+
+
+def test_record_is_idempotent_and_keeps_the_first_date(store):
+    store.history.record("alpha", "20260901-aaaa", [1, 2], T0)
+    store.history.record("alpha", "20260901-aaaa", [1, 2], T0 + timedelta(days=10))
+    assert store.query(StorageError, "SELECT COUNT(*) FROM history") == [(2,)]
+    assert store.history.recent("alpha", T0 + timedelta(days=5)) == set()
+
+
+def test_removing_an_account_keeps_its_history(store):
+    store.accounts.add(Account(handle="alpha"))
+    store.history.record("alpha", "20260901-aaaa", [1], T0)
+    store.accounts.remove("alpha")
+    assert store.history.recent("alpha", T0) == {1}

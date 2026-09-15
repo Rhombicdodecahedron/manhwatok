@@ -6,10 +6,22 @@ from __future__ import annotations
 import sqlite3
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Generic, TypeVar
 
-from manhwatok.domain.errors import CacheError, ManhwatokError, StorageError
+from pydantic import BaseModel, ValidationError
+
+from manhwatok.domain.account import Account
+from manhwatok.domain.errors import (
+    AccountNotFound,
+    AlreadyExists,
+    CacheError,
+    ManhwatokError,
+    StorageError,
+    ThemeNotFound,
+)
+from manhwatok.domain.theme import Theme
 
 # MIGRATIONS[n - 1] takes the schema from PRAGMA user_version n-1 to n. Never edit a shipped
 # migration; append a new one. v1 says IF NOT EXISTS because Phase 2's SqliteCache created the
@@ -36,6 +48,7 @@ MIGRATIONS: tuple[str, ...] = (
 SCHEMA_VERSION = len(MIGRATIONS)
 
 Rows = list[tuple]
+M = TypeVar("M", bound=BaseModel)
 
 
 def _migrate(conn: sqlite3.Connection, path: Path) -> None:
@@ -79,6 +92,9 @@ class SqliteStore:
         self._conn = conn
         self._lock = threading.RLock()  # the connection may be shared by worker threads
         self.cache = CacheTable(self, clock)
+        self.accounts = AccountTable(self)
+        self.themes = ThemeTable(self)
+        self.history = HistoryTable(self)
 
     def close(self) -> None:
         with self._lock:
@@ -105,6 +121,14 @@ class SqliteStore:
         except (sqlite3.Error, OSError) as e:
             raise error(f"database at {self.path} is unusable: {e}") from e
 
+    def write_many(self, error: type[ManhwatokError], sql: str, rows: list[tuple]) -> None:
+        """Run one statement per row, all in a single transaction."""
+        try:
+            with self._lock, self._conn:
+                self._conn.executemany(sql, rows)
+        except (sqlite3.Error, OSError) as e:
+            raise error(f"database at {self.path} is unusable: {e}") from e
+
 
 class CacheTable:
     """The `Cache` port: key/value strings with a per-read max age."""
@@ -128,3 +152,111 @@ class CacheTable:
             "DO UPDATE SET value = excluded.value, stored_at = excluded.stored_at",
             (key, value, self._clock()),
         )
+
+
+class _ModelTable(Generic[M]):
+    """A table of pydantic models stored as JSON under a text key."""
+
+    TABLE: str  # SQL table
+    KEY: str  # key column, also the model's key field
+    MODEL: type[M]
+    MISSING: type[ManhwatokError]
+    NOUN: str  # for messages and the `manhwatok <noun> list` hint
+
+    def __init__(self, store: SqliteStore) -> None:
+        self._store = store
+
+    def label(self, key: str) -> str:
+        return f"{self.NOUN} {key}"
+
+    def add(self, item: M) -> None:
+        key = getattr(item, self.KEY)
+        added = self._store.write(
+            StorageError,
+            f"INSERT INTO {self.TABLE} ({self.KEY}, data) VALUES (?, ?) "
+            f"ON CONFLICT({self.KEY}) DO NOTHING",
+            (key, item.model_dump_json()),
+        )
+        if not added:
+            raise AlreadyExists(f"{self.label(key)} already exists")
+
+    def update(self, item: M) -> None:
+        key = getattr(item, self.KEY)
+        changed = self._store.write(
+            StorageError,
+            f"UPDATE {self.TABLE} SET data = ? WHERE {self.KEY} = ?",
+            (item.model_dump_json(), key),
+        )
+        if not changed:
+            raise self._missing(key)
+
+    def get(self, key: str) -> M:
+        rows = self._store.query(
+            StorageError, f"SELECT data FROM {self.TABLE} WHERE {self.KEY} = ?", (key,)
+        )
+        if not rows:
+            raise self._missing(key)
+        return self._load(key, rows[0][0])
+
+    def list(self) -> list[M]:
+        rows = self._store.query(
+            StorageError, f"SELECT {self.KEY}, data FROM {self.TABLE} ORDER BY {self.KEY}"
+        )
+        return [self._load(key, data) for key, data in rows]
+
+    def remove(self, key: str) -> None:
+        if not self._store.write(
+            StorageError, f"DELETE FROM {self.TABLE} WHERE {self.KEY} = ?", (key,)
+        ):
+            raise self._missing(key)
+
+    def _missing(self, key: str) -> ManhwatokError:
+        return self.MISSING(f"no {self.label(key)} — see `manhwatok {self.NOUN} list`")
+
+    def _load(self, key: str, data: str) -> M:
+        try:
+            return self.MODEL.model_validate_json(data)
+        except (ValidationError, ManhwatokError) as e:
+            raise StorageError(f"{self.label(key)} in {self._store.path} is unreadable: {e}") from e
+
+
+class AccountTable(_ModelTable[Account]):
+    TABLE, KEY, MODEL, MISSING, NOUN = "accounts", "handle", Account, AccountNotFound, "account"
+
+    def label(self, key: str) -> str:
+        return f"account @{key}"
+
+
+class ThemeTable(_ModelTable[Theme]):
+    TABLE, KEY, MODEL, MISSING, NOUN = "themes", "name", Theme, ThemeNotFound, "theme"
+
+
+def _stamp(when: datetime) -> str:
+    """Fixed-width UTC ISO text, so comparing strings in SQL compares instants."""
+    return when.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+class HistoryTable:
+    """Which titles each account has exported, and when (the first export of each post)."""
+
+    def __init__(self, store: SqliteStore) -> None:
+        self._store = store
+
+    def record(
+        self, account: str, post_id: str, anilist_ids: list[int], exported_at: datetime
+    ) -> None:
+        stamp = _stamp(exported_at)
+        self._store.write_many(
+            StorageError,
+            "INSERT OR IGNORE INTO history (account, anilist_id, post_id, exported_at) "
+            "VALUES (?, ?, ?, ?)",
+            [(account, anilist_id, post_id, stamp) for anilist_id in anilist_ids],
+        )
+
+    def recent(self, account: str, since: datetime) -> set[int]:
+        rows = self._store.query(
+            StorageError,
+            "SELECT DISTINCT anilist_id FROM history WHERE account = ? AND exported_at >= ?",
+            (account, _stamp(since)),
+        )
+        return {anilist_id for (anilist_id,) in rows}
