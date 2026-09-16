@@ -257,3 +257,16 @@ def test_edit_bad_draft_is_saved(tmp_path):
         edit_post("20260914-a3f9", tools)
     assert tools.posts.load_draft("20260914-a3f9") == "title: T\n"
     assert tools.posts.get("20260914-a3f9") == post()
+
+
+def test_create_post_stores_the_song_override_as_given():
+    items = [PostItem(manhwa=CANDIDATES[0], hook="h")]
+    args = ("20260914-a3f9", NOW, CANDIDATES, "T", items, ACCOUNT.model_copy(update={"song": "A"}))
+    assert create_post(*args, None, None).song is None
+    assert create_post(*args, None, None, "Mine").song == "Mine"
+
+
+def test_build_saves_the_song(tmp_path):
+    tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: text))
+    built, _ = build_post(lambda: CANDIDATES, "T", None, None, None, tools, NOW, song="Mine")
+    assert tools.posts.get(built.id).song == "Mine"

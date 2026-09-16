@@ -36,9 +36,11 @@ def create_post(
     account: Account | None,
     hashtags: str | None,
     accent: str | None,
+    song: str | None = None,
 ) -> ListPost:
     """A new post (pure). Hashtags and accent: the override if given, else the account's, else
-    the defaults. End-slide texts come from the account."""
+    the defaults. End-slide texts come from the account. `song` is stored as given: None keeps
+    following the account's song."""
     if hashtags is None:
         hashtags = account.hashtags if account else DEFAULT_HASHTAGS
     if accent is None:
@@ -54,6 +56,7 @@ def create_post(
         account=account.handle if account else None,
         cta_title=account.cta_title if account else DEFAULT_CTA_TITLE,
         cta_follow=account.cta_follow if account else DEFAULT_CTA_FOLLOW,
+        song=song,
     )
 
 
@@ -65,6 +68,7 @@ def build_post(
     accent: str | None,
     tools: PostTools,
     now: datetime,
+    song: str | None = None,
 ) -> tuple[ListPost, list[Path]] | None:
     """Returns (post, slide paths), or None if the user cancelled in the editor.
     `find_candidates` runs the search (e.g. `suggest_for_account`) once the inputs are valid."""
@@ -88,7 +92,7 @@ def build_post(
         _save_new(draft, tools.posts)
         tools.posts.save_draft(post_id, edited)
         raise DraftError(f"{e} — your draft is saved; fix with: manhwatok edit {post_id}") from e
-    post = create_post(post_id, now, candidates, title, items, account, hashtags, accent)
+    post = create_post(post_id, now, candidates, title, items, account, hashtags, accent, song)
     _save_new(post, tools.posts)
     return post, render_post(post.id, tools)
 

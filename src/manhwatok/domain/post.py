@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import AwareDatetime, BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, field_validator
 
 from manhwatok.domain.models import Manhwa
 
@@ -32,6 +32,13 @@ class ListPost(BaseModel):
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
     sent_at: AwareDatetime | None = None  # Phase 4: when the user confirmed it was posted
+    # Phase 3b: the sound to add in TikTok. None = the account's song; "" = no song for this post.
+    song: str | None = None
+
+    @field_validator("song")
+    @classmethod
+    def _song(cls, value: str | None) -> str | None:
+        return None if value is None else value.strip()
 
     @property
     def slide_count(self) -> int:

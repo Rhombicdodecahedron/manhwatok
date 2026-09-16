@@ -13,6 +13,7 @@ from manhwatok.domain.post import (
     DEFAULT_CTA_FOLLOW,
     DEFAULT_CTA_TITLE,
     DEFAULT_HASHTAGS,
+    ListPost,
 )
 from manhwatok.domain.text import clean_names
 
@@ -42,6 +43,7 @@ class Account(BaseModel):
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
     repeat_days: int = DEFAULT_REPEAT_DAYS
+    song: str = ""  # song name or TikTok sound link to add when posting; "" = none
 
     @field_validator("handle")
     @classmethod
@@ -65,6 +67,11 @@ class Account(BaseModel):
             raise ManhwatokError("end-slide texts can't be empty")
         return value.strip()
 
+    @field_validator("song")
+    @classmethod
+    def _song(cls, value: str) -> str:
+        return value.strip()
+
     @field_validator("repeat_days")
     @classmethod
     def _repeat_days(cls, value: int) -> int:
@@ -75,3 +82,10 @@ class Account(BaseModel):
     @property
     def display(self) -> str:
         return f"@{self.handle}"
+
+
+def effective_song(post: ListPost, account: Account | None) -> str:
+    """The song to add when posting: the post's own if it set one (even ""), else its account's."""
+    if post.song is not None:
+        return post.song
+    return account.song if account else ""

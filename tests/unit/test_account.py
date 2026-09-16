@@ -1,6 +1,11 @@
 import pytest
 
-from manhwatok.domain.account import DEFAULT_REPEAT_DAYS, Account, normalize_handle
+from manhwatok.domain.account import (
+    DEFAULT_REPEAT_DAYS,
+    Account,
+    effective_song,
+    normalize_handle,
+)
 from manhwatok.domain.errors import InvalidName, ManhwatokError
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
@@ -8,6 +13,7 @@ from manhwatok.domain.post import (
     DEFAULT_CTA_TITLE,
     DEFAULT_HASHTAGS,
 )
+from tests.unit.fakes import post
 
 
 @pytest.mark.parametrize(
@@ -74,3 +80,28 @@ def test_cta_texts_cannot_be_blank():
 def test_json_round_trip():
     a = Account(handle="ab", genres=["Action"], block_tags=["Harem"], repeat_days=7)
     assert Account.model_validate_json(a.model_dump_json()) == a
+
+
+def test_song_defaults_empty_and_is_trimmed():
+    assert Account(handle="reads").song == ""
+    assert Account(handle="reads", song="  Die For You ").song == "Die For You"
+
+
+def test_account_json_without_a_song_loads():
+    data = Account(handle="reads").model_dump(mode="json")
+    del data["song"]
+    assert Account.model_validate(data).song == ""
+
+
+@pytest.mark.parametrize(
+    "post_song, account, expected",
+    [
+        (None, Account(handle="reads", song="Acct Song"), "Acct Song"),
+        ("Own Song", Account(handle="reads", song="Acct Song"), "Own Song"),
+        ("", Account(handle="reads", song="Acct Song"), ""),
+        (None, None, ""),
+        ("Own Song", None, "Own Song"),
+    ],
+)
+def test_effective_song(post_song, account, expected):
+    assert effective_song(post(song=post_song), account) == expected

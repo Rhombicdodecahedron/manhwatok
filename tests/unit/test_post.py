@@ -96,3 +96,15 @@ def test_exported_at_must_be_timezone_aware():
 def test_sent_at_must_be_timezone_aware():
     with pytest.raises(ValidationError):
         post(sent_at=datetime(2026, 9, 15, 12, 0))
+
+
+def test_song_defaults_to_the_accounts_and_is_trimmed():
+    assert post().song is None
+    assert post(song="  Die For You  ").song == "Die For You"
+    assert post(song=" ").song == ""
+
+
+def test_post_json_without_a_song_loads():
+    data = post().model_dump(mode="json")
+    del data["song"]
+    assert ListPost.model_validate(data).song is None
