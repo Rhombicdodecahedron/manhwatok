@@ -34,12 +34,14 @@ song to add in TikTok.
 └──────────────────────────────┴─────────────────────────────────────┘
  ←/→ slide  o open  e edit  r render  x export  u upload  d delete
 ```
-Tabs switch with `1`–`4` (and mouse). `q` quits.
+Tabs switch with `1`–`4` (and mouse); showing a tab reloads its data and focuses its main widget. `q` quits
+(while a dialog is open, `ctrl+q`).
 
 ### Posts (home)
 - Table: id, account (`-` if none), title (stars stripped), status, song (effective song, `–` if empty), slides.
   Status is `sent` if `sent_at`, else `exported` if `exported_at`, else `draft` if the post is unfinished, else
-  `rendered`/`not rendered` by `rendered_files`. Filter by account with `f` (a select of accounts + "all").
+  `rendered`/`not rendered` by `rendered_files`. Filter by account with `f` (a list dialog: "all accounts" +
+  accounts).
   Empty leftover post folders are not listed (same as `posts`).
 - Preview pane for the highlighted post:
   - left: the current slide (`01.png …`) in a `textual-image` widget, `◀ n/N ▶`; `←`/`→` flip; `o` runs
@@ -54,21 +56,24 @@ Tabs switch with `1`–`4` (and mouse). `q` quits.
   - `r` render → render worker, then refresh preview.
   - `x` export → `export_post` to the default export dir (`MANHWATOK_EXPORT_DIR` or `~/Downloads/manhwatok`);
     notification with the folder path.
-  - `u` upload → Upload screen (below).
+  - `u` upload → Upload screen (below); `U` does the same with `debug=True` (like `upload --debug`).
   - `s` song → one-line input to change this post's song (empty input = use the account's song).
-  - `d` delete → confirm modal (`Delete post <id>? This removes its slides.`) → `delete_post`.
+  - `d` delete → confirm modal (`Delete post <id> (<n> slides)?`) → `delete_post`.
+  - Any action with no post highlighted → "no post selected".
 
 ### Build
 1. Query form: account (select; "none" allowed), theme (select; "none") **or** tags/genres inputs, sort, min tag
-   rank, `n`, allow repeats, no chapters. Same rule as the CLI: theme or tags/genres, not both (inline error).
-   A tag search box (`tags` equivalent) lists AniList tags matching a word; `enter` adds the tag to the tags input.
+   rank, how many, allow repeats, chapter counts. Same rule as the CLI: theme or tags/genres, not both (error
+   notification). Blank sort/rank/how many = the theme's values or score/60/12; out-of-range numbers are errors.
+   A tag search box (`tags` equivalent) lists AniList tags matching a word (the tag list is fetched once per app
+   run, then filtered locally; name matches first, at most 30); `enter` adds the tag to the tags input.
 2. `Search` → worker runs `suggest_for_account` (progress lines shown under the form).
    No results → "no matches — try fewer tags or a lower min tag rank".
 3. Picks screen (below), prefilled with `prefill_items(candidates)`.
-4. Post fields: title (prefilled from theme), hashtags, accent, song — each blank = account default (placeholder
-   shows the default).
+4. Post fields: title (filled from the theme unless you typed one), hashtags, accent, song — each blank = account
+   default (placeholder shows the default). The accent is checked before searching.
 5. `ctrl+s` save → `save_new_post` in the render worker → switch to Posts with the new post highlighted.
-Leaving Build with unsaved picks asks `Discard this post?`.
+Unsaved picks only exist in the Picks screen, whose `esc` asks `Discard your changes?`.
 
 ### Picks (shared by Build and edit)
 - Two lists: **picks** (ordered, max `MAX_ITEMS`) and **other candidates** (the rest of `post.candidates`).
@@ -76,42 +81,47 @@ Leaving Build with unsaved picks asks `Discard this post?`.
   input, prefilled); title input at the top (`*stars*` = accent).
 - Each row: rank, title, chapter label, hook. Cover thumbnail of the highlighted title in a side pane
   (`CoverCache.cached` only — no downloads just for browsing; blank if not cached).
-- Edit mode `ctrl+s` → `update_picks` → render worker → back to Posts. `esc` with changes asks `Discard changes?`.
-- Zero picks can't be saved ("pick at least one title").
+- `ctrl+s` checks the picks (`check_picks`: title, at least one pick, at most `MAX_ITEMS`, no duplicates) and
+  closes with them; while a render runs it says "still rendering" and stays. Edit mode → `update_picks` in the
+  render worker → back to Posts. `esc` with changes asks `Discard your changes?`.
 
-### Upload
-A screen with a progress log and the post id/account in the header.
-- Runs `upload_post` in a single worker thread (see Workers). Progress lines append to the log.
+### Upload (and login)
+A `BrowserScreen(heading, job)` with a progress log, shared by upload and login.
+- Runs `upload_post` in the browser worker (see Workers). Progress lines append to the log.
 - When `upload_post` asks, a modal `Posted on @x?` with **Yes** / **No** (default No, `esc` = No).
-- After the answer: notification (`recorded as sent` / `nothing recorded`), browser closed, `esc` returns to Posts.
-- Missing Playwright → the same `UploadUnavailable` message the CLI shows, as an error notification; the screen
-  closes.
+- After the answer the browser is closed and the log ends with `recorded post <id> as sent` / `nothing recorded`,
+  then `done — press escape to go back`. `esc` before that says the browser is still open.
+- Errors (missing Playwright, not logged in, no account, not rendered) → `error: …` in the log and an error
+  notification; the screen stays until `esc`.
 
 ### Accounts
 - Table: handle, genres, blocked, hashtags, accent (colour swatch), song, repeat days, saved login (yes/no).
-- `a` add / `enter` edit → form with every `account add` field plus song. Name lists are comma-separated, checked
-  through `NameCheck` in a worker; "did you mean …?" and "AniList down, saved anyway" appear as notifications.
-  Edit sends only changed fields (`update_account`), like `account set`.
-- `l` login (no confirm) → worker runs `login_account`; log line "Log in to @x in the browser, then close the
-  window."; done notification when the window closes.
+- `a` add / `e` or `enter` edit → form with every `account add` field plus song (blank on add = default). Name lists are comma-separated, checked
+  through `NameCheck` in a worker; "did you mean …?" and "AniList down, saved anyway" appear as notifications, and
+  the form stays open until saving works. Edit sends only changed fields (`update_account`), like `account set`.
+- `l` login (no confirm) → `BrowserScreen` running `login_account`; log line "Log in to @x in the browser, then close
+  the window.", then "browser closed — once logged in, uploads post as @x".
 - `d` remove → confirm modal; if a saved login exists a second modal `Also delete the saved TikTok login?`
   (`forget_login`). History is kept.
 
 ### Themes
 - Table: name, tags, genres, sort, min tag rank, title.
-- `a` add / `enter` edit (edit = remove + add under the same name, validated first) / `d` remove (confirm).
-- Same name checks as `theme add`.
+- `a` add / `e` or `enter` edit / `d` remove (confirm). Edit uses a new `update_theme(themes, names, name,
+  changes)` (like `update_account`; only changed tag/genre lists are checked again).
+- Same name checks as `theme add`; same form as accounts.
 
 ## Song
 - `Account.song: str = ""` (stripped). `ListPost.song: str | None = None` — `None` means "use the account's song";
   `""` means "no song for this post".
-- `effective_song(post, account) -> str` (pure, `domain/post.py` or `domain/song.py`): `post.song` if not None,
-  else `account.song` if the account exists, else `""`. A removed account → `""`.
+- `effective_song(post, account) -> str` (pure, `domain/account.py`): `post.song` if not None, else `account.song`
+  if there is an account, else `""`. `app/songs.py`: `song_for(post, accounts)` (a removed account → `""`) and
+  `set_post_song(post_id, song, posts)`.
 - `create_post(..., song: str | None)` stores the override as given (no copying the account default), so a later
   `account set --song` changes posts that never set their own.
 - CLI: `build --song TEXT`, `account add/set --song TEXT` (`--song ""` clears), `account show` prints `song:`,
-  `posts` gains a song column (effective song, truncated to 24 chars, `-` if empty), and
-  `manhwatok song <id> [TEXT]` prints or sets a post's song (`--clear` → back to the account's).
+  `posts` gains a song column (effective song, truncated to 24 chars, `-` if empty) shown only when some listed post
+  has a song, and `manhwatok song <id> [TEXT]` prints or sets a post's song (`--clear` → back to the account's;
+  `TEXT` and `--clear` together is an error).
 - Upload: `upload_post` adds the progress line `song: <song>` (when non-empty) before "check the post in the
   browser…", so the CLI and the TUI log both show it.
 - No DB migration: accounts are stored as JSON; the new field defaults. Old `post.json` loads unchanged.
@@ -119,19 +129,20 @@ A screen with a progress log and the post id/account in the header.
 
 ## Architecture
 ```
+src/manhwatok/app/context.py   AppContext: settings, store, metadata, chapters, PostTools, uploader factory; close()
 src/manhwatok/tui/
   __init__.py
-  app.py              ManhwatokApp: tab switcher, owns TuiContext, closes it on exit; the single render worker
-  context.py          TuiContext: settings, store, metadata, chapters, name check, PostTools, uploader factory
+  app.py              ManhwatokApp: tabs, the single render worker, the single browser worker, quitting; run()
+  text.py             post status / caption / details text (no Textual imports)
   screens/posts.py    list + preview pane + actions
   screens/build.py    query form, tag search
   screens/picks.py    picks editor (build + edit)
-  screens/upload.py   progress log + confirm
+  screens/browser.py  progress log for upload and login
   screens/accounts.py
   screens/themes.py
-  widgets/slide_preview.py   textual-image wrapper, pager, xdg-open
-  widgets/confirm.py         yes/no modal (returns bool)
-  widgets/progress_log.py
+  widgets/slide_preview.py   textual-image wrapper and pager
+  widgets/dialogs.py         yes/no, text and choice modals
+  widgets/form.py            the account/theme form (saves in a worker)
 ```
 - `cli.py` gets `tui` command: imports `manhwatok.tui.app` lazily; `ImportError` for textual →
   `ManhwatokError("the TUI needs the tui extra — run: uv sync --extra tui")`.
@@ -140,15 +151,17 @@ src/manhwatok/tui/
 1. `app/build_post.py`:
    - `prefill_items(candidates) -> list[PostItem]` (first `MAX_ITEMS`, hook = first sentence).
    - `create_post(..., song)`.
-   - `save_new_post(post_fields..., tools, now) -> tuple[ListPost, list[Path]]`: reserve id (`new_id`), build with
-     `create_post`, `_save_new`, `render_post`. `build_post` (CLI editor path) uses `prefill_items` and keeps its
-     draft-error behaviour; its success path calls the same save helper.
-2. `app/edit_post.py`: `update_picks(post_id, title, items, tools) -> list[Path]` — save title/items, clear the
-   saved draft, render. `edit_post` calls it after parsing. Raises `DraftError` for zero items.
-   `set_post_song(post_id, song, posts)` for the song action (no re-render — the song is not on slides or caption).
-3. `app/context.py` (or extend `container.py`): a closeable context that owns the store, the AniList,
-   MangaUpdates and CoverCache HTTP clients (`close()` closes all, idempotent). The CLI keeps its per-command
-   builders; the TUI builds one context on startup and closes it in `on_unmount`. Adapters without a `close` get one.
+   - `save_new_post(candidates, title, items, account, hashtags, accent, song, tools, now) -> tuple[ListPost,
+     list[Path]]`: `check_picks`, `create_post` (validates the style), then reserve the id (`new_id`), `_save_new`,
+     `render_post` — nothing is written for invalid input. `build_post` (CLI editor path) uses `prefill_items`,
+     reserves an id only to save a broken draft, and otherwise calls `save_new_post`.
+2. `app/edit_post.py`: `update_picks(post_id, title, items, tools) -> list[Path]` — `check_picks`, only the post's
+   candidates, save title/items, clear the saved draft, render. `edit_post` calls it after parsing.
+   `set_post_song` (in `app/songs.py`) for the song action (no re-render — the song is not on slides or caption).
+3. `app/context.py`: `AppContext` owns the store and the AniList, MangaUpdates and CoverCache HTTP clients (`close()`
+   closes all, once); `open_context(settings)` builds it from the `container` builders. The CLI keeps its
+   per-command builders; `tui.app.run()` opens one context and closes it after the app exits. Adapters close only
+   clients they created; `CachedChapterSource.close()` closes the wrapped source.
 4. `SqliteStore` sets `PRAGMA journal_mode=WAL` on open (the store already shares its connection across threads
    with an `RLock` and `check_same_thread=False`).
 5. `upload_post`/`login_account` stay as they are; the TUI supplies `confirm`/`progress` callables.
@@ -162,8 +175,9 @@ src/manhwatok/tui/
 - **Upload/login**: one dedicated worker thread per run, and only one at a time app-wide (a second `u`/`l` →
   "a browser is already open"). Playwright's sync API is bound to its thread, so `upload`, the confirm wait and
   `close()` all happen in that worker:
-  - `confirm(question)` = `app.call_from_thread(app.push_screen_wait, ConfirmModal(question))` → blocks the worker
-    until answered.
+  - `confirm(question)` = `app.ask_from_thread(question)`: pushes a `ConfirmModal` via `call_from_thread` and waits on
+    a `threading.Event` (checking every 0.2 s that the app still runs). `push_screen_wait` can't be used: it only
+    works inside async workers.
   - `progress(line)` = `app.call_from_thread(log.write_line, line)`.
   - Quitting while the confirm modal is open → the modal is dismissed with `False` (nothing recorded), the worker
     closes the browser, then the app exits.
@@ -183,8 +197,9 @@ src/manhwatok/tui/
   (override, empty override, account default, removed account, no account), old post/account JSON loading without
   `song`, context `close()` idempotent, WAL enabled, CLI `--song` flags, `song` command, `posts` song column,
   `upload_post` song progress line.
-- TUI (pytest + `App.run_test()` / `Pilot`, fakes from `tests/unit/fakes.py`, marked `tui`, skipped without the
-  extra):
+- TUI (pytest + `App.run_test()` / `Pilot` inside `asyncio.run`, fakes from `tests/unit/fakes.py`, a real database
+  and post folders under `tmp_path`, skipped via `pytest.importorskip("textual")` without the extra; a conftest
+  points the data and export dirs at temporary folders):
   - Posts: list shows statuses and effective songs; `→` advances the slide counter; not-rendered post shows the hint;
     `d` + Yes deletes, + No keeps.
   - Build: theme + account → search (fake metadata) → toggle/reorder/edit hook → `ctrl+s` saves a post with those
@@ -193,7 +208,8 @@ src/manhwatok/tui/
   - Upload: fake uploader; Yes records history + `sent_at`; No records nothing; `close()` called once either way.
   - Accounts/Themes: add, edit (only changed fields), remove (+ forget login prompt when a saved login exists).
   - Errors surface as notifications.
-  - The image widget is replaced by a stub in tests (no terminal graphics in CI).
+  - The image widget is not stubbed: without a terminal textual-image uses its text fallback, and the test context
+    renders real tiny PNGs.
 - Live check: `uv run manhwatok tui` in kitty — build a real post from a theme, flip through the slides, open one in
   the image viewer, set a song, export, upload to a test account and answer No.
 - No snapshot tests for now.
