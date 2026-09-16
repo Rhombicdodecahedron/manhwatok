@@ -110,3 +110,34 @@ def test_banner_http_error_raises(tmp_path):
         _cache(tmp_path, Cdn(status=500)).get_banner(
             manhwa(title="Doom Breaker", banner_url=BANNER)
         )
+
+
+CHARACTER = "https://s4.anilist.co/file/anilistcdn/character/large/b129928-abc.png"
+
+
+def test_character_image_is_kept_beside_the_cover_and_banner(tmp_path):
+    cdn = Cdn()
+    cache = _cache(tmp_path, cdn)
+    m = manhwa(anilist_id=136220, cover_url=URL, banner_url=BANNER, character_url=CHARACTER)
+    first = cache.get_character(m)
+    assert first == tmp_path / "covers" / "136220-char.png"
+    assert cache.get_character(m) == first and len(cdn.requests) == 1
+    assert {p.name for p in (tmp_path / "covers").iterdir()} == {"136220-char.png"}
+
+
+def test_cached_character_never_downloads(tmp_path):
+    cdn = Cdn()
+    assert _cache(tmp_path, cdn).cached_character(manhwa(character_url=CHARACTER)) is None
+    assert cdn.requests == []
+
+
+def test_missing_character_url(tmp_path):
+    with pytest.raises(MetadataError, match="no character image"):
+        _cache(tmp_path, Cdn()).get_character(manhwa(character_url=""))
+
+
+def test_character_http_error_raises(tmp_path):
+    with pytest.raises(MetadataError, match="character download failed for Doom Breaker"):
+        _cache(tmp_path, Cdn(status=503)).get_character(
+            manhwa(title="Doom Breaker", character_url=CHARACTER)
+        )

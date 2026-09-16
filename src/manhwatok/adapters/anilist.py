@@ -33,6 +33,7 @@ query ($perPage: Int, $genres: [String], $tags: [String], $sort: [MediaSort], $m
       popularity
       coverImage { extraLarge color }
       bannerImage
+      characters(sort: FAVOURITES_DESC, perPage: 4) { nodes { image { large } } }
       description(asHtml: false)
       siteUrl
     }
@@ -50,6 +51,16 @@ _SORT = {
 }
 
 _SOURCE_NOTE = re.compile(r"\(\s*source:[^)]*\)", re.IGNORECASE)
+
+
+def _character_image(media: dict) -> str:
+    """The first pictured character AniList lists for a title, most favourited first. A listed
+    character can have no picture at all, so this takes the first that does."""
+    for node in (media.get("characters") or {}).get("nodes") or []:
+        url = ((node or {}).get("image") or {}).get("large") or ""
+        if url and "default" not in url:  # AniList's stand-in for a character with no picture
+            return url
+    return ""
 
 
 def clean_description(raw: str) -> str:
@@ -140,6 +151,7 @@ def _to_manhwa(m: dict) -> Manhwa:
         cover_url=(m.get("coverImage") or {}).get("extraLarge") or "",
         cover_color=(m.get("coverImage") or {}).get("color"),
         banner_url=m.get("bannerImage") or "",
+        character_url=_character_image(m),
         description=clean_description(m.get("description") or ""),
         site_url=m.get("siteUrl") or "",
     )

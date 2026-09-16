@@ -82,7 +82,9 @@ uv run manhwatok delete <id>           # asks first; --yes skips the question
 - `background` — the same upright cover, on that title's AniList banner art instead. The slide
   takes its mood from the story's art rather than from a cover blurred past recognition.
 - `panel` — the banner itself, cropped wide and sharp in place of the cover card, with the
-  blurred banner behind it. The most cinematic of the three.
+  blurred banner behind it. The most cinematic of the four.
+- `character` — the title's most-favourited character in place of the cover, on the usual
+  blurred cover. The only art AniList has that carries no title lettering.
 
 ```bash
 uv run manhwatok build -t Revenge --title "..." --art panel
@@ -90,11 +92,17 @@ uv run manhwatok render <id> --art background     # restyle a post you already b
 uv run manhwatok account set @manhwa.daily --art panel   # default for new posts
 ```
 
-Only about half of Korean manhwa have a banner on AniList — fewer among less popular titles.
-Under `background` a title without one keeps its blurred cover; under `panel` its cover is
-cropped to the same wide shape, so every slide in a post matches either way. Banners are cached
-next to the covers in `$XDG_DATA_HOME/manhwatok/covers/` and downloaded only when a post asks
-for them.
+Every style falls back to the cover, so a post never renders half-finished:
+
+| Style | Needs | Roughly how often AniList has it | Without it |
+| --- | --- | --- | --- |
+| `background` | banner | 37–61%, lower on niche tags | the blurred cover, as `none` |
+| `panel` | banner | as above | the cover, cropped to the same wide shape |
+| `character` | character image | 61–99%, lower on niche tags | the cover card, as `none` |
+
+Character images are small (about 230×345 against a 460×650 cover), but manhwa art is flat and
+clean-lined, so it holds up scaled into a slide. Extra images are cached next to the covers in
+`$XDG_DATA_HOME/manhwatok/covers/` and downloaded only when a post's style asks for them.
 
 Fonts: Montserrat, bundled under the SIL Open Font License (`src/manhwatok/assets/fonts/`).
 

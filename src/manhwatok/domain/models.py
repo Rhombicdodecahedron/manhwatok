@@ -22,6 +22,7 @@ class ArtStyle(StrEnum):
     NONE = "none"  # the cover, blurred, behind its own card — the original look
     BACKGROUND = "background"  # AniList's banner behind the cover card, cover blur as fallback
     PANEL = "panel"  # a wide crop of the banner (or the cover) in place of the card
+    CHARACTER = "character"  # the title's main character in place of the cover
 
 
 class Manhwa(BaseModel):
@@ -39,6 +40,7 @@ class Manhwa(BaseModel):
     cover_url: str = ""
     cover_color: str | None = None
     banner_url: str = ""  # AniList bannerImage; about half of manhwa have none
+    character_url: str = ""  # the title's most-favourited character, when AniList has a picture
     description: str = ""
     site_url: str = ""
 

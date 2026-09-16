@@ -281,3 +281,46 @@ def test_panel_crops_a_cover_from_where_the_face_usually_is(tmp_path):
         top_band = img.getpixel((box.x + box.w // 2, box.y + 6))
     r, g, b = top_band
     assert g > r + 80 and g > b + 80  # the green band, not the black below it
+
+
+# --- character art (Phase 5) -----------------------------------------------------------------
+
+
+def _green_character(tmp_path):
+    """AniList character images are small portraits, ~230x345."""
+    return cover_file(tmp_path / "ch", 1, color=(30, 210, 30), size=(230, 345))
+
+
+def _character_post():
+    return _post(1).model_copy(update={"art": ArtStyle.CHARACTER})
+
+
+def _card_pixel(out_dir, xy=(540, 500)):
+    with Image.open(out_dir / "02.png") as img:
+        return img.getpixel(xy)
+
+
+def test_character_art_puts_the_portrait_where_the_cover_was(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), None, _green_character(tmp_path))}
+    PillowRenderer().render(_character_post(), art, tmp_path / "out")
+    r, g, b = _card_pixel(tmp_path / "out")
+    assert g > r + 40 and g > b + 40  # the character, not the red cover
+
+
+def test_character_art_keeps_the_cover_as_the_backdrop(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), None, _green_character(tmp_path))}
+    PillowRenderer().render(_character_post(), art, tmp_path / "out")
+    r, g, b = _corner(tmp_path / "out")  # outside the card
+    assert r > g  # the blurred cover, as always
+
+
+def test_character_art_falls_back_to_the_cover_when_there_is_no_portrait(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), None, None)}
+    PillowRenderer().render(_character_post(), art, tmp_path / "out")
+    r, g, b = _card_pixel(tmp_path / "out")
+    assert r > g + 40  # the cover card, exactly as the plain style draws it
+
+
+def test_character_art_renders_with_no_images_at_all(tmp_path):
+    paths = PillowRenderer().render(_character_post(), {1: SlideArt(None, None, None)}, tmp_path / "out")
+    assert len(paths) == 3

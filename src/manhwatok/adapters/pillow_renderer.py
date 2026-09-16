@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NamedTuple
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps, UnidentifiedImageError
 
@@ -37,6 +38,14 @@ BANNER_BLUR, BANNER_DIM = 18, 0.50
 # Where a panel crop takes its band from. A banner is already composed wide, so it crops from
 # the middle; an upright cover's subject sits high, so its band is lifted off the centre.
 BANNER_CROP, COVER_CROP = (0.5, 0.5), (0.5, 0.28)
+
+
+class _Art(NamedTuple):
+    """One slide's images, opened. Only the ones the post's style needs are loaded."""
+
+    cover: Image.Image | None
+    banner: Image.Image | None
+    character: Image.Image | None
 GRADIENT_H = 920
 
 
@@ -171,17 +180,19 @@ class PillowRenderer:
                 old.unlink()
         except OSError as e:
             raise StorageError(f"could not prepare slide folder {out_dir}: {e}") from e
-        images = {m_id: _load(one.cover) for m_id, one in art.items()}
-        banners = (
-            {m_id: _load(one.banner) for m_id, one in art.items()}
-            if post.art in (ArtStyle.BACKGROUND, ArtStyle.PANEL)
-            else {}
-        )
-        slides = [self.cover_slide(post, images)]
-        slides += [
-            self.item_slide(post, i, images, banners) for i in range(len(post.items))
-        ]
-        slides.append(self.end_slide(post, images))
+        wants_banner = post.art in (ArtStyle.BACKGROUND, ArtStyle.PANEL)
+        loaded = {
+            m_id: _Art(
+                _load(one.cover),
+                _load(one.banner) if wants_banner else None,
+                _load(one.character) if post.art is ArtStyle.CHARACTER else None,
+            )
+            for m_id, one in art.items()
+        }
+        covers = {m_id: one.cover for m_id, one in loaded.items()}
+        slides = [self.cover_slide(post, covers)]
+        slides += [self.item_slide(post, i, loaded) for i in range(len(post.items))]
+        slides.append(self.end_slide(post, covers))
         paths = []
         for n, slide in enumerate(slides, 1):
             path = out_dir / f"{n:02d}.png"
@@ -192,19 +203,13 @@ class PillowRenderer:
             paths.append(path)
         return paths
 
-    def item_slide(
-        self,
-        post: ListPost,
-        index: int,
-        images: dict[int, Image.Image | None],
-        banners: dict[int, Image.Image | None] | None = None,
-    ) -> Image.Image:
+    def item_slide(self, post: ListPost, index: int, loaded: dict[int, _Art]) -> Image.Image:
         item = post.items[index]
         m = item.manhwa
         accent_hex = readable_accent(m.cover_color, post.accent)
         accent = hex_to_rgb(accent_hex)
-        img = images.get(m.anilist_id)
-        banner = (banners or {}).get(m.anilist_id)
+        art = loaded.get(m.anilist_id) or _Art(None, None, None)
+        img, banner = art.cover, art.banner
         canvas = _backdrop(banner, img, accent_hex).convert("RGBA")
         panel = post.art is ArtStyle.PANEL
         layout = layout_item(index + 1, m.title, chapter_label(m), item.hook, panel=panel)
@@ -220,7 +225,8 @@ class PillowRenderer:
                 24,
             )
         else:
-            src = img or _accent_gradient((460, 650), accent_hex)
+            # The character portrait, when this style asked for one, stands in for the cover.
+            src = art.character or img or _accent_gradient((460, 650), accent_hex)
             box = fit_inside(src.width, src.height, area)
             card = _rounded(src.resize((box.w, box.h), Image.Resampling.LANCZOS), 24)
         _paste_with_shadow(canvas, card, box.x, box.y)

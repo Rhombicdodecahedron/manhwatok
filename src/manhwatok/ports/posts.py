@@ -25,11 +25,12 @@ class PostRepository(Protocol):
 
 
 class SlideArt(NamedTuple):
-    """The images one manhwa slide can draw with. Either may be missing: no cover means a
-    plain accent background, no banner means the cover stands in for it."""
+    """The images one manhwa slide can draw with. Any may be missing: no cover means a plain
+    accent background, and no banner or character means the cover stands in for it."""
 
     cover: Path | None
     banner: Path | None
+    character: Path | None = None
 
 
 class CoverSource(Protocol):
@@ -41,8 +42,14 @@ class CoverSource(Protocol):
 
     def get_banner(self, manhwa: Manhwa) -> Path: ...
 
+    def get_character(self, manhwa: Manhwa) -> Path: ...
+
     def cached_banner(self, manhwa: Manhwa) -> Path | None:
         """Local path of an already-downloaded banner, or None. Never downloads."""
+        ...
+
+    def cached_character(self, manhwa: Manhwa) -> Path | None:
+        """Local path of an already-downloaded character image, or None. Never downloads."""
         ...
 
 

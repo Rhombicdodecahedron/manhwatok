@@ -71,3 +71,12 @@ class CoverCache:
         """Local path of the banner, downloading it on first use. Raises MetadataError on
         failure. Only about half of manhwa have a banner at all — callers check banner_url."""
         return self._get(manhwa, manhwa.banner_url, "-banner", "banner")
+
+    def cached_character(self, manhwa: Manhwa) -> Path | None:
+        """Local path of an already-downloaded character image, or None. Never downloads."""
+        return self._cached(manhwa, manhwa.character_url, "-char")
+
+    def get_character(self, manhwa: Manhwa) -> Path:
+        """Local path of the character image, downloading it on first use. Raises MetadataError
+        on failure. Callers check character_url first."""
+        return self._get(manhwa, manhwa.character_url, "-char", "character")

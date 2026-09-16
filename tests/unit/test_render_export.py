@@ -328,3 +328,47 @@ def test_render_survives_a_banner_download_failure(tmp_path):
     assert passed[1] == SlideArt(tmp_path / "1.jpg", None)  # the cover still renders
     assert len(slides) == 4
     assert len(messages) == 1 and "banner" in messages[0]
+
+
+def _char_post(**overrides):
+    items = [
+        PostItem(manhwa=manhwa(anilist_id=1, character_url="https://x.test/1-char.png"), hook="a"),
+        PostItem(manhwa=manhwa(anilist_id=2, character_url=""), hook="b"),
+    ]
+    return post(items=items, **overrides)
+
+
+def test_render_fetches_character_images_for_character_art(tmp_path):
+    covers = FakeCovers(
+        {1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg"}, characters={1: tmp_path / "1-char.png"}
+    )
+    tools = make_tools(tmp_path, covers=covers)
+    tools.posts.save(_char_post(art=ArtStyle.CHARACTER))
+    render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed[1].character == tmp_path / "1-char.png"
+    assert passed[2].character is None  # no character_url — the cover stands in
+    assert covers.character_calls == [1]
+    assert covers.banner_calls == []  # this style needs no banner
+
+
+def test_render_downloads_no_character_images_for_other_styles(tmp_path):
+    covers = FakeCovers(
+        {1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg"}, characters={1: tmp_path / "1-char.png"}
+    )
+    tools = make_tools(tmp_path, covers=covers)
+    tools.posts.save(_char_post(art=ArtStyle.BACKGROUND))
+    render_post("20260914-a3f9", tools)
+    assert covers.character_calls == []
+
+
+def test_render_survives_a_character_download_failure(tmp_path):
+    messages = []
+    covers = FakeCovers({1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg"}, fail_characters={1})
+    tools = make_tools(tmp_path, covers=covers, messages=messages)
+    tools.posts.save(_char_post(art=ArtStyle.CHARACTER))
+    slides = render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed[1] == SlideArt(tmp_path / "1.jpg", None, None)
+    assert len(slides) == 4
+    assert len(messages) == 1 and "character" in messages[0]

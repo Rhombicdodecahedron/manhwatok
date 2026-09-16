@@ -33,12 +33,24 @@ def rendered_files(post: ListPost, posts: PostRepository) -> tuple[list[Path], P
 
 
 def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
-    """Fetch each item's cover, plus its banner when the post's style uses one. After the first
+    """Fetch each item's cover, plus whichever extra image the post's style uses. After the first
     download failure of a kind, use only what's already cached (no more attempts of that kind).
     A title with no cover_url/banner_url is just skipped — that's not an outage."""
     covers = _fetch_each(
         post, tools.covers.get, tools.covers.cached, lambda m: m.cover_url, "cover", tools
     )
+    if post.art is ArtStyle.CHARACTER:
+        characters = _fetch_each(
+            post,
+            tools.covers.get_character,
+            tools.covers.cached_character,
+            lambda m: m.character_url,
+            "character",
+            tools,
+        )
+        return {
+            m_id: SlideArt(path, None, characters[m_id]) for m_id, path in covers.items()
+        }
     if post.art is ArtStyle.NONE:
         return {m_id: SlideArt(path, None) for m_id, path in covers.items()}
     banners = _fetch_each(

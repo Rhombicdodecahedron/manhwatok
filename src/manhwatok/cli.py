@@ -53,8 +53,9 @@ ART = typer.Option(
     None,
     "--art",
     help="Manhwa slide art: 'none' (the cover on its own blur), 'background' (the cover on "
-    "AniList's banner art) or 'panel' (a wide crop of the banner in place of the cover). "
-    "Default: the account's, else none.",
+    "AniList's banner art), 'panel' (a wide crop of the banner in place of the cover) or "
+    "'character' (the title's main character in place of the cover). Default: the account's, "
+    "else none.",
 )
 
 

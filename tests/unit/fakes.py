@@ -90,14 +90,19 @@ class FakeCovers:
         on_disk: set[int] | None = None,
         banners: dict[int, Path] | None = None,
         fail_banners: set[int] | None = None,
+        characters: dict[int, Path] | None = None,
+        fail_characters: set[int] | None = None,
     ):
         self.paths = dict(paths or {})
         self.fail = set(fail or ())
         self.on_disk = set(on_disk or ())
         self.banners = dict(banners or {})
         self.fail_banners = set(fail_banners or ())
+        self.characters = dict(characters or {})
+        self.fail_characters = set(fail_characters or ())
         self.calls: list[int] = []
         self.banner_calls: list[int] = []
+        self.character_calls: list[int] = []
 
     def get(self, manhwa: Manhwa) -> Path:
         self.calls.append(manhwa.anilist_id)
@@ -119,6 +124,17 @@ class FakeCovers:
     def cached_banner(self, manhwa: Manhwa) -> Path | None:
         if manhwa.anilist_id in self.on_disk and manhwa.anilist_id in self.banners:
             return self.banners[manhwa.anilist_id]
+        return None
+
+    def get_character(self, manhwa: Manhwa) -> Path:
+        self.character_calls.append(manhwa.anilist_id)
+        if manhwa.anilist_id in self.fail_characters or manhwa.anilist_id not in self.characters:
+            raise MetadataError(f"character download failed for {manhwa.title}: HTTP 500")
+        return self.characters[manhwa.anilist_id]
+
+    def cached_character(self, manhwa: Manhwa) -> Path | None:
+        if manhwa.anilist_id in self.on_disk and manhwa.anilist_id in self.characters:
+            return self.characters[manhwa.anilist_id]
         return None
 
 

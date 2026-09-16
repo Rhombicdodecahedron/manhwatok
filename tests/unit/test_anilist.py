@@ -27,6 +27,11 @@ DOOM_BREAKER = {
         "color": "#43c9e4",
     },
     "bannerImage": "https://s4.anilist.co/file/anilistcdn/media/manga/banner/125636-abc.jpg",
+    "characters": {
+        "nodes": [
+            {"image": {"large": "https://s4.anilist.co/file/anilistcdn/character/large/b1-x.png"}}
+        ]
+    },
     "description": "Zephyr was the last man standing.<br><br>\n(Source: Webtoon)",
     "siteUrl": "https://anilist.co/manga/125636",
 }
@@ -38,6 +43,7 @@ NO_ENGLISH = {
     "chapters": 135,
     "coverImage": {"extraLarge": "https://example.test/c.jpg"},
     "bannerImage": None,
+    "characters": {"nodes": []},
 }
 
 
@@ -95,6 +101,7 @@ def test_search_maps_media_to_manhwa():
     assert m.cover_url.endswith("bx125636.jpg")
     assert m.cover_color == "#43c9e4"
     assert m.banner_url.endswith("125636-abc.jpg")
+    assert m.character_url.endswith("b1-x.png")  # the title's most-favourited character
     assert m.description == "Zephyr was the last man standing."
     assert m.site_url == "https://anilist.co/manga/125636"
 
@@ -108,6 +115,7 @@ def test_search_falls_back_to_romaji_and_unknown_status():
     assert m.chapters == 135
     assert m.cover_color is None  # AniList omits color for some covers
     assert m.banner_url == ""  # about half of manhwa have no banner
+    assert m.character_url == ""  # AniList has no characters for some titles
 
 
 def test_graphql_errors_raise_metadata_error():
@@ -197,3 +205,24 @@ def test_list_genres_network_failure():
 
     with pytest.raises(MetadataError, match="unreachable"):
         _source(handler).list_genres()
+
+
+def test_search_ignores_a_character_entry_with_no_image():
+    """AniList can list a character but hold no picture for it."""
+    media = {**DOOM_BREAKER, "characters": {"nodes": [{"image": None}, {"image": {"large": ""}}]}}
+    [m] = _source(lambda r: httpx.Response(200, json=_page(media))).search(SearchQuery(tags=["x"]))
+    assert m.character_url == ""
+
+
+def test_search_takes_the_first_character_that_has_an_image():
+    media = {
+        **DOOM_BREAKER,
+        "characters": {
+            "nodes": [
+                {"image": None},
+                {"image": {"large": "https://s4.anilist.co/file/anilistcdn/character/large/b2.png"}},
+            ]
+        },
+    }
+    [m] = _source(lambda r: httpx.Response(200, json=_page(media))).search(SearchQuery(tags=["x"]))
+    assert m.character_url.endswith("b2.png")
