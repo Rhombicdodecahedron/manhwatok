@@ -13,6 +13,7 @@ from typing import Callable
 from PIL.ImageFont import FreeTypeFont
 
 from manhwatok.adapters.fonts import body, bold, display
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.text import accent_spans
 
 SLIDE_W, SLIDE_H = 1080, 1920
@@ -303,7 +304,7 @@ class ItemLayout:
 
 
 def layout_item(
-    rank: int, name: str, pill_label: str, hook: str, panel: bool = False
+    rank: int, name: str, pill_label: str, hook: str, art: ArtStyle = ArtStyle.NONE
 ) -> ItemLayout:
     x = SAFE.x
     rank_t = fit_words(plain_words(f"#{rank}"), display, ITEM_TEXT_W, 1, 96, 96)
@@ -318,10 +319,7 @@ def layout_item(
     tops = stack_up(heights, SAFE.bottom)
     cover_bottom = tops[0] - 40
     free_h = cover_bottom - SAFE.y
-    if panel:
-        area = _panel_area(free_h, cover_bottom)
-    else:
-        area = Box((SLIDE_W - COVER_MAX_W) // 2, SAFE.y, COVER_MAX_W, max(1, min(COVER_MAX_H, free_h)))
+    area = _image_area(art, free_h)
     return ItemLayout(
         rank=Placed(rank_t, x, tops[0], ITEM_TEXT_W),
         name=Placed(name_t, x, tops[1], ITEM_TEXT_W),
@@ -331,11 +329,21 @@ def layout_item(
     )
 
 
-def _panel_area(free_h: int, free_bottom: int) -> Box:
-    """A landscape box the full safe width, centred in the space left above the text. Shrinks
-    to fit when a long title and hook leave less room than the ratio wants."""
-    h = max(1, min(round(SAFE.w / PANEL_RATIO), free_h))
-    return Box(SAFE.x, SAFE.y + (free_h - h) // 2, SAFE.w, h)
+def _image_area(art: ArtStyle, free_h: int) -> Box:
+    """The box a manhwa slide's image gets, for each style. The renderer fits the cover inside
+    this box, and crops the panel and character art to fill it."""
+    if art is ArtStyle.PANEL:
+        # Landscape, the full safe width, centred in the space above the text. Shrinks when a
+        # long title and hook leave less room than the ratio wants.
+        h = max(1, min(round(SAFE.w / PANEL_RATIO), free_h))
+        return Box(SAFE.x, SAFE.y + (free_h - h) // 2, SAFE.w, h)
+    if art is ArtStyle.CHARACTER:
+        # Every pixel above the text: a character portrait is the slide's subject, not a card
+        # sitting on it, so it takes the room rather than being capped at the cover's size.
+        return Box(SAFE.x, SAFE.y, SAFE.w, max(1, free_h))
+    return Box(
+        (SLIDE_W - COVER_MAX_W) // 2, SAFE.y, COVER_MAX_W, max(1, min(COVER_MAX_H, free_h))
+    )
 
 
 # --- cover slide --------------------------------------------------------------------------

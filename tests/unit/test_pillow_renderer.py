@@ -218,7 +218,7 @@ def _panel_post():
 def _panel_box():
     from manhwatok.adapters.layout import layout_item
 
-    return layout_item(1, "TITLE 1", "ongoing", "Hook 1.", panel=True).cover_area
+    return layout_item(1, "TITLE 1", "ongoing", "Hook 1.", art=ArtStyle.PANEL).cover_area
 
 
 def test_panel_art_fills_the_wide_box_with_the_banner(tmp_path):
@@ -324,3 +324,61 @@ def test_character_art_falls_back_to_the_cover_when_there_is_no_portrait(tmp_pat
 def test_character_art_renders_with_no_images_at_all(tmp_path):
     paths = PillowRenderer().render(_character_post(), {1: SlideArt(None, None, None)}, tmp_path / "out")
     assert len(paths) == 3
+
+
+def _character_box():
+    from manhwatok.adapters.layout import layout_item
+
+    return layout_item(1, "TITLE 1", "ongoing", "Hook 1.", art=ArtStyle.CHARACTER).cover_area
+
+
+def _banded_portrait(tmp_path):
+    """A portrait with a distinct band at each end, so a vertical crop is visible in output."""
+    img = Image.new("RGB", (230, 345), (30, 210, 30))
+    for y in range(20):
+        for x in range(230):
+            img.putpixel((x, y), (230, 0, 230))          # magenta cap
+            img.putpixel((x, 344 - y), (0, 220, 220))    # cyan foot
+    folder = tmp_path / "band"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "1.png"
+    img.save(path)
+    return path
+
+
+def _column(out_dir, box, x=540):
+    """Down the middle of the drawn image. Channels are compared to each other, not to fixed
+    values, because the bottom gradient darkens everything near the text."""
+    with Image.open(out_dir / "02.png") as img:
+        return [img.getpixel((x, y)) for y in range(box.y, box.bottom)]
+
+
+def test_character_art_shows_the_whole_portrait_uncropped(tmp_path):
+    """Filling the box would crop a 0.67:1 portrait top and bottom; both ends must survive."""
+    art = {1: SlideArt(_red_cover(tmp_path), None, _banded_portrait(tmp_path))}
+    PillowRenderer().render(_character_post(), art, tmp_path / "out")
+    column = _column(tmp_path / "out", _character_box())
+    assert any(r > g + 40 and b > g + 40 for r, g, b in column), "magenta cap was cropped"
+    assert any(g > r + 40 and b > r + 40 for r, g, b in column), "cyan foot was cropped"
+
+
+def test_character_art_is_drawn_wider_than_the_old_cover_card(tmp_path):
+    """Bigger than the 620-wide cover card, even though it is not cropped to fill."""
+    from manhwatok.adapters.layout import COVER_MAX_W
+
+    art = {1: SlideArt(_red_cover(tmp_path), None, _green_character(tmp_path))}
+    PillowRenderer().render(_character_post(), art, tmp_path / "out")
+    box = _character_box()
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        row = [img.getpixel((x, box.y + box.h // 2)) for x in range(box.x, box.right)]
+    drawn = sum(1 for r, g, b in row if g > r + 40 and g > b + 40)
+    assert drawn > COVER_MAX_W
+
+
+def test_character_art_is_drawn_bigger_than_the_plain_cover_card(tmp_path):
+    """The point of the style: the portrait is the slide's subject, not a card on it."""
+    char = _character_box()
+    from manhwatok.adapters.layout import layout_item
+
+    plain = layout_item(1, "TITLE 1", "ongoing", "Hook 1.").cover_area
+    assert char.w * char.h > plain.w * plain.h

@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps, Unidentif
 
 from manhwatok.adapters.layout import (
     BAR_H,
+    Box,
     PILL_BORDER,
     PILL_PAD_X,
     SLIDE_H,
@@ -67,6 +68,13 @@ def _blurred(
     small = small.filter(ImageFilter.GaussianBlur(radius / 4))
     small = ImageEnhance.Brightness(small).enhance(brightness)
     return small.resize(size, Image.Resampling.BICUBIC)
+
+
+def _filled(src: Image.Image, area: Box, centering: tuple[float, float]) -> Image.Image:
+    """`src` cropped to fill `area` exactly, as a rounded card."""
+    return _rounded(
+        ImageOps.fit(src, (area.w, area.h), Image.Resampling.LANCZOS, centering=centering), 24
+    )
 
 
 def _backdrop(
@@ -211,21 +219,17 @@ class PillowRenderer:
         art = loaded.get(m.anilist_id) or _Art(None, None, None)
         img, banner = art.cover, art.banner
         canvas = _backdrop(banner, img, accent_hex).convert("RGBA")
-        panel = post.art is ArtStyle.PANEL
-        layout = layout_item(index + 1, m.title, chapter_label(m), item.hook, panel=panel)
+        layout = layout_item(index + 1, m.title, chapter_label(m), item.hook, art=post.art)
         area = layout.cover_area
-        if panel:
+        if post.art is ArtStyle.PANEL:
             # The banner is the point of this style; the cover stands in, cropped to the same
             # shape, so a title without a banner doesn't break the post's rhythm.
             src = banner or img or _accent_gradient((area.w, area.h), accent_hex)
-            centering = BANNER_CROP if banner else COVER_CROP
-            box = area
-            card = _rounded(
-                ImageOps.fit(src, (area.w, area.h), Image.Resampling.LANCZOS, centering=centering),
-                24,
-            )
+            box, card = area, _filled(src, area, BANNER_CROP if banner else COVER_CROP)
         else:
-            # The character portrait, when this style asked for one, stands in for the cover.
+            # The character portrait stands in for the cover when this style has one. Both are
+            # fitted, never cropped: the art is already framed tightly on its subject, and the
+            # bigger box is there to show more of it, not less.
             src = art.character or img or _accent_gradient((460, 650), accent_hex)
             box = fit_inside(src.width, src.height, area)
             card = _rounded(src.resize((box.w, box.h), Image.Resampling.LANCZOS), 24)

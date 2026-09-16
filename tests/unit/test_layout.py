@@ -14,6 +14,7 @@ from manhwatok.adapters.layout import (
     words_of,
     wrap_words,
 )
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import DEFAULT_CTA_FOLLOW, DEFAULT_CTA_TITLE
 from manhwatok.domain.text import accent_spans
 
@@ -215,21 +216,21 @@ def test_cover_kicker_is_singular_for_one_pick():
 def test_panel_layout_keeps_text_where_it_was(name, hook):
     """Only the image box changes shape; the text stack is the same one the cover style uses."""
     upright = layout_item(33, name, "ongoing · ch. 1234", hook)
-    panel = layout_item(33, name, "ongoing · ch. 1234", hook, panel=True)
+    panel = layout_item(33, name, "ongoing · ch. 1234", hook, art=ArtStyle.PANEL)
     assert panel.text_boxes() == upright.text_boxes()
     assert all(SAFE.contains(b) for b in panel.text_boxes())
 
 
 def test_panel_image_box_is_wide_and_spans_the_safe_width():
     panel = layout_item(1, "Kubera", "ongoing", "A hook.").cover_area
-    wide = layout_item(1, "Kubera", "ongoing", "A hook.", panel=True).cover_area
+    wide = layout_item(1, "Kubera", "ongoing", "A hook.", art=ArtStyle.PANEL).cover_area
     assert wide.w > wide.h  # landscape, unlike the upright cover card
     assert wide.w > panel.w
     assert wide.x == SAFE.x and wide.w == SAFE.w
 
 
 def test_panel_image_box_is_centred_in_the_space_above_the_text():
-    layout = layout_item(1, "Kubera", "ongoing", "A hook.", panel=True)
+    layout = layout_item(1, "Kubera", "ongoing", "A hook.", art=ArtStyle.PANEL)
     free_top, free_bottom = SAFE.y, layout.rank.box.y - 40
     above = layout.cover_area.y - free_top
     below = free_bottom - layout.cover_area.bottom
@@ -242,7 +243,36 @@ def test_panel_image_box_is_centred_in_the_space_above_the_text():
     [("Kubera", ""), ("Doom Breaker", "Sent back ten years."), (LONG_NAME, LONG_HOOK)],
 )
 def test_panel_image_box_never_collides_with_the_text(name, hook):
-    layout = layout_item(33, name, "ongoing · ch. 1234", hook, panel=True)
+    layout = layout_item(33, name, "ongoing · ch. 1234", hook, art=ArtStyle.PANEL)
     assert SAFE.contains(layout.cover_area)
     assert layout.cover_area.bottom <= layout.rank.box.y - 40
     assert layout.cover_area.h > 0
+
+
+# --- character art box -----------------------------------------------------------------------
+
+
+def test_character_image_box_uses_the_whole_space_above_the_text():
+    layout = layout_item(1, "Kubera", "ongoing", "A hook.", art=ArtStyle.CHARACTER)
+    area = layout.cover_area
+    assert (area.x, area.w) == (SAFE.x, SAFE.w)
+    assert area.y == SAFE.y
+    assert area.bottom == layout.rank.box.y - 40
+
+
+def test_character_image_box_is_bigger_than_the_cover_card():
+    plain = layout_item(1, "Kubera", "ongoing", "A hook.").cover_area
+    char = layout_item(1, "Kubera", "ongoing", "A hook.", art=ArtStyle.CHARACTER).cover_area
+    assert char.w > plain.w
+    assert char.w * char.h > plain.w * plain.h
+
+
+@pytest.mark.parametrize(
+    ("name", "hook"),
+    [("Kubera", ""), ("Doom Breaker", "Sent back ten years."), (LONG_NAME, LONG_HOOK)],
+)
+def test_character_image_box_stays_clear_of_the_text(name, hook):
+    layout = layout_item(33, name, "ongoing · ch. 1234", hook, art=ArtStyle.CHARACTER)
+    assert SAFE.contains(layout.cover_area)
+    assert layout.cover_area.bottom <= layout.rank.box.y - 40
+    assert all(SAFE.contains(b) for b in layout.text_boxes())
