@@ -140,6 +140,47 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
   browser is automated. Automating TikTok's website is against TikTok's Terms of Service and may
   trigger captchas or account checks — use it at your own risk.
 
+## Songs
+
+TikTok photo posts get their sound in TikTok itself. manhwatok keeps a note of which one to add:
+a song name or a TikTok sound link, per account (the default) and per post.
+
+```bash
+uv run manhwatok account set @manhwa.daily --song "Die For You – The Weeknd"
+uv run manhwatok build --account @manhwa.daily --theme regression-revenge --song "Other song"
+uv run manhwatok song <id>                  # show the post's song
+uv run manhwatok song <id> "New song"       # set this post's own song ("" = no song)
+uv run manhwatok song <id> --clear          # follow the account's song again
+```
+
+A post without its own song follows its account's, including later `account set --song` changes.
+`posts` shows each post's song (once any post has one), and `upload` prints it right before you
+check the post. Songs aren't on the slides or in the caption.
+
+## Terminal app
+
+```bash
+uv sync --extra tui          # once (add --extra upload to keep the upload helper)
+uv run manhwatok tui
+```
+
+Everything the commands above do, in one window with four tabs (`1`–`4`, `q` quits):
+
+- **Posts** — the list, and a preview of the highlighted post: its slides (`←`/`→` flip, `o`
+  opens the slide in your image viewer), caption, song and picks. `e` edit picks, `r` render,
+  `x` export, `u` upload (`U` with `--debug`), `s` song, `d` delete, `f` show one account's posts.
+- **Build** — account, theme or tags/genres, and the post's style; **Search** opens the picks
+  editor: `space` picks or drops a title, `shift+↑`/`shift+↓` reorder, `enter` edits a hook,
+  `ctrl+s` saves and renders, `esc` cancels. "Find a tag" searches AniList's tags.
+- **Accounts** / **Themes** — `a` add, `e` or `enter` edit, `d` remove; `l` logs an account in
+  to TikTok.
+
+Slides show as real pictures in terminals with image support (kitty, WezTerm, Konsole, foot and
+other sixel terminals); elsewhere as coloured blocks. Uploading works as with `manhwatok upload`:
+the log shows what the browser did, and a dialog asks whether you posted it. Only one render and
+one browser run at a time; quitting waits for both. The TUI and the commands can be used at the
+same time.
+
 ## Upgrading from earlier versions
 
 - The database upgrades itself the first time you run any command; cached chapter counts are
@@ -149,6 +190,9 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
 - Re-rendering an old post (`render`, `edit`) uses the new Montserrat style.
 - A post keeps the end-slide texts it was built with: a later `account set --cta-title` /
   `--cta-follow` doesn't change existing posts.
+- The database switches to WAL mode the first time any command opens it (`manhwatok.db-wal` and
+  `manhwatok.db-shm` appear next to it while it's in use). Accounts and posts from earlier
+  versions have no song.
 - Handles now need at least one letter or digit (TikTok allows no others). An account saved
   earlier with a handle of only `.` and `_` can't be loaded any more: `account list` stops with
   "is unreadable" and `account remove` refuses the handle. Delete it from the database by hand,
@@ -161,6 +205,9 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
 uv run pytest                                        # offline unit tests
 MANHWATOK_LIVE=1 uv run pytest tests/integration     # real AniList/MangaUpdates
 ```
+
+`tests/tui` drives the terminal app headless against fakes; it is skipped unless the tui extra is
+installed (`uv sync --extra upload --extra tui` installs both extras).
 
 `tests/browser` (marker `browser`) drives a headless Chromium against local fixture pages — never
 tiktok.com. It is skipped unless the upload extra and its Chromium are installed; `-m "not
