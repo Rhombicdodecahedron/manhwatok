@@ -343,64 +343,9 @@ def test_posts_show_and_filter_by_account(wire):
     lines = runner.invoke(app, ["posts"]).output.strip().splitlines()
     assert re.match(r"20260914-0002  \S+ \S+  @reads   5 slides  Manhwa", lines[0])
     assert re.match(r"20260913-0001  \S+ \S+  -        5 slides  Manhwa", lines[1])
-
-
-def test_build_song_is_saved_on_the_post(wire):
-    repo, _ = wire(respond=lambda text: text)
-    args = ["build", "-t", "Revenge", "--title", "T", "--song", "Die For You", "--no-chapters"]
-    result = runner.invoke(app, args)
-    assert result.exit_code == 0, result.output
-    assert repo.get(_post_id(result.output)).song == "Die For You"
-
-
-def test_posts_shows_songs_only_when_some_post_has_one(wire, tmp_path):
-    repo, _ = wire()
-    _save(tmp_path, Account(handle="reads", song="A very long account song name here"))
-    repo.save(post(id="20260913-0001", created_at=datetime(2026, 9, 13, tzinfo=timezone.utc)))
-    no_song = runner.invoke(app, ["posts"]).output.strip().splitlines()
-    assert re.match(r"20260913-0001  \S+ \S+  -   5 slides  Manhwa", no_song[0])
-    repo.save(
-        post(
-            id="20260914-0002",
-            account="reads",
-            created_at=datetime(2026, 9, 14, tzinfo=timezone.utc),
-        )
-    )
-    lines = runner.invoke(app, ["posts"]).output.strip().splitlines()
-    assert re.match(
-        r"20260914-0002  \S+ \S+  @reads   5 slides  A very long account son…  Manhwa", lines[0]
-    )
-    assert re.match(r"20260913-0001  \S+ \S+  -        5 slides  - {25}Manhwa", lines[1])
-
-
-def test_song_shows_sets_and_clears_a_posts_song(wire, tmp_path):
-    repo, _ = wire()
-    _save(tmp_path, Account(handle="reads", song="Acct"))
-    repo.save(post(account="reads"))
-    pid = "20260914-a3f9"
-    assert runner.invoke(app, ["song", pid]).output == f"post {pid} song: Acct (the account's)\n"
-    out = runner.invoke(app, ["song", pid, "Own"]).output
-    assert out == f"post {pid} song: Own (its own)\n"
-    assert repo.get(pid).song == "Own"
-    assert runner.invoke(app, ["song", pid, ""]).output == f"post {pid}: no song\n"
-    assert repo.get(pid).song == ""
-    assert "(the account's)" in runner.invoke(app, ["song", pid, "--clear"]).output
-    assert repo.get(pid).song is None
-
-
-def test_song_rejects_text_and_clear_together(wire):
-    repo, _ = wire()
-    repo.save(post())
-    result = runner.invoke(app, ["song", "20260914-a3f9", "X", "--clear"])
-    assert result.exit_code == 1
-    assert "error: give a song or --clear, not both" in result.output
-
-
-def test_song_unknown_post(wire):
-    wire()
-    result = runner.invoke(app, ["song", "20260914-ffff"])
-    assert result.exit_code == 1
-    assert "error: no post 20260914-ffff" in result.output
+    only = runner.invoke(app, ["posts", "--account", "@READS"]).output.strip().splitlines()
+    assert [line[:13] for line in only] == ["20260914-0002"]
+    assert "no posts for @other yet" in runner.invoke(app, ["posts", "-a", "other"]).output
 
 
 def test_delete_asks_first(wire):
@@ -480,3 +425,61 @@ def test_posts_marks_sent_posts(wire):
     lines = runner.invoke(app, ["posts"]).output.strip().splitlines()
     assert re.match(r"20260914-0002  \S+ \S+  @reads   5 slides  sent  Manhwa", lines[0])
     assert re.match(r"20260913-0001  \S+ \S+  -        5 slides        Manhwa", lines[1])
+
+
+def test_build_song_is_saved_on_the_post(wire):
+    repo, _ = wire(respond=lambda text: text)
+    args = ["build", "-t", "Revenge", "--title", "T", "--song", "Die For You", "--no-chapters"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert repo.get(_post_id(result.output)).song == "Die For You"
+
+
+def test_posts_shows_songs_only_when_some_post_has_one(wire, tmp_path):
+    repo, _ = wire()
+    _save(tmp_path, Account(handle="reads", song="A very long account song name here"))
+    repo.save(post(id="20260913-0001", created_at=datetime(2026, 9, 13, tzinfo=timezone.utc)))
+    no_song = runner.invoke(app, ["posts"]).output.strip().splitlines()
+    assert re.match(r"20260913-0001  \S+ \S+  -   5 slides  Manhwa", no_song[0])
+    repo.save(
+        post(
+            id="20260914-0002",
+            account="reads",
+            created_at=datetime(2026, 9, 14, tzinfo=timezone.utc),
+        )
+    )
+    lines = runner.invoke(app, ["posts"]).output.strip().splitlines()
+    assert re.match(
+        r"20260914-0002  \S+ \S+  @reads   5 slides  A very long account son…  Manhwa", lines[0]
+    )
+    assert re.match(r"20260913-0001  \S+ \S+  -        5 slides  - {25}Manhwa", lines[1])
+
+
+def test_song_shows_sets_and_clears_a_posts_song(wire, tmp_path):
+    repo, _ = wire()
+    _save(tmp_path, Account(handle="reads", song="Acct"))
+    repo.save(post(account="reads"))
+    pid = "20260914-a3f9"
+    assert runner.invoke(app, ["song", pid]).output == f"post {pid} song: Acct (the account's)\n"
+    out = runner.invoke(app, ["song", pid, "Own"]).output
+    assert out == f"post {pid} song: Own (its own)\n"
+    assert repo.get(pid).song == "Own"
+    assert runner.invoke(app, ["song", pid, ""]).output == f"post {pid}: no song\n"
+    assert repo.get(pid).song == ""
+    assert "(the account's)" in runner.invoke(app, ["song", pid, "--clear"]).output
+    assert repo.get(pid).song is None
+
+
+def test_song_rejects_text_and_clear_together(wire):
+    repo, _ = wire()
+    repo.save(post())
+    result = runner.invoke(app, ["song", "20260914-a3f9", "X", "--clear"])
+    assert result.exit_code == 1
+    assert "error: give a song or --clear, not both" in result.output
+
+
+def test_song_unknown_post(wire):
+    wire()
+    result = runner.invoke(app, ["song", "20260914-ffff"])
+    assert result.exit_code == 1
+    assert "error: no post 20260914-ffff" in result.output
