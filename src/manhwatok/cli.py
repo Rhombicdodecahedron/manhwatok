@@ -197,6 +197,9 @@ def build(
     accent: Optional[str] = typer.Option(
         None, help="Accent colour for cover and end slides (default: the account's, else #43c9e4)."
     ),
+    song: Optional[str] = typer.Option(
+        None, help="Song to add when posting (default: the account's song)."
+    ),
 ) -> None:
     """Build a post: pick titles and hooks in your editor, then render the slides."""
     from manhwatok.app import container
@@ -222,6 +225,7 @@ def build(
                 accent,
                 tools,
                 now=now,
+                song=song,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -299,14 +303,18 @@ def posts(
 ) -> None:
     """List saved posts, newest first; `sent` marks posts confirmed after `upload`."""
     from manhwatok.app import container
+    from manhwatok.app.songs import song_for
     from manhwatok.domain.account import normalize_handle
     from manhwatok.domain.text import plain_title
 
+    settings = Settings()
     try:
-        saved = container.build_posts(Settings()).list()
+        saved = container.build_posts(settings).list()
         if account:
             handle = normalize_handle(account)
             saved = [p for p in saved if p.account == handle]
+        with container.build_store(settings) as store:
+            songs = {p.id: song_for(p, store.accounts) for p in saved}
     except ManhwatokError as e:
         _fail(e)
     if not saved:
@@ -316,12 +324,21 @@ def posts(
     who = {p.id: f"@{p.account}" if p.account else "-" for p in saved}
     width = max(len(w) for w in who.values())
     any_sent = any(p.sent_at for p in saved)
+    any_song = any(songs.values())
     for post in saved:
         when = post.created_at.astimezone().strftime("%Y-%m-%d %H:%M")
         size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
         sent = f"{'sent' if post.sent_at else '':<4}  " if any_sent else ""
+        song = f"{_clip(songs[post.id] or '-', SONG_WIDTH):<{SONG_WIDTH}}  " if any_song else ""
         title = plain_title(post.title) or "(untitled)"
-        typer.echo(f"{post.id}  {when}  {who[post.id]:<{width}}  {size:>9}  {sent}{title}")
+        typer.echo(f"{post.id}  {when}  {who[post.id]:<{width}}  {size:>9}  {sent}{song}{title}")
+
+
+SONG_WIDTH = 24
+
+
+def _clip(text: str, width: int) -> str:
+    return text if len(text) <= width else text[: width - 1] + "…"
 
 
 @app.command()
@@ -348,6 +365,36 @@ def delete(
     except ManhwatokError as e:
         _fail(e)
     typer.echo(f"deleted post {post_id}")
+
+
+@app.command()
+def song(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    text: Optional[str] = typer.Argument(None, help="New song for this post; omit to show it."),
+    clear: bool = typer.Option(False, "--clear", help="Use the account's song again."),
+) -> None:
+    """Show or set the song to add when posting. Posts use their account's song unless they
+    set their own."""
+    from manhwatok.app import container
+    from manhwatok.app.songs import set_post_song, song_for
+
+    settings = Settings()
+    try:
+        if text is not None and clear:
+            raise ManhwatokError("give a song or --clear, not both")
+        posts = container.build_posts(settings)
+        post = posts.get(post_id)
+        if text is not None or clear:
+            post = set_post_song(post_id, None if clear else text, posts)
+        with container.build_store(settings) as store:
+            current = song_for(post, store.accounts)
+    except ManhwatokError as e:
+        _fail(e)
+    if not current:
+        typer.echo(f"post {post_id}: no song")
+        return
+    source = "its own" if post.song is not None else "the account's"
+    typer.echo(f"post {post_id} song: {current} ({source})")
 
 
 # --- assisted upload -----------------------------------------------------------------------
@@ -454,6 +501,9 @@ CTA_FOLLOW = typer.Option(None, "--cta-follow", help="End-slide follow line.")
 REPEAT_DAYS = typer.Option(
     None, "--repeat-days", min=1, max=3650, help="Don't suggest titles exported this recently."
 )
+ACCOUNT_SONG = typer.Option(
+    None, "--song", help='Song to add when posting (name or TikTok sound link). "" clears.'
+)
 
 
 def _account_fields(
@@ -465,6 +515,7 @@ def _account_fields(
     cta_title: Optional[str],
     cta_follow: Optional[str],
     repeat_days: Optional[int],
+    song: Optional[str],
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -476,6 +527,7 @@ def _account_fields(
         "cta_title": cta_title,
         "cta_follow": cta_follow,
         "repeat_days": repeat_days,
+        "song": song,
     }
     fields.update({k: v for k, v in scalars.items() if v is not None})
     return fields
@@ -492,6 +544,7 @@ def _print_account(a) -> None:
         ("cta title", a.cta_title),
         ("cta follow", a.cta_follow),
         ("repeat days", str(a.repeat_days)),
+        ("song", a.song or "-"),
     ]:
         typer.echo(f"  {label:<13} {value}")
 
@@ -522,12 +575,21 @@ def account_add(
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
+    song: Optional[str] = ACCOUNT_SONG,
 ) -> None:
     """Add an account; unset options get the defaults."""
     from manhwatok.app.accounts import add_account
 
     fields = _account_fields(
-        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days
+        genres,
+        block_genres,
+        block_tags,
+        hashtags,
+        accent,
+        cta_title,
+        cta_follow,
+        repeat_days,
+        song,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -543,12 +605,21 @@ def account_set(
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
+    song: Optional[str] = ACCOUNT_SONG,
 ) -> None:
     """Change an account; only the given options change."""
     from manhwatok.app.accounts import update_account
 
     fields = _account_fields(
-        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days
+        genres,
+        block_genres,
+        block_tags,
+        hashtags,
+        accent,
+        cta_title,
+        cta_follow,
+        repeat_days,
+        song,
     )
     _save_account(update_account, "updated", handle, fields)
 

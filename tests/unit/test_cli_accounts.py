@@ -273,3 +273,16 @@ def test_theme_add_bad_name():
 def test_help_lists_account_and_theme():
     out = _ok(["--help"])
     assert "account" in out and "theme" in out
+
+
+def test_account_song_add_set_show_and_clear(tmp_path):
+    assert "  song          -\n" in _ok(["account", "add", "reads"])
+    out = _ok(["account", "set", "reads", "--song", " Die For You "])
+    assert "  song          Die For You\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").song == "Die For You"
+    _ok(["account", "set", "reads", "--song", ""])
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").song == ""
+    _ok(["account", "add", "other", "--song", "Mine"])
+    assert "  song          Mine\n" in _ok(["account", "show", "other"])

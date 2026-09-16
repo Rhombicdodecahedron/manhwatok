@@ -9,6 +9,7 @@ from typing import Callable
 
 from manhwatok.app.post_tools import ProgressFn
 from manhwatok.app.render_post import rendered_files, unfinished_error
+from manhwatok.domain.account import effective_song
 from manhwatok.domain.errors import ManhwatokError, StorageError
 from manhwatok.ports.posts import PostRepository
 from manhwatok.ports.store import AccountRepository, HistoryRepository
@@ -58,6 +59,8 @@ def upload_post(
                 "check it before sharing)"
             )
         progress(f"slides and caption.txt: {posts.folder(post_id)}")
+        if song := effective_song(post, account):
+            progress(f"song: {song}")
         progress("check the post in the browser and click Post yourself")
         posted = confirm(f"Posted on {account.display}?")
     finally:

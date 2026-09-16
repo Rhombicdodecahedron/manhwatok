@@ -167,3 +167,17 @@ def test_unknown_post(tmp_path, store):
     with pytest.raises(PostNotFound):
         _upload(make_tools(tmp_path).posts, store, uploader)
     assert uploader.events == []
+
+
+def test_the_song_is_shown_before_the_user_checks_the_post(tmp_path, store):
+    store.accounts.update(Account(handle="reads", song="Die For You"))
+    messages = []
+    _upload(_posts(tmp_path), store, FakeUploader(), messages=messages)
+    assert messages.index("song: Die For You") == len(messages) - 2
+    assert messages[-1] == "check the post in the browser and click Post yourself"
+
+
+def test_no_song_line_without_a_song(tmp_path, store):
+    messages = []
+    _upload(_posts(tmp_path, song=""), store, FakeUploader(), messages=messages)
+    assert not any(m.startswith("song:") for m in messages)
