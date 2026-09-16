@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -8,7 +8,7 @@ from manhwatok.app.render_post import render_post  # noqa: E402
 from manhwatok.domain.account import Account  # noqa: E402
 from manhwatok.tui.screens.posts import PostsPane, PostTable  # noqa: E402
 from manhwatok.tui.widgets.slide_preview import SlidePreview  # noqa: E402
-from tests.tui.helpers import Opened, make_ctx, notes, run_app  # noqa: E402
+from tests.tui.helpers import NOW, Opened, make_ctx, notes, run_app, wait_for  # noqa: E402
 from tests.unit.fakes import post  # noqa: E402
 
 OLD, NEW = "20260913-0001", "20260914-0002"
@@ -19,7 +19,8 @@ def _two_posts(ctx):
     ctx.store.accounts.add(Account(handle="reads", song="Acct Song"))
     posts = ctx.tools.posts
     posts.save(post(id=OLD, created_at=datetime(2026, 9, 13, tzinfo=timezone.utc), song="Own"))
-    posts.save(post(id=NEW, account="reads", created_at=datetime(2026, 9, 14, tzinfo=timezone.utc)))
+    new = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    posts.save(post(id=NEW, account="reads", created_at=new))
     render_post(NEW, ctx.tools)
 
 
@@ -112,5 +113,99 @@ def test_no_posts_yet(tmp_path):
         note = str(app.query_one("#slide-note").render())
         assert note == "no posts yet — build one in the Build tab (2)"
         assert app.query_one(PostsPane).current is None
+
+    run_app(make_ctx(tmp_path), scenario)
+
+
+def test_render_renders_the_highlighted_post(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        await pilot.press("down", "r")
+        await wait_for(pilot, lambda: _rows(app)[1][3] == "rendered")
+        assert app.query_one(SlidePreview).current == ctx.tools.posts.folder(OLD) / "01.png"
+        assert f"post {OLD} · 5 slides" in notes(app)
+
+    run_app(ctx, scenario)
+
+
+def test_render_of_a_draft_says_what_to_do(tmp_path):
+    ctx = make_ctx(tmp_path)
+    ctx.tools.posts.save(post(items=[]))
+
+    async def scenario(app, pilot):
+        await pilot.press("r")
+        await wait_for(pilot, lambda: any("has no items" in n for n in notes(app)))
+
+    run_app(ctx, scenario)
+
+
+def test_export_copies_the_slides_and_records_the_titles(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        await pilot.press("x")
+        assert f"exported → {tmp_path / 'exports' / NEW}" in notes(app)
+        assert _rows(app)[0][3] == "exported"
+        assert ctx.store.history.recent("reads", NOW - timedelta(days=1)) == {1, 2, 3}
+        await pilot.press("down", "x")
+        assert any(n.startswith(f"post {OLD} has no up-to-date slides") for n in notes(app))
+
+    run_app(ctx, scenario)
+    assert len(list((tmp_path / "exports" / NEW).glob("*.png"))) == 5
+
+
+def test_song_sets_and_clears_the_posts_own_song(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        await pilot.press("s")
+        await pilot.pause()
+        assert "leave empty for the account's: Acct Song" in str(
+            app.screen.query_one("Label").render()
+        )
+        await pilot.press(*"Mine", "enter")
+        await pilot.pause()
+        assert ctx.tools.posts.get(NEW).song == "Mine"
+        assert _rows(app)[0][4] == "Mine"
+        await pilot.press("s")
+        await pilot.pause()
+        await pilot.press("backspace", "enter")  # the old value is selected: clear it
+        await pilot.pause()
+        assert ctx.tools.posts.get(NEW).song is None
+        assert _rows(app)[0][4] == "Acct Song"
+        await pilot.press("s")
+        await pilot.pause()
+        await pilot.press("x", "escape")
+        await pilot.pause()
+        assert ctx.tools.posts.get(NEW).song is None
+
+    run_app(ctx, scenario)
+
+
+@pytest.mark.parametrize("answer, kept", [("y", False), ("n", True)])
+def test_delete_asks_first(tmp_path, answer, kept):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        await pilot.press("d")
+        await pilot.pause()
+        assert str(app.screen.query_one("#question").render()) == f"Delete post {NEW} (5 slides)?"
+        await pilot.press(answer)
+        await pilot.pause()
+        assert [r[0] for r in _rows(app)] == ([NEW, OLD] if kept else [OLD])
+
+    run_app(ctx, scenario)
+    assert ctx.tools.posts.folder(NEW).exists() is kept
+
+
+def test_actions_without_a_post_warn(tmp_path):
+    async def scenario(app, pilot):
+        await pilot.press("r", "x", "s", "d")
+        assert notes(app).count("no post selected") == 4
 
     run_app(make_ctx(tmp_path), scenario)

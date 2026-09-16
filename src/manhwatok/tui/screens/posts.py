@@ -7,13 +7,15 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import DataTable, Static
 
-from manhwatok.app.render_post import rendered_files
-from manhwatok.app.songs import song_for
+from manhwatok.app.delete_post import delete_post
+from manhwatok.app.export_post import export_post
+from manhwatok.app.render_post import render_post, rendered_files
+from manhwatok.app.songs import set_post_song, song_for
 from manhwatok.domain.errors import ManhwatokError, NotRendered
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 from manhwatok.tui.text import clip, post_details, post_status
-from manhwatok.tui.widgets.dialogs import ChoiceModal
+from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal, TextModal
 from manhwatok.tui.widgets.slide_preview import SlidePreview
 
 ALL = "*"
@@ -40,6 +42,10 @@ class PostsPane(Vertical):
         Binding("left", "slide(-1)", "◀ slide", show=False),
         Binding("right", "slide(1)", "slide ▶", show=False),
         Binding("o", "open_slide", "Open slide"),
+        Binding("r", "render", "Render"),
+        Binding("x", "export", "Export"),
+        Binding("s", "song", "Song"),
+        Binding("d", "delete", "Delete"),
         Binding("f", "filter", "Filter"),
     ]
 
@@ -157,3 +163,88 @@ class PostsPane(Vertical):
                 self.reload()
 
         self.app.push_screen(ChoiceModal("Show the posts of", choices), chosen)
+
+    # --- actions on the highlighted post ------------------------------------------------
+
+    def _selected(self) -> ListPost | None:
+        post = self.current
+        if post is None:
+            self.app.notify("no post selected", severity="warning")
+        return post
+
+    def action_render(self) -> None:
+        post = self._selected()
+        if post is None:
+            return
+        pid = post.id
+
+        def rendered(slides) -> None:
+            self.app.notify(f"post {pid} · {len(slides)} slides")
+            self.reload(select=pid)
+
+        if self.app.start_render(lambda tools: render_post(pid, tools), rendered):
+            self.app.notify(f"rendering {pid}…")
+
+    def action_export(self) -> None:
+        post = self._selected()
+        if post is None:
+            return
+        ctx = self.app.ctx
+        try:
+            dest = export_post(
+                post.id,
+                ctx.tools.posts,
+                ctx.store.history,
+                ctx.settings.export_dir,
+                now=self.app.clock(),
+            )
+        except ManhwatokError as e:
+            self.app.fail(e)
+            return
+        self.app.notify(f"exported → {dest}")
+        self.reload()
+
+    def action_song(self) -> None:
+        post = self._selected()
+        if post is None:
+            return
+        ctx, pid = self.app.ctx, post.id
+        try:
+            account_song = song_for(post.model_copy(update={"song": None}), ctx.store.accounts)
+        except ManhwatokError as e:
+            self.app.fail(e)
+            return
+        default = f": {account_song}" if account_song else ", none"
+        prompt = f"Song for post {pid} — leave empty for the account's{default}"
+
+        def entered(value: str | None) -> None:
+            if value is None:
+                return
+            try:
+                set_post_song(pid, value or None, ctx.tools.posts)
+            except ManhwatokError as e:
+                self.app.fail(e)
+                return
+            self.reload(select=pid)
+
+        self.app.push_screen(TextModal(prompt, post.song or "", account_song), entered)
+
+    def action_delete(self) -> None:
+        post = self._selected()
+        if post is None:
+            return
+        pid = post.id
+        size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
+
+        def answered(yes: bool | None) -> None:
+            if not yes:
+                return
+            try:
+                delete_post(pid, self.app.ctx.tools.posts)
+            except ManhwatokError as e:
+                self.app.fail(e)
+                return
+            self.app.notify(f"deleted post {pid}")
+            self.reload()
+
+        self.app.push_screen(ConfirmModal(f"Delete post {pid} ({size})?"), answered)
