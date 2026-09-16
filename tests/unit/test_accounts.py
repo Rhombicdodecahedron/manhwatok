@@ -1,9 +1,15 @@
 import pytest
 
 from manhwatok.adapters.sqlite_store import SqliteStore
-from manhwatok.app.accounts import add_account, add_theme, update_account
+from manhwatok.app.accounts import add_account, add_theme, update_account, update_theme
 from manhwatok.app.names import AniListNames
-from manhwatok.domain.errors import AccountNotFound, AlreadyExists, InvalidName, ManhwatokError
+from manhwatok.domain.errors import (
+    AccountNotFound,
+    AlreadyExists,
+    InvalidName,
+    ManhwatokError,
+    ThemeNotFound,
+)
 from manhwatok.domain.models import Sort, TagInfo
 from manhwatok.domain.post import DEFAULT_HASHTAGS
 from tests.unit.fakes import FakeMetadata
@@ -123,3 +129,27 @@ def test_add_theme_validates_before_lookup(env):
     with pytest.raises(InvalidName):
         add_theme(store.themes, names, "bad name", ["Revenge"], [], Sort.SCORE, 60, "t")
     assert meta.lookups == 0
+
+
+def test_update_theme_changes_only_the_given_fields_and_checks_new_names(env):
+    store, names, meta = env
+    add_theme(store.themes, names, "revenge", ["revenge"], [], Sort.SCORE, 60, "t")
+    lookups = meta.lookups
+    theme = update_theme(store.themes, names, "Revenge", {"title": "New", "sort": Sort.TRENDING})
+    assert (theme.title, theme.sort, theme.tags) == ("New", Sort.TRENDING, ["Revenge"])
+    assert meta.lookups == lookups  # names unchanged: not looked up again
+    theme = update_theme(store.themes, names, "revenge", {"genres": ["action"]})
+    assert theme.genres == ["Action"]
+    assert store.themes.get("revenge") == theme
+
+
+def test_update_theme_errors(env):
+    store, names, _ = env
+    with pytest.raises(ThemeNotFound):
+        update_theme(store.themes, names, "ghost", {"title": "x"})
+    add_theme(store.themes, names, "revenge", ["Revenge"], [], Sort.SCORE, 60, "t")
+    with pytest.raises(ManhwatokError, match="give at least one tag or genre"):
+        update_theme(store.themes, names, "revenge", {"tags": []})
+    with pytest.raises(InvalidName, match="did you mean Harem"):
+        update_theme(store.themes, names, "revenge", {"tags": ["Harm"]})
+    assert store.themes.get("revenge").tags == ["Revenge"]

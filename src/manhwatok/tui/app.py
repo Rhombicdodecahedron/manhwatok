@@ -11,7 +11,7 @@ from typing import Callable
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
+from textual.widgets import Footer, Header, TabbedContent, TabPane
 from textual.worker import Worker, WorkerState
 
 from manhwatok.app.context import AppContext, open_context
@@ -21,6 +21,7 @@ from manhwatok.domain.errors import ManhwatokError
 from manhwatok.tui.screens.accounts import AccountsPane
 from manhwatok.tui.screens.build import BuildPane
 from manhwatok.tui.screens.posts import PostsPane
+from manhwatok.tui.screens.themes import ThemesPane
 from manhwatok.tui.widgets.dialogs import ConfirmModal
 
 RENDER, BROWSER = "render", "browser"  # worker groups the app waits for before quitting
@@ -75,7 +76,7 @@ class ManhwatokApp(App[None]):
             with TabPane("Accounts", id="accounts"):
                 yield AccountsPane()
             with TabPane("Themes", id="themes"):
-                yield Static("themes")
+                yield ThemesPane()
         yield Footer()
 
     def on_mount(self) -> None:

@@ -9,7 +9,7 @@ from manhwatok.app.names import NameCheck
 from manhwatok.domain.account import Account, normalize_handle
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import Sort
-from manhwatok.domain.theme import Theme
+from manhwatok.domain.theme import Theme, normalize_theme_name
 from manhwatok.ports.store import AccountRepository, ThemeRepository
 
 
@@ -65,4 +65,20 @@ def add_theme(
         update={"tags": names.tags(theme.tags), "genres": names.genres(theme.genres)}
     )
     themes.add(theme)
+    return theme
+
+
+def update_theme(
+    themes: ThemeRepository, names: NameCheck, name: str, changes: dict[str, Any]
+) -> Theme:
+    """Change only the fields in `changes` (not the name); raises ThemeNotFound."""
+    current = themes.get(normalize_theme_name(name))
+    theme = Theme.model_validate({**current.model_dump(), **changes, "name": current.name})
+    update: dict[str, list[str]] = {}
+    if "tags" in changes:
+        update["tags"] = names.tags(theme.tags)
+    if "genres" in changes:
+        update["genres"] = names.genres(theme.genres)
+    theme = theme.model_copy(update=update)
+    themes.update(theme)
     return theme
