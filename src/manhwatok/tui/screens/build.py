@@ -306,9 +306,10 @@ class BuildPane(VerticalScroll):
             worker = get_current_worker()
             try:
                 tags = self.app.ctx.metadata.list_tags()
-            except ManhwatokError:
+            except ManhwatokError as e:
                 if not worker.is_cancelled:
-                    self.app.later(lambda: setattr(self, "_loading_tags", False))
+                    self.app.fail(e)
+                self.app.later(lambda: setattr(self, "_loading_tags", False))
                 return
             if not worker.is_cancelled:
                 self.app.call_from_thread(self._tags_loaded, tags)

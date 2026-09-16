@@ -248,18 +248,20 @@ def test_matching_tags():
 
 
 class BlockingMetadata(FakeMetadata):
-    """FakeMetadata whose search() blocks until an event is released, then raises on first call."""
+    """FakeMetadata whose search() has per-call events; first call raises."""
 
     def __init__(self, results=(), tags=(), genres=()):
         super().__init__(results, tags, genres)
-        self.event = threading.Event()
-        self.call_count = 0
+        self.events: dict[str, threading.Event] = {}
 
     def search(self, query: SearchQuery):
-        self.call_count += 1
         self.queries.append(query)
-        self.event.wait()
-        if self.call_count == 1:
+        call_num = len(self.queries)
+        event_key = f"call_{call_num}"
+        if event_key not in self.events:
+            self.events[event_key] = threading.Event()
+        self.events[event_key].wait()
+        if call_num == 1:
             raise ManhwatokError("first search failed")
         return list(self.results)
 
@@ -278,18 +280,17 @@ def test_cancelled_search_error_not_shown(tmp_path):
         await _set(pilot, pane, tags="Revenge")
         pane.search()
         await pilot.pause()
-        # Start a second search immediately (before first completes)
+        # Start a second search immediately (before first completes); this cancels the first
         pane.search()
         await pilot.pause()
-        # Release the first search's block, let it fail
-        meta.event.set()
-        # Wait a moment for the first search to complete
-        await wait_for(pilot, lambda: meta.call_count >= 1)
-        # The error from the cancelled first search should not appear
+        # Release the first search so it can fail (but it's already cancelled)
+        meta.events["call_1"].set()
+        await pilot.pause()
+        # Verify the first search's error never appeared in notifications
         assert not any("first search failed" in str(n) for n in notes(app))
-        # Reset event for second search
-        meta.event.clear()
-        await wait_for(pilot, lambda: isinstance(app.screen, PicksScreen) or meta.call_count >= 2)
+        # Now release the second search which should succeed
+        meta.events["call_2"].set()
+        await wait_for(pilot, lambda: isinstance(app.screen, PicksScreen))
 
     run_app(ctx, scenario)
 
@@ -330,5 +331,59 @@ def test_tag_loading_called_once_during_typing(tmp_path):
         assert ctx.metadata.list_tags_calls == 1
         # Verify no error notifications appeared
         assert not any("error" in str(n).lower() for n in notes(app))
+
+    run_app(ctx, scenario)
+
+
+def test_list_tags_error_shown_once(tmp_path):
+    """When list_tags fails, the error shows exactly once; retrying after fix shows tags."""
+
+    class BlockingErrorMetadata(FakeMetadata):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.should_fail = True
+            self.list_tags_calls = 0
+            self.event = threading.Event()
+
+        def list_tags(self):
+            self.list_tags_calls += 1
+            self.event.wait()
+            if self.should_fail:
+                raise ManhwatokError("AniList unreachable: boom")
+            return list(self.tags)
+
+    ctx, _ = _ctx(tmp_path)
+    ctx.metadata = BlockingErrorMetadata(tags=TAGS)
+
+    async def scenario(app, pilot):
+        pane = await _open_build(app, pilot)
+        tag_search = _field(pane, "tag-search")
+        tag_search.focus()
+        # Type to trigger list_tags (without waiting, so keystroke happens while load is pending)
+        await pilot.press(*"rev")
+        await pilot.pause()
+        # Verify only one load was started
+        assert ctx.metadata.list_tags_calls == 1
+        # Release the load, let it fail
+        ctx.metadata.event.set()
+        await wait_for(pilot, lambda: "AniList unreachable" in str(notes(app)))
+        error_notes = [n for n in notes(app) if "AniList unreachable" in str(n)]
+        assert len(error_notes) == 1
+        # Verify the loading flag was cleared so we can try again
+        assert not pane._loading_tags
+        # Fix the fake and reset for next attempt
+        ctx.metadata.should_fail = False
+        ctx.metadata.event.clear()
+        # Type again to trigger another load
+        await pilot.press(*"enge")
+        # Release the second load
+        ctx.metadata.event.set()
+        await wait_for(pilot, lambda: pane._tags is not None)
+        # Verify only 2 calls total (1 failing, 1 succeeding)
+        assert ctx.metadata.list_tags_calls == 2
+        # Verify no additional error notifications appeared
+        assert len([n for n in notes(app) if "AniList unreachable" in str(n)]) == 1
+        # Verify the tags loaded
+        assert pane._tags == list(TAGS)
 
     run_app(ctx, scenario)
