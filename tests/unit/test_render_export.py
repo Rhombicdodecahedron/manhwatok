@@ -372,3 +372,44 @@ def test_render_survives_a_character_download_failure(tmp_path):
     assert passed[1] == SlideArt(tmp_path / "1.jpg", None, None)
     assert len(slides) == 4
     assert len(messages) == 1 and "character" in messages[0]
+
+
+# --- hand-picked art -------------------------------------------------------------------------
+
+
+def _picked_post(name="art-1.png", **overrides):
+    items = [
+        PostItem(manhwa=manhwa(anilist_id=1), hook="a", custom_art=name),
+        PostItem(manhwa=manhwa(anilist_id=2), hook="b"),
+    ]
+    return post(items=items, **overrides)
+
+
+def test_render_passes_hand_picked_art_from_the_post_folder(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(_picked_post())
+    picked = tools.posts.folder("20260914-a3f9") / "art-1.png"
+    picked.write_bytes(b"picked")
+    render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed[1].custom == picked
+    assert passed[2].custom is None
+
+
+def test_render_ignores_hand_picked_art_whose_file_has_gone(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(_picked_post())
+    slides = render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed[1].custom is None
+    assert len(slides) == 4  # still renders, on the cover
+
+
+def test_render_still_fetches_covers_for_a_title_with_picked_art(tmp_path):
+    """The cover is the slide's backdrop, so it is still wanted."""
+    tools = make_tools(tmp_path)
+    tools.posts.save(_picked_post())
+    (tools.posts.folder("20260914-a3f9") / "art-1.png").write_bytes(b"picked")
+    render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed[1].cover == tmp_path / "1.jpg"

@@ -39,6 +39,7 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
     covers = _fetch_each(
         post, tools.covers.get, tools.covers.cached, lambda m: m.cover_url, "cover", tools
     )
+    picked = _picked(post, tools)
     if post.art is ArtStyle.CHARACTER:
         characters = _fetch_each(
             post,
@@ -49,10 +50,13 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
             tools,
         )
         return {
-            m_id: SlideArt(path, None, characters[m_id]) for m_id, path in covers.items()
+            m_id: SlideArt(path, None, characters[m_id], picked.get(m_id))
+            for m_id, path in covers.items()
         }
     if post.art is ArtStyle.NONE:
-        return {m_id: SlideArt(path, None) for m_id, path in covers.items()}
+        return {
+            m_id: SlideArt(path, None, None, picked.get(m_id)) for m_id, path in covers.items()
+        }
     banners = _fetch_each(
         post,
         tools.covers.get_banner,
@@ -61,7 +65,24 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
         "banner",
         tools,
     )
-    return {m_id: SlideArt(path, banners[m_id]) for m_id, path in covers.items()}
+    return {
+        m_id: SlideArt(path, banners[m_id], None, picked.get(m_id))
+        for m_id, path in covers.items()
+    }
+
+
+def _picked(post: ListPost, tools: PostTools) -> dict[int, Path]:
+    """Hand-picked art, by title. A name whose file has since gone is skipped rather than
+    failing the render — the title falls back to its style's own art."""
+    folder = tools.posts.folder(post.id)
+    found = {}
+    for item in post.items:
+        if not item.custom_art:
+            continue
+        path = folder / item.custom_art
+        if path.is_file():
+            found[item.manhwa.anilist_id] = path
+    return found
 
 
 def _fetch_each(

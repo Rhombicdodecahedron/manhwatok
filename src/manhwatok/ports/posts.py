@@ -26,11 +26,13 @@ class PostRepository(Protocol):
 
 class SlideArt(NamedTuple):
     """The images one manhwa slide can draw with. Any may be missing: no cover means a plain
-    accent background, and no banner or character means the cover stands in for it."""
+    accent background, and no banner or character means the cover stands in for it. `custom` is
+    art the user picked by hand, and beats all of them."""
 
     cover: Path | None
     banner: Path | None
     character: Path | None = None
+    custom: Path | None = None
 
 
 class CoverSource(Protocol):

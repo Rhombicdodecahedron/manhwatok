@@ -16,6 +16,9 @@ MAX_ITEMS = 33  # TikTok photo posts cap at 35 images: cover + items + end slide
 class PostItem(BaseModel):
     manhwa: Manhwa
     hook: str = ""
+    # A file the user picked by hand, kept in the post's own folder and named relative to it.
+    # It beats whatever the post's art style would have fetched.
+    custom_art: str = ""
 
 
 class ListPost(BaseModel):

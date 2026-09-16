@@ -104,6 +104,27 @@ Character images are small (about 230×345 against a 460×650 cover), but manhwa
 clean-lined, so it holds up scaled into a slide. Extra images are cached next to the covers in
 `$XDG_DATA_HOME/manhwatok/covers/` and downloaded only when a post's style asks for them.
 
+## Your own art for one title
+
+AniList only has what AniList has, and for the long tail that is a cover and nothing else. When
+you find something better yourself, hand it to the title directly:
+
+```bash
+uv run manhwatok art <id> 128067 ~/Downloads/pick.png   # 128067 is the AniList id in the draft
+uv run manhwatok art <id> 128067 --clear                # back to the style's own art
+```
+
+The picture is copied into the post's folder, so it survives the original moving or being
+deleted, and every later `render` and `edit` keeps using it. It beats whatever the post's style
+would have fetched, and re-renders the post straight away. The rest of the slide is unchanged:
+the backdrop still comes from the style.
+
+Good places to look: AniList and MyAnimeList to pin down who a character actually is, then
+Zerochan, Safebooru or Pinterest for art of them. Two things worth knowing before you post it —
+those boards are mostly fan art by individual artists, who do notice their work on growing
+accounts, and their coverage is thinnest for exactly the small titles this option exists for.
+Publisher art (the covers and banners the tool fetches itself) does not carry that risk.
+
 Fonts: Montserrat, bundled under the SIL Open Font License (`src/manhwatok/assets/fonts/`).
 
 ## Accounts and themes

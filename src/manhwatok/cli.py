@@ -346,6 +346,41 @@ def posts(
 
 
 @app.command()
+def art(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    anilist_id: int = typer.Argument(..., help="The title's AniList id, as shown in the draft."),
+    picture: Optional[Path] = typer.Argument(
+        None, help="Image file to use for that title (jpg, png, webp or gif)."
+    ),
+    clear: bool = typer.Option(
+        False, "--clear", help="Drop this title's picked art and go back to its style's own."
+    ),
+) -> None:
+    """Use a picture of your own for one title, instead of the art its style would fetch."""
+    from manhwatok.app.item_art import clear_item_art, set_item_art
+    from manhwatok.app.render_post import render_post
+
+    if clear and picture is not None:
+        _fail(ManhwatokError("give a file or --clear, not both"))
+    if not clear and picture is None:
+        _fail(ManhwatokError("give a picture to use, or --clear to drop the one it has"))
+
+    settings = Settings()
+    try:
+        tools = _tools(settings)
+        if clear:
+            clear_item_art(post_id, anilist_id, tools)
+            typer.echo(f"dropped the picked art for {anilist_id}")
+        else:
+            kept = set_item_art(post_id, anilist_id, picture, tools)
+            typer.echo(f"using {kept.name} for {anilist_id}")
+        slides = render_post(post_id, tools)
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo(f"post {post_id} · {len(slides)} slides → {tools.posts.folder(post_id)}")
+
+
+@app.command()
 def delete(
     post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Don't ask for confirmation."),

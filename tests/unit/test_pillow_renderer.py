@@ -382,3 +382,41 @@ def test_character_art_is_drawn_bigger_than_the_plain_cover_card(tmp_path):
 
     plain = layout_item(1, "TITLE 1", "ongoing", "Hook 1.").cover_area
     assert char.w * char.h > plain.w * plain.h
+
+
+# --- hand-picked art -------------------------------------------------------------------------
+
+
+def _blue_pick(tmp_path):
+    return cover_file(tmp_path / "pick", 1, color=(30, 30, 230), size=(500, 700))
+
+
+def test_hand_picked_art_beats_the_cover(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, _blue_pick(tmp_path))}
+    PillowRenderer().render(_post(1), art, tmp_path / "out")
+    r, g, b = _card_pixel(tmp_path / "out")
+    assert b > r + 40
+
+
+def test_hand_picked_art_beats_the_character_portrait(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), None, _green_character(tmp_path), _blue_pick(tmp_path))}
+    PillowRenderer().render(_character_post(), art, tmp_path / "out")
+    r, g, b = _card_pixel(tmp_path / "out")
+    assert b > g + 40
+
+
+def test_hand_picked_art_beats_the_banner_in_the_panel(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), _blue_banner(tmp_path), None, _green_character(tmp_path))}
+    PillowRenderer().render(_panel_post(), art, tmp_path / "out")
+    box = _panel_box()
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        r, g, b = img.getpixel((box.x + box.w // 2, box.y + box.h // 2))
+    assert g > b + 40  # the pick, not the blue banner
+
+
+def test_hand_picked_art_leaves_the_backdrop_to_the_style(tmp_path):
+    """The pick replaces the slide's subject, not the blur behind it."""
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, _blue_pick(tmp_path))}
+    PillowRenderer().render(_post(1), art, tmp_path / "out")
+    r, g, b = _corner(tmp_path / "out")
+    assert r > b  # still the blurred red cover

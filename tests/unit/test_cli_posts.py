@@ -479,3 +479,52 @@ def test_build_rejects_an_unknown_art_style(wire):
     out = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--art", "epic"])
     assert out.exit_code != 0
     assert "background" in out.output  # the error names the styles that do exist
+
+
+# --- art <post> <title> <file> ----------------------------------------------------------------
+
+
+def _pick_file(tmp_path, name="pick.png"):
+    path = tmp_path / name
+    path.write_bytes(b"\x89PNG pretend")
+    return path
+
+
+def test_art_attaches_a_file_to_one_title_and_rerenders(wire, tmp_path):
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(app, ["art", post_id, "11", str(_pick_file(tmp_path))])
+    assert out.exit_code == 0, out.output
+    item = next(i for i in repo.get(post_id).items if i.manhwa.anilist_id == 11)
+    assert item.custom_art == "art-11.png"
+    assert (repo.folder(post_id) / "art-11.png").is_file()
+    assert "slides" in out.output  # it re-rendered
+
+
+def test_art_clear_removes_it(wire, tmp_path):
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    runner.invoke(app, ["art", post_id, "11", str(_pick_file(tmp_path))])
+    out = runner.invoke(app, ["art", post_id, "11", "--clear"])
+    assert out.exit_code == 0, out.output
+    item = next(i for i in repo.get(post_id).items if i.manhwa.anilist_id == 11)
+    assert item.custom_art == ""
+    assert not (repo.folder(post_id) / "art-11.png").exists()
+
+
+def test_art_without_a_file_or_clear_fails(wire):
+    wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["art", _post_id(built.output), "11"])
+    assert out.exit_code != 0
+    assert "--clear" in out.output
+
+
+def test_art_on_an_unknown_title_lists_the_ones_in_the_post(wire, tmp_path):
+    wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["art", _post_id(built.output), "999", str(_pick_file(tmp_path))])
+    assert out.exit_code != 0
+    assert "Doom Breaker" in out.output

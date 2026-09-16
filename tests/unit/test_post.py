@@ -11,8 +11,9 @@ from manhwatok.domain.post import (
     DEFAULT_CTA_TITLE,
     DEFAULT_HASHTAGS,
     ListPost,
+    PostItem,
 )
-from tests.unit.fakes import post
+from tests.unit.fakes import manhwa, post
 
 
 def test_slide_count_is_items_plus_cover_and_end():
@@ -89,6 +90,7 @@ def test_phase2_post_json_loads_with_new_defaults():
     assert p.cta_follow == DEFAULT_CTA_FOLLOW == "Follow for part 2"
     assert p.sent_at is None
     assert p.art is ArtStyle.NONE  # an older post keeps the look it was built with
+    assert p.items[0].custom_art == ""  # no hand-picked art until you set one
 
 
 def test_exported_at_must_be_timezone_aware():
@@ -99,3 +101,8 @@ def test_exported_at_must_be_timezone_aware():
 def test_sent_at_must_be_timezone_aware():
     with pytest.raises(ValidationError):
         post(sent_at=datetime(2026, 9, 15, 12, 0))
+
+
+def test_post_item_carries_hand_picked_art():
+    item = PostItem(manhwa=manhwa(), hook="h", custom_art="art-11.png")
+    assert item.custom_art == "art-11.png"

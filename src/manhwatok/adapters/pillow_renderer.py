@@ -47,6 +47,7 @@ class _Art(NamedTuple):
     cover: Image.Image | None
     banner: Image.Image | None
     character: Image.Image | None
+    custom: Image.Image | None
 GRADIENT_H = 920
 
 
@@ -194,6 +195,7 @@ class PillowRenderer:
                 _load(one.cover),
                 _load(one.banner) if wants_banner else None,
                 _load(one.character) if post.art is ArtStyle.CHARACTER else None,
+                _load(one.custom),
             )
             for m_id, one in art.items()
         }
@@ -216,21 +218,23 @@ class PillowRenderer:
         m = item.manhwa
         accent_hex = readable_accent(m.cover_color, post.accent)
         accent = hex_to_rgb(accent_hex)
-        art = loaded.get(m.anilist_id) or _Art(None, None, None)
+        art = loaded.get(m.anilist_id) or _Art(None, None, None, None)
         img, banner = art.cover, art.banner
         canvas = _backdrop(banner, img, accent_hex).convert("RGBA")
         layout = layout_item(index + 1, m.title, chapter_label(m), item.hook, art=post.art)
         area = layout.cover_area
         if post.art is ArtStyle.PANEL:
             # The banner is the point of this style; the cover stands in, cropped to the same
-            # shape, so a title without a banner doesn't break the post's rhythm.
-            src = banner or img or _accent_gradient((area.w, area.h), accent_hex)
-            box, card = area, _filled(src, area, BANNER_CROP if banner else COVER_CROP)
+            # shape, so a title without a banner doesn't break the post's rhythm. Art the user
+            # picked by hand beats both, and is framed like a cover since it could be anything.
+            src = art.custom or banner or img or _accent_gradient((area.w, area.h), accent_hex)
+            crop = BANNER_CROP if banner and not art.custom else COVER_CROP
+            box, card = area, _filled(src, area, crop)
         else:
-            # The character portrait stands in for the cover when this style has one. Both are
-            # fitted, never cropped: the art is already framed tightly on its subject, and the
-            # bigger box is there to show more of it, not less.
-            src = art.character or img or _accent_gradient((460, 650), accent_hex)
+            # Hand-picked art first, then the character portrait when this style has one, then
+            # the cover. All are fitted, never cropped: the art is already framed tightly on its
+            # subject, and the bigger box is there to show more of it, not less.
+            src = art.custom or art.character or img or _accent_gradient((460, 650), accent_hex)
             box = fit_inside(src.width, src.height, area)
             card = _rounded(src.resize((box.w, box.h), Image.Resampling.LANCZOS), 24)
         _paste_with_shadow(canvas, card, box.x, box.y)
