@@ -397,6 +397,21 @@ def song(
     typer.echo(f"post {post_id} song: {current} ({source})")
 
 
+@app.command()
+def tui() -> None:
+    """Open the terminal app: posts with slide previews, building, accounts and themes."""
+    try:
+        from manhwatok.tui.app import run
+    except ImportError as e:
+        if (e.name or "").split(".")[0] not in ("textual", "textual_image"):
+            raise
+        _fail(ManhwatokError("the TUI needs the tui extra — run: uv sync --extra tui"))
+    try:
+        run(Settings())
+    except ManhwatokError as e:
+        _fail(e)
+
+
 # --- assisted upload -----------------------------------------------------------------------
 
 

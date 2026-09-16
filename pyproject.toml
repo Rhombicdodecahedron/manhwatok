@@ -26,6 +26,10 @@ manhwatok = "manhwatok.cli:app"
 upload = [
     "playwright>=1.45",
 ]
+tui = [
+    "textual>=1.0",
+    "textual-image>=0.8",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]
