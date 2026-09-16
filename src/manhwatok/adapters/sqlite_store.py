@@ -117,9 +117,11 @@ class SqliteStore:
             raise StorageError(f"database at {path} is unusable: {e}") from e
         try:
             _migrate(conn, path)
-        except StorageError:
+            # WAL: readers don't wait for a writer, so the TUI and CLI commands can run together
+            conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.Error as e:
             conn.close()
-            raise
+            raise StorageError(f"database at {path} is unusable: {e}") from e
         self._conn = conn
         self._lock = threading.RLock()  # the connection may be shared by worker threads
         self.cache = CacheTable(self, clock)

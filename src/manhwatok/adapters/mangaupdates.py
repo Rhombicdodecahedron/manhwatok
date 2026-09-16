@@ -19,7 +19,13 @@ def _norm(s: str) -> str:
 
 class MangaUpdatesSource:
     def __init__(self, client: httpx.Client | None = None, timeout: float = 20.0) -> None:
+        self._owns_client = client is None
         self._client = client or httpx.Client(timeout=timeout)
+
+    def close(self) -> None:
+        """Close the HTTP client this source created (a client passed in stays open)."""
+        if self._owns_client:
+            self._client.close()
 
     def latest_chapter(self, manhwa: Manhwa) -> int | None:
         for title in dict.fromkeys(t for t in (manhwa.title, manhwa.romaji) if t):

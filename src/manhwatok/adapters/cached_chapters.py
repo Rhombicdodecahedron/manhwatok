@@ -28,6 +28,12 @@ class CachedChapterSource:
         self._cache = cache
         self._max_age = max_age
 
+    def close(self) -> None:
+        """Close the wrapped source, if it can be closed (the cache belongs to the store)."""
+        close = getattr(self._inner, "close", None)
+        if close is not None:
+            close()
+
     def latest_chapter(self, manhwa: Manhwa) -> int | None:
         key = f"latest_chapter:{manhwa.anilist_id}"
         try:

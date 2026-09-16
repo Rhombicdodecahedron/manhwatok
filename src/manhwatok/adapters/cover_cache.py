@@ -19,7 +19,13 @@ class CoverCache:
         self, covers_dir: Path, client: httpx.Client | None = None, timeout: float = 20.0
     ) -> None:
         self._dir = covers_dir
+        self._owns_client = client is None
         self._client = client or httpx.Client(timeout=timeout, follow_redirects=True)
+
+    def close(self) -> None:
+        """Close the HTTP client this source created (a client passed in stays open)."""
+        if self._owns_client:
+            self._client.close()
 
     def _path_for(self, manhwa: Manhwa) -> Path:
         ext = PurePosixPath(urlparse(manhwa.cover_url).path).suffix.lower()
