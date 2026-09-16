@@ -52,8 +52,9 @@ ACCOUNT = typer.Option(
 ART = typer.Option(
     None,
     "--art",
-    help="Manhwa slide backdrop: 'none' (the blurred cover) or 'background' (AniList's banner "
-    "art, falling back to the cover). Default: the account's, else none.",
+    help="Manhwa slide art: 'none' (the cover on its own blur), 'background' (the cover on "
+    "AniList's banner art) or 'panel' (a wide crop of the banner in place of the cover). "
+    "Default: the account's, else none.",
 )
 
 
@@ -471,7 +472,7 @@ ACCOUNT_ACCENT = typer.Option(None, "--accent", help="Accent colour, e.g. #43c9e
 CTA_TITLE = typer.Option(None, "--cta-title", help="End-slide title; *word* = accent colour.")
 CTA_FOLLOW = typer.Option(None, "--cta-follow", help="End-slide follow line.")
 ACCOUNT_ART = typer.Option(
-    None, "--art", help="Default manhwa slide backdrop for this account's new posts."
+    None, "--art", help="Default manhwa slide art for this account's new posts."
 )
 REPEAT_DAYS = typer.Option(
     None, "--repeat-days", min=1, max=3650, help="Don't suggest titles exported this recently."

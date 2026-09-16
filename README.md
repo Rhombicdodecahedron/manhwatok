@@ -76,22 +76,25 @@ uv run manhwatok delete <id>           # asks first; --yes skips the question
 
 ## Slide art
 
-A manhwa slide draws its cover on a backdrop. `--art` picks what that backdrop is:
+`--art` picks what a manhwa slide is built around:
 
-- `none` (default) — the cover itself, blurred. The original look.
-- `background` — AniList's banner art for that title, cropped to fill and blurred lightly, so
-  the slide takes its mood from the story's own art instead of its cover.
+- `none` (default) — the upright cover on its own blurred self. The original look.
+- `background` — the same upright cover, on that title's AniList banner art instead. The slide
+  takes its mood from the story's art rather than from a cover blurred past recognition.
+- `panel` — the banner itself, cropped wide and sharp in place of the cover card, with the
+  blurred banner behind it. The most cinematic of the three.
 
 ```bash
-uv run manhwatok build -t Revenge --title "..." --art background
+uv run manhwatok build -t Revenge --title "..." --art panel
 uv run manhwatok render <id> --art background     # restyle a post you already built
-uv run manhwatok account set @manhwa.daily --art background   # default for new posts
+uv run manhwatok account set @manhwa.daily --art panel   # default for new posts
 ```
 
-Only about half of Korean manhwa have a banner on AniList — fewer among less popular titles. A
-title without one falls back to its blurred cover, so a post never renders half-finished. Banners
-are cached next to the covers in `$XDG_DATA_HOME/manhwatok/covers/` and downloaded only when a
-post actually asks for them.
+Only about half of Korean manhwa have a banner on AniList — fewer among less popular titles.
+Under `background` a title without one keeps its blurred cover; under `panel` its cover is
+cropped to the same wide shape, so every slide in a post matches either way. Banners are cached
+next to the covers in `$XDG_DATA_HOME/manhwatok/covers/` and downloaded only when a post asks
+for them.
 
 Fonts: Montserrat, bundled under the SIL Open Font License (`src/manhwatok/assets/fonts/`).
 

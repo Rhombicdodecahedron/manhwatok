@@ -283,6 +283,10 @@ def fit_inside(img_w: int, img_h: int, area: Box) -> Box:
 
 ITEM_TEXT_W = 870  # x 90–960 (keeps clear of TikTok's right-hand buttons)
 COVER_MAX_W, COVER_MAX_H = 620, 876
+# The panel style's image box: the full safe width, in a cinematic ratio. A banner is ~4.75:1
+# and a cover ~0.7:1, so whichever one fills it is cropped — the box's shape is what makes
+# every slide in a panel post match.
+PANEL_RATIO = 2.1
 
 
 @dataclass(frozen=True)
@@ -298,7 +302,9 @@ class ItemLayout:
         return boxes + ([self.hook.box] if self.hook else [])
 
 
-def layout_item(rank: int, name: str, pill_label: str, hook: str) -> ItemLayout:
+def layout_item(
+    rank: int, name: str, pill_label: str, hook: str, panel: bool = False
+) -> ItemLayout:
     x = SAFE.x
     rank_t = fit_words(plain_words(f"#{rank}"), display, ITEM_TEXT_W, 1, 96, 96)
     name_t = fit_words(plain_words(name.upper() or "?"), display, ITEM_TEXT_W, 2, 62, 42, 1.08)
@@ -311,14 +317,25 @@ def layout_item(rank: int, name: str, pill_label: str, hook: str) -> ItemLayout:
     heights = [rank_t.height, name_t.height, pill.box.h] + ([hook_t.height] if hook_t else [])
     tops = stack_up(heights, SAFE.bottom)
     cover_bottom = tops[0] - 40
-    area_h = max(1, min(COVER_MAX_H, cover_bottom - SAFE.y))
+    free_h = cover_bottom - SAFE.y
+    if panel:
+        area = _panel_area(free_h, cover_bottom)
+    else:
+        area = Box((SLIDE_W - COVER_MAX_W) // 2, SAFE.y, COVER_MAX_W, max(1, min(COVER_MAX_H, free_h)))
     return ItemLayout(
         rank=Placed(rank_t, x, tops[0], ITEM_TEXT_W),
         name=Placed(name_t, x, tops[1], ITEM_TEXT_W),
         pill=_at(pill, tops[2]),
         hook=Placed(hook_t, x, tops[3], ITEM_TEXT_W) if hook_t else None,
-        cover_area=Box((SLIDE_W - COVER_MAX_W) // 2, SAFE.y, COVER_MAX_W, area_h),
+        cover_area=area,
     )
+
+
+def _panel_area(free_h: int, free_bottom: int) -> Box:
+    """A landscape box the full safe width, centred in the space left above the text. Shrinks
+    to fit when a long title and hook leave less room than the ratio wants."""
+    h = max(1, min(round(SAFE.w / PANEL_RATIO), free_h))
+    return Box(SAFE.x, SAFE.y + (free_h - h) // 2, SAFE.w, h)
 
 
 # --- cover slide --------------------------------------------------------------------------

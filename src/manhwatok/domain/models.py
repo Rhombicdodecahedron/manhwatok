@@ -21,6 +21,7 @@ class ArtStyle(StrEnum):
 
     NONE = "none"  # the cover, blurred, behind its own card — the original look
     BACKGROUND = "background"  # AniList's banner behind the cover card, cover blur as fallback
+    PANEL = "panel"  # a wide crop of the banner (or the cover) in place of the card
 
 
 class Manhwa(BaseModel):

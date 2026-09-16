@@ -206,3 +206,78 @@ def test_background_art_still_renders_when_the_banner_file_is_broken(tmp_path):
     assert len(paths) == 3
     r, g, b = _corner(tmp_path / "out")
     assert r > b  # falls back to the cover
+
+
+# --- panel art (Phase 5) ---------------------------------------------------------------------
+
+
+def _panel_post():
+    return _post(1).model_copy(update={"art": ArtStyle.PANEL})
+
+
+def _panel_box():
+    from manhwatok.adapters.layout import layout_item
+
+    return layout_item(1, "TITLE 1", "ongoing", "Hook 1.", panel=True).cover_area
+
+
+def test_panel_art_fills_the_wide_box_with_the_banner(tmp_path):
+    """A 4.75:1 banner in a 2.1:1 box: fitting it would leave the box's own top and bottom
+    showing the backdrop instead of art."""
+    art = {1: SlideArt(_red_cover(tmp_path), _blue_banner(tmp_path))}
+    PillowRenderer().render(_panel_post(), art, tmp_path / "out")
+    box = _panel_box()
+    mid_x = box.x + box.w // 2
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        inside = [img.getpixel((mid_x, y)) for y in (box.y + 6, box.y + box.h // 2, box.bottom - 6)]
+    for r, g, b in inside:
+        assert b > r + 40  # solid banner blue top to bottom of the box
+
+
+def test_panel_art_crops_the_cover_into_the_same_box_without_a_banner(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), None)}
+    PillowRenderer().render(_panel_post(), art, tmp_path / "out")
+    box = _panel_box()
+    mid_x = box.x + box.w // 2
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        inside = [img.getpixel((mid_x, y)) for y in (box.y + 6, box.y + box.h // 2, box.bottom - 6)]
+    for r, g, b in inside:
+        assert r > b + 40  # the cover, cropped — same shape as a banner slide
+
+
+def test_panel_art_renders_with_no_images_at_all(tmp_path):
+    paths = PillowRenderer().render(_panel_post(), {1: SlideArt(None, None)}, tmp_path / "out")
+    assert len(paths) == 3
+
+
+def test_panel_art_still_uses_the_banner_as_the_backdrop(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), _blue_banner(tmp_path))}
+    PillowRenderer().render(_panel_post(), art, tmp_path / "out")
+    r, g, b = _corner(tmp_path / "out")  # outside the panel box
+    assert b > r
+
+
+def _banded_cover(tmp_path):
+    """A cover whose face-height band (top 30%) is green and the rest black, so where the
+    panel crop takes its band from is visible in the output."""
+    img = Image.new("RGB", (460, 650), (0, 0, 0))
+    for y in range(195):
+        for x in range(460):
+            img.putpixel((x, y), (0, 220, 0))
+    folder = tmp_path / "banded"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / "1.jpg"
+    img.save(path)
+    return path
+
+
+def test_panel_crops_a_cover_from_where_the_face_usually_is(tmp_path):
+    """Centre-cropping a 0.7:1 cover to 2.1:1 lands on the torso; the crop sits higher so it
+    catches the character instead."""
+    art = {1: SlideArt(_banded_cover(tmp_path), None)}
+    PillowRenderer().render(_panel_post(), art, tmp_path / "out")
+    box = _panel_box()
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        top_band = img.getpixel((box.x + box.w // 2, box.y + 6))
+    r, g, b = top_band
+    assert g > r + 80 and g > b + 80  # the green band, not the black below it

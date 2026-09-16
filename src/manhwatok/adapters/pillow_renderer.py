@@ -34,6 +34,9 @@ SIZE = (SLIDE_W, SLIDE_H)
 # be seen, so it keeps more detail and brightness.
 COVER_BLUR, COVER_DIM = 36, 0.42
 BANNER_BLUR, BANNER_DIM = 18, 0.50
+# Where a panel crop takes its band from. A banner is already composed wide, so it crops from
+# the middle; an upright cover's subject sits high, so its band is lifted off the centre.
+BANNER_CROP, COVER_CROP = (0.5, 0.5), (0.5, 0.28)
 GRADIENT_H = 920
 
 
@@ -171,7 +174,7 @@ class PillowRenderer:
         images = {m_id: _load(one.cover) for m_id, one in art.items()}
         banners = (
             {m_id: _load(one.banner) for m_id, one in art.items()}
-            if post.art is ArtStyle.BACKGROUND
+            if post.art in (ArtStyle.BACKGROUND, ArtStyle.PANEL)
             else {}
         )
         slides = [self.cover_slide(post, images)]
@@ -198,16 +201,28 @@ class PillowRenderer:
     ) -> Image.Image:
         item = post.items[index]
         m = item.manhwa
-        accent = hex_to_rgb(readable_accent(m.cover_color, post.accent))
+        accent_hex = readable_accent(m.cover_color, post.accent)
+        accent = hex_to_rgb(accent_hex)
         img = images.get(m.anilist_id)
         banner = (banners or {}).get(m.anilist_id)
-        canvas = _backdrop(banner, img, readable_accent(m.cover_color, post.accent)).convert(
-            "RGBA"
-        )
-        layout = layout_item(index + 1, m.title, chapter_label(m), item.hook)
-        src = img or _accent_gradient((460, 650), readable_accent(m.cover_color, post.accent))
-        box = fit_inside(src.width, src.height, layout.cover_area)
-        card = _rounded(src.resize((box.w, box.h), Image.Resampling.LANCZOS), 24)
+        canvas = _backdrop(banner, img, accent_hex).convert("RGBA")
+        panel = post.art is ArtStyle.PANEL
+        layout = layout_item(index + 1, m.title, chapter_label(m), item.hook, panel=panel)
+        area = layout.cover_area
+        if panel:
+            # The banner is the point of this style; the cover stands in, cropped to the same
+            # shape, so a title without a banner doesn't break the post's rhythm.
+            src = banner or img or _accent_gradient((area.w, area.h), accent_hex)
+            centering = BANNER_CROP if banner else COVER_CROP
+            box = area
+            card = _rounded(
+                ImageOps.fit(src, (area.w, area.h), Image.Resampling.LANCZOS, centering=centering),
+                24,
+            )
+        else:
+            src = img or _accent_gradient((460, 650), accent_hex)
+            box = fit_inside(src.width, src.height, area)
+            card = _rounded(src.resize((box.w, box.h), Image.Resampling.LANCZOS), 24)
         _paste_with_shadow(canvas, card, box.x, box.y)
         _bottom_gradient(canvas)
         draw = ImageDraw.Draw(canvas)
