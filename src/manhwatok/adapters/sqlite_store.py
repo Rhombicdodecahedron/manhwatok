@@ -122,6 +122,9 @@ class SqliteStore:
         except sqlite3.Error as e:
             conn.close()
             raise StorageError(f"database at {path} is unusable: {e}") from e
+        except StorageError:
+            conn.close()
+            raise
         self._conn = conn
         self._lock = threading.RLock()  # the connection may be shared by worker threads
         self.cache = CacheTable(self, clock)
