@@ -1,9 +1,11 @@
 import pytest
+import threading
 
 pytest.importorskip("textual")
 
 from manhwatok.domain.account import Account  # noqa: E402
-from manhwatok.domain.models import Sort, TagInfo  # noqa: E402
+from manhwatok.domain.errors import ManhwatokError  # noqa: E402
+from manhwatok.domain.models import SearchQuery, Sort, TagInfo  # noqa: E402
 from manhwatok.domain.theme import Theme  # noqa: E402
 from manhwatok.tui.screens.build import BuildPane, matching_tags  # noqa: E402
 from manhwatok.tui.screens.picks import PicksScreen  # noqa: E402
@@ -243,3 +245,90 @@ def test_matching_tags():
     assert matching_tags(TAGS, "") == []
     many = [TagInfo(name=f"Tag {i}", category="x") for i in range(40)]
     assert len(matching_tags(many, "tag")) == 30
+
+
+class BlockingMetadata(FakeMetadata):
+    """FakeMetadata whose search() blocks until an event is released, then raises on first call."""
+
+    def __init__(self, results=(), tags=(), genres=()):
+        super().__init__(results, tags, genres)
+        self.event = threading.Event()
+        self.call_count = 0
+
+    def search(self, query: SearchQuery):
+        self.call_count += 1
+        self.queries.append(query)
+        self.event.wait()
+        if self.call_count == 1:
+            raise ManhwatokError("first search failed")
+        return list(self.results)
+
+
+def test_cancelled_search_error_not_shown(tmp_path):
+    """When a search is cancelled by a second search, the first's error doesn't appear."""
+    meta = BlockingMetadata(CANDIDATES, tags=TAGS)
+    # Create a new context with the blocking metadata
+    from tests.tui.helpers import make_ctx as make_test_ctx
+    ctx = make_test_ctx(tmp_path, metadata=meta)
+    ctx.store.accounts.add(Account(handle="reads", hashtags="#reads", song="Acct Song"))
+    ctx.store.themes.add(REVENGE)
+
+    async def scenario(app, pilot):
+        pane = await _open_build(app, pilot)
+        await _set(pilot, pane, tags="Revenge")
+        pane.search()
+        await pilot.pause()
+        # Start a second search immediately (before first completes)
+        pane.search()
+        await pilot.pause()
+        # Release the first search's block, let it fail
+        meta.event.set()
+        # Wait a moment for the first search to complete
+        await wait_for(pilot, lambda: meta.call_count >= 1)
+        # The error from the cancelled first search should not appear
+        assert not any("first search failed" in str(n) for n in notes(app))
+        # Reset event for second search
+        meta.event.clear()
+        await wait_for(pilot, lambda: isinstance(app.screen, PicksScreen) or meta.call_count >= 2)
+
+    run_app(ctx, scenario)
+
+
+def test_tag_loading_called_once_during_typing(tmp_path):
+    """list_tags is called only once even when typing several characters."""
+
+    class SlowMetadata(FakeMetadata):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.list_tags_calls = 0
+            self.event = threading.Event()
+
+        def list_tags(self):
+            self.list_tags_calls += 1
+            self.event.wait()
+            if self.list_tags_calls == 1:
+                return []  # First call returns empty, then event is released
+            return list(self.tags)
+
+    ctx, _ = _ctx(tmp_path)
+    ctx.metadata = SlowMetadata(tags=TAGS)
+
+    async def scenario(app, pilot):
+        pane = await _open_build(app, pilot)
+        tag_search = _field(pane, "tag-search")
+        tag_search.focus()
+        # Type "rev" - should trigger one tag load
+        await pilot.press(*"rev")
+        await pilot.pause()
+        # While loading, type more characters - should not trigger more loads
+        await pilot.press(*"eng")
+        await pilot.pause()
+        # Release the first and only list_tags call
+        ctx.metadata.event.set()
+        await wait_for(pilot, lambda: pane._tags is not None)
+        # Verify only one call was made
+        assert ctx.metadata.list_tags_calls == 1
+        # Verify no error notifications appeared
+        assert not any("error" in str(n).lower() for n in notes(app))
+
+    run_app(ctx, scenario)

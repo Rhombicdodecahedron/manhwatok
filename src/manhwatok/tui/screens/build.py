@@ -61,6 +61,7 @@ class BuildPane(VerticalScroll):
         super().__init__()
         self._auto_title = ""
         self._tags: list[TagInfo] | None = None
+        self._loading_tags = False
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="row"):
@@ -168,6 +169,10 @@ class BuildPane(VerticalScroll):
         for field in ("tags", "genres"):
             self._input(field).placeholder = "from the theme" if name else ""
 
+    def _set_status(self, text: str) -> None:
+        """Update status text on the main thread."""
+        self.query_one("#status", Static).update(text)
+
     def _query(self) -> SearchQuery:
         theme = self.query_one("#theme", Select).selection
         tags = split_names(self._input("tags").value)
@@ -221,7 +226,7 @@ class BuildPane(VerticalScroll):
 
             def progress(msg: str) -> None:
                 if not worker.is_cancelled:
-                    self.app.call_from_thread(self.query_one("#status", Static).update, msg)
+                    self.app.later(self._set_status, msg)
 
             try:
                 results = suggest_for_account(
@@ -235,7 +240,8 @@ class BuildPane(VerticalScroll):
                     progress,
                 )
             except ManhwatokError as e:
-                progress("")
+                if worker.is_cancelled:
+                    return
                 self.app.fail(e)
                 return
             if not worker.is_cancelled:
@@ -288,22 +294,31 @@ class BuildPane(VerticalScroll):
             return
         event.stop()
         if self._tags is None:
-            self._load_tags()
+            if not self._loading_tags:
+                self._load_tags()
         else:
             self._show_tags(event.value)
 
     def _load_tags(self) -> None:
+        self._loading_tags = True
+
         def run() -> None:
+            worker = get_current_worker()
             try:
                 tags = self.app.ctx.metadata.list_tags()
-            except ManhwatokError as e:
-                self.app.fail(e)
+            except ManhwatokError:
+                if not worker.is_cancelled:
+                    self.app.later(lambda: setattr(self, "_loading_tags", False))
                 return
-            self.app.call_from_thread(self._tags_loaded, tags)
+            if not worker.is_cancelled:
+                self.app.call_from_thread(self._tags_loaded, tags)
+            else:
+                self.app.later(lambda: setattr(self, "_loading_tags", False))
 
         self.run_worker(run, thread=True, group="tag-list", exclusive=True)
 
     def _tags_loaded(self, tags: list[TagInfo]) -> None:
+        self._loading_tags = False
         self._tags = tags
         self._show_tags(self._input("tag-search").value)
 
