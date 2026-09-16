@@ -18,6 +18,7 @@ from manhwatok.app.context import AppContext, open_context
 from manhwatok.app.post_tools import PostTools
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
+from manhwatok.tui.screens.accounts import AccountsPane
 from manhwatok.tui.screens.build import BuildPane
 from manhwatok.tui.screens.posts import PostsPane
 from manhwatok.tui.widgets.dialogs import ConfirmModal
@@ -72,7 +73,7 @@ class ManhwatokApp(App[None]):
             with TabPane("Build", id="build"):
                 yield BuildPane()
             with TabPane("Accounts", id="accounts"):
-                yield Static("accounts")
+                yield AccountsPane()
             with TabPane("Themes", id="themes"):
                 yield Static("themes")
         yield Footer()
