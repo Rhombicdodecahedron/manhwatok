@@ -528,3 +528,41 @@ def test_art_on_an_unknown_title_lists_the_ones_in_the_post(wire, tmp_path):
     out = runner.invoke(app, ["art", _post_id(built.output), "999", str(_pick_file(tmp_path))])
     assert out.exit_code != 0
     assert "Doom Breaker" in out.output
+
+
+def test_art_downloads_a_url(wire, monkeypatch):
+    import httpx
+
+    from manhwatok.adapters import picture_download
+
+    def host(request):
+        return httpx.Response(200, content=b"\x89PNG pretend", headers={"Content-Type": "image/png"})
+
+    real = picture_download.download_picture
+    monkeypatch.setattr(
+        picture_download,
+        "download_picture",
+        lambda url, into, **kw: real(
+            url, into, client=httpx.Client(transport=httpx.MockTransport(host))
+        ),
+    )
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(app, ["art", post_id, "11", "https://example.test/cool.png"])
+    assert out.exit_code == 0, out.output
+    item = next(i for i in repo.get(post_id).items if i.manhwa.anilist_id == 11)
+    assert item.custom_art == "art-11.png"
+    assert (repo.folder(post_id) / "art-11.png").read_bytes() == b"\x89PNG pretend"
+
+
+def test_art_expands_a_tilde_path(wire, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    pick = tmp_path / "pick.png"
+    pick.write_bytes(b"\x89PNG pretend")
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(app, ["art", post_id, "11", "~/pick.png"])
+    assert out.exit_code == 0, out.output
+    assert repo.get(post_id).items[0].custom_art == "art-11.png"

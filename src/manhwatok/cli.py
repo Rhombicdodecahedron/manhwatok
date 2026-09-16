@@ -349,14 +349,17 @@ def posts(
 def art(
     post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
     anilist_id: int = typer.Argument(..., help="The title's AniList id, as shown in the draft."),
-    picture: Optional[Path] = typer.Argument(
-        None, help="Image file to use for that title (jpg, png, webp or gif)."
+    picture: Optional[str] = typer.Argument(
+        None, help="Image file or URL to use for that title (jpg, png, webp or gif)."
     ),
     clear: bool = typer.Option(
         False, "--clear", help="Drop this title's picked art and go back to its style's own."
     ),
 ) -> None:
     """Use a picture of your own for one title, instead of the art its style would fetch."""
+    import tempfile
+
+    from manhwatok.adapters.picture_download import download_picture, looks_like_url
     from manhwatok.app.item_art import clear_item_art, set_item_art
     from manhwatok.app.render_post import render_post
 
@@ -371,8 +374,15 @@ def art(
         if clear:
             clear_item_art(post_id, anilist_id, tools)
             typer.echo(f"dropped the picked art for {anilist_id}")
+        elif looks_like_url(picture):
+            # Kept only until it is copied into the post's folder.
+            with tempfile.TemporaryDirectory() as scratch:
+                typer.echo(f"downloading {picture}")
+                got = download_picture(picture, Path(scratch))
+                kept = set_item_art(post_id, anilist_id, got, tools)
+            typer.echo(f"using {kept.name} for {anilist_id}")
         else:
-            kept = set_item_art(post_id, anilist_id, picture, tools)
+            kept = set_item_art(post_id, anilist_id, Path(picture).expanduser(), tools)
             typer.echo(f"using {kept.name} for {anilist_id}")
         slides = render_post(post_id, tools)
     except ManhwatokError as e:

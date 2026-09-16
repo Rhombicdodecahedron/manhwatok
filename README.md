@@ -110,9 +110,14 @@ AniList only has what AniList has, and for the long tail that is a cover and not
 you find something better yourself, hand it to the title directly:
 
 ```bash
-uv run manhwatok art <id> 128067 ~/Downloads/pick.png   # 128067 is the AniList id in the draft
-uv run manhwatok art <id> 128067 --clear                # back to the style's own art
+uv run manhwatok art <id> 128067 https://example.com/art.jpg   # a link, downloaded for you
+uv run manhwatok art <id> 128067 ~/Downloads/pick.png          # or a file you saved
+uv run manhwatok art <id> 128067 --clear                       # back to the style's own art
 ```
+
+`128067` is the title's AniList id, the first field on each line of the draft. A link must point
+at the image itself, not the page it sits on — right-click the picture and copy the image
+address. Linking a page gets you "it served text/html" rather than a broken slide.
 
 The picture is copied into the post's folder, so it survives the original moving or being
 deleted, and every later `render` and `edit` keeps using it. It beats whatever the post's style
