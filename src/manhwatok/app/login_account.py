@@ -16,9 +16,9 @@ from manhwatok.ports.uploader import Uploader
 def login_account(
     handle: str, accounts: AccountRepository, uploader: Uploader, progress: ProgressFn
 ) -> Account:
-    """Returns once the user has closed the browser window."""
+    """Returns once the user has quit the browser."""
     account = accounts.get(normalize_handle(handle))
-    progress(f"Log in to {account.display} in the browser, then close the window.")
+    progress(f"Log in to {account.display} in the Chrome window, then quit that Chrome (⌘Q).")
     try:
         uploader.login(account.handle)
     finally:

@@ -25,6 +25,7 @@ CANDIDATES = [
 ACCOUNT = Account(
     handle="reads",
     hashtags="#reads",
+    emojis="📚",
     accent="#ff00aa",
     cta_title="Seen *these*?",
     cta_follow="More tomorrow",
@@ -35,10 +36,10 @@ ACCOUNT = Account(
 # --- create_post (pure) --------------------------------------------------------------------
 
 
-def _create(account=None, hashtags=None, accent=None, art=None):
+def _create(account=None, hashtags=None, accent=None, art=None, emojis=None):
     items = [PostItem(manhwa=CANDIDATES[0], hook="h")]
     return create_post(
-        "20260914-a3f9", NOW, CANDIDATES, "T", items, account, hashtags, accent, art
+        "20260914-a3f9", NOW, CANDIDATES, "T", items, account, hashtags, accent, art, emojis
     )
 
 
@@ -63,6 +64,13 @@ def test_create_post_overrides_beat_the_account():
     p = _create(ACCOUNT, hashtags="#once", accent="#ABCDEF")
     assert (p.hashtags, p.accent) == ("#once", "#abcdef")
     assert p.cta_title == "Seen *these*?"
+
+
+def test_create_post_emojis_come_from_the_override_else_the_account():
+    assert _create().emojis == ""
+    assert _create(ACCOUNT).emojis == "📚"
+    assert _create(ACCOUNT, emojis=" 🔥⏳ ").emojis == "🔥⏳"
+    assert _create(ACCOUNT, emojis="").emojis == ""
 
 
 def test_create_post_art_override_beats_the_account():

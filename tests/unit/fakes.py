@@ -216,11 +216,14 @@ class FakeUploader:
     def __init__(self, report=None, error: Exception | None = None):
         from manhwatok.ports.uploader import UploadReport
 
-        self.report = report or UploadReport(attached=True, captioned=True, problems=[])
+        self.report = report or UploadReport(
+            attached=True, captioned=True, problems=[], titled=True
+        )
         self.error = error
         self.events: list[str] = []
         self.logins: list[str] = []
-        self.uploads: list[tuple[str, list[Path], str, bool]] = []
+        # (handle, slides, title, description, sound, debug)
+        self.uploads: list[tuple[str, list[Path], str, str, str | None, bool]] = []
 
     def login(self, handle: str) -> None:
         self.events.append("login")
@@ -228,9 +231,9 @@ class FakeUploader:
         if self.error:
             raise self.error
 
-    def upload(self, handle: str, slides: list[Path], caption: str, debug: bool):
+    def upload(self, handle, slides, title, description, sound, debug):
         self.events.append("upload")
-        self.uploads.append((handle, list(slides), caption, debug))
+        self.uploads.append((handle, list(slides), title, description, sound, debug))
         if self.error:
             raise self.error
         return self.report

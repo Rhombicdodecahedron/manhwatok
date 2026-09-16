@@ -302,3 +302,17 @@ def test_account_set_changes_art_without_touching_the_rest(tmp_path):
 def test_account_show_lists_the_art_style(tmp_path):
     _ok(["account", "add", "reads", "--art", "background"])
     assert "background" in _ok(["account", "show", "reads"])
+
+
+def test_account_emojis_and_sounds(tmp_path):
+    _ok(["account", "add", "reads", "--emojis", "🔥📚", "--sound", "solo leveling"])
+    out = _ok(["account", "set", "reads", "--sound", "Dark Aria", "--sound", "night drive"])
+    assert "  emojis        🔥📚\n" in out
+    assert "  sounds        Dark Aria | night drive\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").sounds == ["Dark Aria", "night drive"]
+    _ok(["account", "set", "reads", "--hashtags", "#x"])  # no --sound: the list stays
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").sounds == ["Dark Aria", "night drive"]
+    out = _ok(["account", "set", "reads", "--sound", "", "--emojis", ""])
+    assert "  emojis        -\n  sounds        -\n" in out

@@ -39,6 +39,9 @@ class Account(BaseModel):
     block_genres: list[str] = Field(default_factory=list)
     block_tags: list[str] = Field(default_factory=list)
     hashtags: str = DEFAULT_HASHTAGS
+    emojis: str = ""  # after the title in TikTok's title field; never drawn on a slide
+    # TikTok sound searches (e.g. "SOLO LEVELING RaijinLofi"); `upload` asks which one to use.
+    sounds: list[str] = Field(default_factory=list)
     accent: str = DEFAULT_ACCENT
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
@@ -54,6 +57,20 @@ class Account(BaseModel):
     @classmethod
     def _names(cls, value: list[str]) -> list[str]:
         return clean_names(value)
+
+    @field_validator("emojis")
+    @classmethod
+    def _emojis(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("sounds")
+    @classmethod
+    def _sounds(cls, value: list[str]) -> list[str]:
+        sounds: list[str] = []
+        for sound in (" ".join(s.split()) for s in value):
+            if sound and sound not in sounds:
+                sounds.append(sound)
+        return sounds
 
     @field_validator("accent")
     @classmethod

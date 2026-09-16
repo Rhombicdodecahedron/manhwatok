@@ -170,19 +170,32 @@ uv run manhwatok posts --account @manhwa.daily
 ## Uploading to TikTok (assisted)
 
 `upload` takes the manual steps out of posting but leaves the decision to you: it opens a real,
-visible Chromium window logged in as the post's account, attaches the slides in order and types
-the caption. You check the post (add a sound, pick the cover) and click **Post** yourself.
+visible Google Chrome window logged in as the post's account, attaches the slides in order, types
+the title and description and adds a sound. You check the post (pick the cover) and click **Post**
+yourself.
 
 ```bash
-uv sync --extra upload && uv run playwright install chromium   # once: Playwright + its Chromium
+uv sync --extra upload                    # once: Playwright (uses your installed Google Chrome)
 
-uv run manhwatok login @manhwa.daily      # once per account: log in by hand, close the window
+uv run manhwatok login @manhwa.daily      # once per account: log in by hand, then quit Chrome (⌘Q)
+uv run manhwatok account set @manhwa.daily --emojis "🔥📚" \
+  --sound "SOLO LEVELING RaijinLofi" --sound "Dark Aria SawanoHiroyuki"   # optional
 uv run manhwatok upload <id>              # an account's post with up-to-date slides
 ```
+
+- TikTok's title field gets the post title plus the post's emojis (`build --emojis`, default:
+  the account's `--emojis`); emojis never go on the slides. The description gets the numbered
+  picks and the hashtags, each picked from TikTok's suggestions so it becomes a real hashtag.
+- Each `--sound` is a search in TikTok's sound library. `upload` asks which of the account's
+  sounds to use (Enter: the first, 0: none) and adds the first result TikTok finds.
+  `upload --sound "..."` searches for something else; `--no-sound` adds none.
 
 - Each account gets its own browser profile in `$XDG_DATA_HOME/manhwatok/browser/<handle>/`;
   manhwatok never sees your password. Captchas and login checks are yours to answer in the
   window.
+- `login` opens Chrome on its own, with nothing automating it: TikTok won't finish a login in a
+  browser Playwright controls. `upload` then drives Chrome with Playwright on that same profile.
+  A profile saved before this change has no login in it — run `login` again.
 - `upload` prints what it did and anything left for you (e.g. "caption box not found — paste
   caption.txt yourself"), plus the slides folder, then asks `Posted on @x? [y/N]` with the
   window still open. `y` records the post: its titles count as posted for the repeat window and

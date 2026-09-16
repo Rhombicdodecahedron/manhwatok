@@ -202,6 +202,9 @@ def build(
     hashtags: Optional[str] = typer.Option(
         None, help="Caption hashtags (default: the account's, else the standard set)."
     ),
+    emojis: Optional[str] = typer.Option(
+        None, help="Emojis after the title on TikTok (default: the account's, else none)."
+    ),
     accent: Optional[str] = typer.Option(
         None, help="Accent colour for cover and end slides (default: the account's, else #43c9e4)."
     ),
@@ -232,6 +235,7 @@ def build(
                 tools,
                 now=now,
                 art=art,
+                emojis=emojis,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -428,6 +432,26 @@ def _ask(question: str) -> bool:
         return False
 
 
+def _choose_sound(sounds: list[str]) -> Optional[str]:
+    """Numbered list of the account's sounds; Enter takes the first, 0 means none. No answer
+    at all (Ctrl-D, Ctrl-C) is no sound."""
+    typer.echo("Sound for this post:")
+    for n, sound in enumerate(sounds, 1):
+        typer.echo(f"  {n}. {sound}")
+    typer.echo("  0. no sound")
+    while True:
+        try:
+            answer = typer.prompt("Pick", default=1, type=int)
+        except typer.Abort:
+            typer.echo()
+            return None
+        if answer == 0:
+            return None
+        if 1 <= answer <= len(sounds):
+            return sounds[answer - 1]
+        typer.echo(f"pick 0–{len(sounds)}")
+
+
 def _ctrl_c(message: str) -> NoReturn:
     """Ctrl-C while the browser was open; it's closed by now. Exit like an interrupted
     command (130), without a traceback."""
@@ -461,9 +485,17 @@ def upload(
     debug: bool = typer.Option(
         False, "--debug", help="Save a screenshot and the page's HTML if something isn't found."
     ),
+    sound: Optional[str] = typer.Option(
+        None,
+        "--sound",
+        help="Search TikTok's sounds for this and use the first one found (default: ask which "
+        "of the account's sounds to use).",
+    ),
+    no_sound: bool = typer.Option(False, "--no-sound", help="Add no sound, don't ask."),
 ) -> None:
-    """Open TikTok's upload page as the post's account with the slides and caption filled in.
-    You check it and click Post yourself, then answer y here to record the post as sent."""
+    """Open TikTok's upload page as the post's account with the slides, title, description and
+    sound filled in. You check it and click Post yourself, then answer y here to record the post
+    as sent."""
     from manhwatok.app import container
     from manhwatok.app.upload_post import upload_post
 
@@ -480,6 +512,8 @@ def upload(
                 typer.echo,
                 now=datetime.now(timezone.utc),
                 debug=debug,
+                sound="" if no_sound else sound,
+                choose_sound=_choose_sound,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -514,6 +548,15 @@ BLOCK_GENRES = typer.Option(
 )
 BLOCK_TAGS = typer.Option(None, "--block-tags", help="Tags never to suggest, comma-separated.")
 ACCOUNT_HASHTAGS = typer.Option(None, "--hashtags", help="Caption hashtags for this account.")
+ACCOUNT_EMOJIS = typer.Option(
+    None, "--emojis", help='Emojis after the title on TikTok, e.g. "🔥📚". "" clears.'
+)
+ACCOUNT_SOUNDS = typer.Option(
+    None,
+    "--sound",
+    help="A TikTok sound search, e.g. \"SOLO LEVELING RaijinLofi\"; repeat for several. "
+    "Replaces the account's list; --sound \"\" clears it. `upload` asks which one to use.",
+)
 ACCOUNT_ACCENT = typer.Option(None, "--accent", help="Accent colour, e.g. #43c9e4.")
 CTA_TITLE = typer.Option(None, "--cta-title", help="End-slide title; *word* = accent colour.")
 CTA_FOLLOW = typer.Option(None, "--cta-follow", help="End-slide follow line.")
@@ -535,6 +578,8 @@ def _account_fields(
     cta_follow: Optional[str],
     repeat_days: Optional[int],
     art: Optional[ArtStyle],
+    emojis: Optional[str] = None,
+    sounds: Optional[list[str]] = None,
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -542,6 +587,7 @@ def _account_fields(
     fields: dict = {k: split_names(v) for k, v in lists.items() if v is not None}
     scalars = {
         "hashtags": hashtags,
+        "emojis": emojis,
         "accent": accent,
         "cta_title": cta_title,
         "cta_follow": cta_follow,
@@ -549,6 +595,8 @@ def _account_fields(
         "art": art,
     }
     fields.update({k: v for k, v in scalars.items() if v is not None})
+    if sounds:  # typer gives [] when --sound wasn't used
+        fields["sounds"] = sounds
     return fields
 
 
@@ -559,6 +607,8 @@ def _print_account(a) -> None:
         ("block genres", ", ".join(a.block_genres) or "-"),
         ("block tags", ", ".join(a.block_tags) or "-"),
         ("hashtags", a.hashtags or "-"),
+        ("emojis", a.emojis or "-"),
+        ("sounds", " | ".join(a.sounds) or "-"),
         ("accent", a.accent),
         ("cta title", a.cta_title),
         ("cta follow", a.cta_follow),
@@ -590,6 +640,8 @@ def account_add(
     block_genres: Optional[str] = BLOCK_GENRES,
     block_tags: Optional[str] = BLOCK_TAGS,
     hashtags: Optional[str] = ACCOUNT_HASHTAGS,
+    emojis: Optional[str] = ACCOUNT_EMOJIS,
+    sound: Optional[list[str]] = ACCOUNT_SOUNDS,
     accent: Optional[str] = ACCOUNT_ACCENT,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
@@ -600,7 +652,8 @@ def account_add(
     from manhwatok.app.accounts import add_account
 
     fields = _account_fields(
-        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art
+        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
+        emojis, sound,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -612,6 +665,8 @@ def account_set(
     block_genres: Optional[str] = BLOCK_GENRES,
     block_tags: Optional[str] = BLOCK_TAGS,
     hashtags: Optional[str] = ACCOUNT_HASHTAGS,
+    emojis: Optional[str] = ACCOUNT_EMOJIS,
+    sound: Optional[list[str]] = ACCOUNT_SOUNDS,
     accent: Optional[str] = ACCOUNT_ACCENT,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
@@ -622,7 +677,8 @@ def account_set(
     from manhwatok.app.accounts import update_account
 
     fields = _account_fields(
-        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art
+        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
+        emojis, sound,
     )
     _save_account(update_account, "updated", handle, fields)
 

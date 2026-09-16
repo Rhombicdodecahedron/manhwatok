@@ -3,7 +3,7 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from manhwatok.domain.caption import build_caption
+from manhwatok.domain.caption import build_caption, upload_description, upload_title
 from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
@@ -46,6 +46,20 @@ def test_caption_lists_picks_and_hashtags_with_plain_title():
     assert build_caption(post(hashtags="#manhwa #webtoon")) == (
         "Manhwa where the MC regresses\n\n1. Title 1\n2. Title 2\n3. Title 3\n\n#manhwa #webtoon"
     )
+
+
+def test_tiktok_title_is_the_plain_title_then_the_emojis():
+    p = post(hashtags="#manhwa", emojis="🔥⏳")
+    assert upload_title(p) == "Manhwa where the MC regresses 🔥⏳"
+    assert upload_description(p) == "1. Title 1\n2. Title 2\n3. Title 3\n\n#manhwa"
+    assert build_caption(p).startswith("Manhwa where the MC regresses 🔥⏳\n\n1. Title 1\n")
+    assert upload_title(post()) == "Manhwa where the MC regresses"
+
+
+def test_a_long_tiktok_title_loses_words_not_emojis():
+    title = upload_title(post(title="word " * 30, emojis="🔥"))
+    assert title == "word " * 17 + "🔥"
+    assert len(title) <= 90
 
 
 # A post.json exactly as Phase 2 wrote it: no account, exported_at or CTA fields.

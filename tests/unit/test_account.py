@@ -49,6 +49,14 @@ def test_defaults():
     assert a.cta_follow == DEFAULT_CTA_FOLLOW
     assert a.repeat_days == DEFAULT_REPEAT_DAYS == 30
     assert a.art is ArtStyle.NONE
+    assert (a.emojis, a.sounds) == ("", [])
+
+
+def test_sounds_are_tidied_and_deduplicated_emojis_trimmed():
+    sounds = ["  solo   leveling ", "", "solo leveling", "Dark Aria"]
+    a = Account(handle="ab", sounds=sounds, emojis=" 🔥 ")
+    assert a.sounds == ["solo leveling", "Dark Aria"]
+    assert a.emojis == "🔥"
 
 
 def test_accent_is_validated_and_lowercased():

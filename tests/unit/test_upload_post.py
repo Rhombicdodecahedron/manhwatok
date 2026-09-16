@@ -49,7 +49,7 @@ class Answer:
         return self.yes
 
 
-def _upload(posts, store, uploader, yes=True, messages=None, debug=False):
+def _upload(posts, store, uploader, yes=True, messages=None, debug=False, **sound):
     answer = Answer(uploader, yes)
     posted = upload_post(
         POST_ID,
@@ -61,6 +61,7 @@ def _upload(posts, store, uploader, yes=True, messages=None, debug=False):
         (messages if messages is not None else []).append,
         now=NOW,
         debug=debug,
+        **sound,
     )
     return posted, answer
 
@@ -72,18 +73,23 @@ def test_yes_records_the_titles_and_marks_the_post_sent(tmp_path, store):
     posted, answer = _upload(posts, store, uploader, messages=messages)
     assert posted is True
     folder = posts.folder(POST_ID)
-    [(handle, slides, caption, debug)] = uploader.uploads
+    [(handle, slides, title, description, sound, debug)] = uploader.uploads
     assert handle == "reads"
     assert slides == [folder / f"0{n}.png" for n in range(1, 6)]
-    assert caption == (folder / "caption.txt").read_text()
-    assert debug is False
+    assert title == "Manhwa where the MC regresses"
+    assert description == (
+        "1. Title 1\n2. Title 2\n3. Title 3\n\n#manhwa #manhwarecommendation #webtoon "
+        "#manhwatiktok"
+    )
+    assert (sound, debug) == (None, False)
     assert uploader.events == ["upload", "confirm", "close"]  # window open while asking
     assert answer.questions == ["Posted on @reads?"]
     assert store.history.recent("reads", NOW) == {1, 2, 3}
     assert posts.get(POST_ID).sent_at == NOW
     assert messages == [
         "attached 5 slides",
-        "typed the caption",
+        "typed the title",
+        "typed the description",
         f"slides and caption.txt: {folder}",
         "check the post in the browser and click Post yourself",
     ]
@@ -111,7 +117,7 @@ def test_problems_are_shown_and_the_question_is_still_asked(tmp_path, store):
     messages = []
     posted, answer = _upload(posts, store, uploader, messages=messages, debug=True)
     assert posted is True
-    assert uploader.uploads[0][3] is True
+    assert uploader.uploads[0][5] is True
     assert messages[:3] == [
         "attached 5 slides",
         "caption box not found — paste caption.txt yourself",
@@ -119,6 +125,51 @@ def test_problems_are_shown_and_the_question_is_still_asked(tmp_path, store):
         "check it before sharing)",
     ]
     assert answer.questions == ["Posted on @reads?"]
+
+
+def _account_with_sounds(store, sounds=("solo leveling", "dark aria")):
+    store.accounts.update(Account(handle="reads", sounds=list(sounds), emojis="🔥"))
+
+
+def test_it_asks_which_of_the_accounts_sounds_to_use(tmp_path, store):
+    _account_with_sounds(store)
+    posts = _posts(tmp_path)
+    uploader = FakeUploader(UploadReport(True, True, [], titled=True, sound="Dark Aria (01:00)"))
+    offered = []
+    messages = []
+
+    def choose(sounds):
+        offered.append(sounds)
+        uploader.events.append("choose")
+        return sounds[1]
+
+    _upload(posts, store, uploader, messages=messages, choose_sound=choose)
+    assert offered == [["solo leveling", "dark aria"]]
+    assert uploader.events == ["choose", "upload", "confirm", "close"]  # asked before the window
+    assert uploader.uploads[0][4] == "dark aria"
+    assert "added the sound Dark Aria (01:00)" in messages
+
+
+@pytest.mark.parametrize(
+    ("sounds", "given", "chosen", "expected"),
+    [
+        (("solo leveling",), "  night drive ", "unused", "night drive"),  # --sound wins
+        (("solo leveling",), "", "unused", None),  # --no-sound
+        (("solo leveling",), None, None, None),  # "no sound" picked
+        ((), None, "unused", None),  # nothing to pick from: not asked
+    ],
+)
+def test_sound_choice(tmp_path, store, sounds, given, chosen, expected):
+    _account_with_sounds(store, sounds)
+    posts = _posts(tmp_path)
+    uploader = FakeUploader()
+
+    def choose(options):
+        assert chosen != "unused", "should not ask"
+        return chosen
+
+    _upload(posts, store, uploader, sound=given, choose_sound=choose)
+    assert uploader.uploads[0][4] == expected
 
 
 def test_a_browser_failure_closes_it_and_asks_nothing(tmp_path, store):

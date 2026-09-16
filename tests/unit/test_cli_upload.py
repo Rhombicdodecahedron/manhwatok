@@ -15,7 +15,7 @@ from tests.unit.fakes import FakeUploader, make_tools, post
 
 runner = CliRunner()
 POST_ID = "20260914-a3f9"
-INSTALL = "error: upload needs: uv sync --extra upload && uv run playwright install chromium"
+INSTALL = "error: upload needs: uv sync --extra upload"
 
 
 @pytest.fixture(autouse=True)
@@ -49,12 +49,18 @@ def test_upload_then_yes_records_the_post_as_sent(tmp_path, monkeypatch):
     browser = _browser(monkeypatch)
     result = runner.invoke(app, ["upload", POST_ID], input="y\n")
     assert result.exit_code == 0, result.output
-    assert "attached 5 slides\ntyped the caption\n" in result.output
+    assert "attached 5 slides\ntyped the title\ntyped the description\n" in result.output
     assert "Posted on @reads? [y/N]" in result.output
     assert result.output.endswith(f"recorded post {POST_ID} as sent\n")
     assert browser.events == ["upload", "close"]
     assert browser.uploads[0][0] == "reads"
-    assert browser.uploads[0][3] is False  # no --debug
+    assert browser.uploads[0][2:] == (
+        "Manhwa where the MC regresses",
+        "1. Title 1\n2. Title 2\n3. Title 3\n\n#manhwa #manhwarecommendation #webtoon "
+        "#manhwatiktok",
+        None,  # the account has no sounds: nothing asked
+        False,  # no --debug
+    )
     assert posts.get(POST_ID).sent_at is not None
     with _store(tmp_path) as store:
         assert store.history.recent("reads", posts.get(POST_ID).sent_at) == {1, 2, 3}
@@ -104,7 +110,7 @@ def test_upload_problems_come_before_the_question(tmp_path, monkeypatch):
     result = runner.invoke(app, ["upload", POST_ID, "--debug"], input="n\n")
     assert result.exit_code == 0, result.output
     assert result.output.index(problem) < result.output.index("Posted on @reads?")
-    assert browser.uploads[0][3] is True
+    assert browser.uploads[0][5] is True
 
 
 def test_upload_not_logged_in(tmp_path, monkeypatch):
@@ -143,7 +149,9 @@ def test_login_opens_the_accounts_browser(tmp_path, monkeypatch):
     browser = _browser(monkeypatch)
     result = runner.invoke(app, ["login", "@Reads"])
     assert result.exit_code == 0, result.output
-    assert result.output.startswith("Log in to @reads in the browser, then close the window.\n")
+    assert result.output.startswith(
+        "Log in to @reads in the Chrome window, then quit that Chrome (⌘Q).\n"
+    )
     assert "browser closed" in result.output
     assert browser.logins == ["reads"]
     assert browser.events == ["login", "close"]
@@ -180,3 +188,44 @@ def test_without_the_upload_extra_both_commands_say_how_to_install(tmp_path, mon
 def test_help_lists_login_and_upload():
     out = runner.invoke(app, ["--help"]).output
     assert "login" in out and "upload" in out
+
+
+def _account_with_sounds(tmp_path):
+    with _store(tmp_path) as store:
+        store.accounts.update(Account(handle="reads", sounds=["solo leveling", "dark aria"]))
+
+
+@pytest.mark.parametrize(
+    ("answers", "expected"),
+    [("2\n", "dark aria"), ("\n", "solo leveling"), ("0\n", None), ("7\n1\n", "solo leveling")],
+    ids=["second", "enter takes the first", "none", "out of range asks again"],
+)
+def test_upload_asks_which_sound(tmp_path, monkeypatch, answers, expected):
+    _account_post(tmp_path)
+    _account_with_sounds(tmp_path)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID], input=answers + "n\n")
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith(
+        "Sound for this post:\n  1. solo leveling\n  2. dark aria\n  0. no sound\nPick [1]: "
+    )
+    assert browser.uploads[0][4] == expected
+
+
+def test_upload_sound_options_skip_the_question(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    _account_with_sounds(tmp_path)
+    browser = _browser(monkeypatch)
+    for args, expected in [(["--sound", "night drive"], "night drive"), (["--no-sound"], None)]:
+        result = runner.invoke(app, ["upload", POST_ID, *args], input="n\n")
+        assert result.exit_code == 0, result.output
+        assert "Sound for this post" not in result.output
+        assert browser.uploads[-1][4] == expected
+
+
+def test_upload_says_which_sound_was_added(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    report = UploadReport(True, True, [], titled=True, sound="SOLO LEVELING (00:59 · RaijinLofi)")
+    _browser(monkeypatch, report=report)
+    result = runner.invoke(app, ["upload", POST_ID, "--sound", "solo leveling"], input="n\n")
+    assert "added the sound SOLO LEVELING (00:59 · RaijinLofi)\n" in result.output

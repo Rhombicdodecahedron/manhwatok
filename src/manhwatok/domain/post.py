@@ -28,6 +28,7 @@ class ListPost(BaseModel):
     items: list[PostItem] = Field(default_factory=list)
     candidates: list[Manhwa] = Field(default_factory=list)
     hashtags: str = DEFAULT_HASHTAGS
+    emojis: str = ""  # after the title in TikTok's title field; never drawn on a slide
     accent: str = DEFAULT_ACCENT
     # Phase 3a fields; all defaulted so Phase 2 post.json files load unchanged.
     account: str | None = None  # handle without "@", or None for posts built without --account

@@ -84,6 +84,16 @@ def test_build_renders_and_prints_next_step(wire):
     assert "title: MC *regresses*" in editor.shown[0]
 
 
+def test_build_emojis_go_to_the_post_not_the_slides(wire):
+    repo, _ = wire()
+    args = ["build", "-t", "Revenge", "--title", "MC", "--emojis", "🔥", "--no-chapters"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    post_id = _post_id(result.output)
+    assert (repo.get(post_id).title, repo.get(post_id).emojis) == ("MC", "🔥")
+    assert (repo.folder(post_id) / "caption.txt").read_text().startswith("MC 🔥\n\n1. ")
+
+
 def test_build_requires_a_filter(wire):
     wire()
     result = runner.invoke(app, ["build"])

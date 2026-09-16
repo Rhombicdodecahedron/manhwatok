@@ -37,11 +37,14 @@ def create_post(
     hashtags: str | None,
     accent: str | None,
     art: ArtStyle | None = None,
+    emojis: str | None = None,
 ) -> ListPost:
-    """A new post (pure). Hashtags, accent and art: the override if given, else the account's,
-    else the defaults. End-slide texts come from the account."""
+    """A new post (pure). Hashtags, emojis, accent and art: the override if given, else the
+    account's, else the defaults. End-slide texts come from the account."""
     if hashtags is None:
         hashtags = account.hashtags if account else DEFAULT_HASHTAGS
+    if emojis is None:
+        emojis = account.emojis if account else ""
     if accent is None:
         accent = account.accent if account else DEFAULT_ACCENT
     if art is None:
@@ -53,6 +56,7 @@ def create_post(
         items=items,
         candidates=candidates,
         hashtags=hashtags,
+        emojis=emojis.strip(),
         accent=check_accent(accent),
         account=account.handle if account else None,
         cta_title=account.cta_title if account else DEFAULT_CTA_TITLE,
@@ -70,6 +74,7 @@ def build_post(
     tools: PostTools,
     now: datetime,
     art: ArtStyle | None = None,
+    emojis: str | None = None,
 ) -> tuple[ListPost, list[Path]] | None:
     """Returns (post, slide paths), or None if the user cancelled in the editor.
     `find_candidates` runs the search (e.g. `suggest_for_account`) once the inputs are valid."""
@@ -89,11 +94,15 @@ def build_post(
     try:
         title, items = parse_draft(edited, candidates)
     except DraftError as e:
-        draft = create_post(post_id, now, candidates, "", [], account, hashtags, accent, art)
+        draft = create_post(
+            post_id, now, candidates, "", [], account, hashtags, accent, art, emojis
+        )
         _save_new(draft, tools.posts)
         tools.posts.save_draft(post_id, edited)
         raise DraftError(f"{e} — your draft is saved; fix with: manhwatok edit {post_id}") from e
-    post = create_post(post_id, now, candidates, title, items, account, hashtags, accent, art)
+    post = create_post(
+        post_id, now, candidates, title, items, account, hashtags, accent, art, emojis
+    )
     _save_new(post, tools.posts)
     return post, render_post(post.id, tools)
 
