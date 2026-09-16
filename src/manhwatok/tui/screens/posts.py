@@ -8,12 +8,14 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import DataTable, Static
 
 from manhwatok.app.delete_post import delete_post
+from manhwatok.app.edit_post import update_picks
 from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import render_post, rendered_files
 from manhwatok.app.songs import set_post_song, song_for
 from manhwatok.domain.errors import ManhwatokError, NotRendered
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
+from manhwatok.tui.screens.picks import PicksScreen
 from manhwatok.tui.text import clip, post_details, post_status
 from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal, TextModal
 from manhwatok.tui.widgets.slide_preview import SlidePreview
@@ -42,6 +44,7 @@ class PostsPane(Vertical):
         Binding("left", "slide(-1)", "◀ slide", show=False),
         Binding("right", "slide(1)", "slide ▶", show=False),
         Binding("o", "open_slide", "Open slide"),
+        Binding("e", "edit", "Edit picks"),
         Binding("r", "render", "Render"),
         Binding("x", "export", "Export"),
         Binding("s", "song", "Song"),
@@ -171,6 +174,28 @@ class PostsPane(Vertical):
         if post is None:
             self.app.notify("no post selected", severity="warning")
         return post
+
+    def action_edit(self) -> None:
+        post = self._selected()
+        if post is None:
+            return
+        if self.app.rendering:
+            self.app.notify("still rendering — try again when it's done", severity="warning")
+            return
+        pid = post.id
+
+        def rendered(slides) -> None:
+            self.app.notify(f"post {pid} saved · {len(slides)} slides")
+            self.reload(select=pid)
+
+        def picked(result) -> None:
+            if result is None:
+                return
+            title, items = result
+            self.app.start_render(lambda tools: update_picks(pid, title, items, tools), rendered)
+
+        screen = PicksScreen(f"Edit post {pid}", post.title, post.items, post.candidates)
+        self.app.push_screen(screen, picked)
 
     def action_render(self) -> None:
         post = self._selected()

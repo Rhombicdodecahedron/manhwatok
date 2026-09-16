@@ -12,7 +12,7 @@ from textual.widgets import Static
 from textual_image.widget import Image
 
 
-def _readable(path: Path) -> bool:
+def readable_image(path: Path) -> bool:
     try:
         with PILImage.open(path) as img:
             img.verify()
@@ -60,7 +60,7 @@ class SlidePreview(Vertical):
         note = self._note
         path = self.current
         counter.update(f"◀ {self.index + 1}/{len(self.slides)} ▶" if path else "")
-        if path is not None and not _readable(path):
+        if path is not None and not readable_image(path):
             note, path = f"can't show {path.name}", None
         image.image = path
         image.display = path is not None
