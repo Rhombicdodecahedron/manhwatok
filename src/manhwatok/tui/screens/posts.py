@@ -72,6 +72,9 @@ class PostsPane(Vertical):
     def focus_main(self) -> None:
         self.query_one(PostTable).focus()
 
+    def refresh_data(self) -> None:
+        self.reload()
+
     def reload(self, select: str | None = None) -> None:
         """Read the posts again; keep (or move) the cursor to `select` or the current post."""
         ctx = self.app.ctx

@@ -18,6 +18,7 @@ from manhwatok.app.context import AppContext, open_context
 from manhwatok.app.post_tools import PostTools
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
+from manhwatok.tui.screens.build import BuildPane
 from manhwatok.tui.screens.posts import PostsPane
 from manhwatok.tui.widgets.dialogs import ConfirmModal
 
@@ -69,7 +70,7 @@ class ManhwatokApp(App[None]):
             with TabPane("Posts", id="posts"):
                 yield PostsPane()
             with TabPane("Build", id="build"):
-                yield Static("build")
+                yield BuildPane()
             with TabPane("Accounts", id="accounts"):
                 yield Static("accounts")
             with TabPane("Themes", id="themes"):
@@ -88,9 +89,17 @@ class ManhwatokApp(App[None]):
     def _focus_pane(self, tab: str | None) -> None:
         """Put the keyboard in the tab's main widget, so its keys work right away."""
         pane = self.query_one(f"#{tab}", TabPane).children[0]
+        refresh_data = getattr(pane, "refresh_data", None)
+        if refresh_data is not None:
+            refresh_data()
         focus_main = getattr(pane, "focus_main", None)
         if focus_main is not None:
             focus_main()
+
+    def show_post(self, post_id: str) -> None:
+        """Switch to the Posts tab with `post_id` highlighted."""
+        self.query_one(PostsPane).reload(select=post_id)
+        self.action_tab("posts")
 
     def fail(self, error: Exception) -> None:
         """Show an expected failure; safe to call from any thread."""
