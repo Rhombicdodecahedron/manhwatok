@@ -10,7 +10,16 @@ from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import CAPTION_FILE, render_post
 from manhwatok.domain.errors import DraftError, NotRendered, PostNotFound, StorageError
 from manhwatok.domain.post import PostItem
-from tests.unit.fakes import FakeCovers, FakeHistory, cover_file, make_tools, manhwa, post
+from manhwatok.domain.models import ArtStyle
+from manhwatok.ports.posts import SlideArt
+from tests.unit.fakes import (
+    FakeCovers,
+    FakeHistory,
+    cover_file,
+    make_tools,
+    manhwa,
+    post,
+)
 
 NOW = datetime(2026, 9, 15, 9, 30, tzinfo=timezone.utc)
 
@@ -35,7 +44,11 @@ def test_render_writes_slides_and_caption(tmp_path):
         .startswith("Manhwa where the MC regresses\n\n1. Title 1")
     )
     _, covers = tools.renderer.calls[0]
-    assert covers == {1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg", 3: tmp_path / "3.jpg"}
+    assert covers == {
+        1: SlideArt(tmp_path / "1.jpg", None),
+        2: SlideArt(tmp_path / "2.jpg", None),
+        3: SlideArt(tmp_path / "3.jpg", None),
+    }
 
 
 def test_render_stops_downloading_after_first_cover_failure(tmp_path):
@@ -45,7 +58,11 @@ def test_render_stops_downloading_after_first_cover_failure(tmp_path):
     tools.posts.save(post())
     render_post("20260914-a3f9", tools)
     _, passed = tools.renderer.calls[0]
-    assert passed == {1: tmp_path / "1.jpg", 2: None, 3: None}
+    assert passed == {
+        1: SlideArt(tmp_path / "1.jpg", None),
+        2: SlideArt(None, None),
+        3: SlideArt(None, None),
+    }
     assert covers.calls == [1, 2]
     assert len(messages) == 1
     assert "plain backgrounds" in messages[0]
@@ -58,7 +75,11 @@ def test_render_uses_cache_for_items_after_a_failure(tmp_path):
     tools.posts.save(post())
     render_post("20260914-a3f9", tools)
     _, passed = tools.renderer.calls[0]
-    assert passed == {1: tmp_path / "1.jpg", 2: None, 3: tmp_path / "3.jpg"}
+    assert passed == {
+        1: SlideArt(tmp_path / "1.jpg", None),
+        2: SlideArt(None, None),
+        3: SlideArt(tmp_path / "3.jpg", None),
+    }
     assert covers.calls == [1, 2]
     assert len(messages) == 1
 
@@ -73,7 +94,7 @@ def test_render_skips_items_without_a_cover_url_without_failing(tmp_path):
     tools.posts.save(post(items=items))
     render_post("20260914-a3f9", tools)
     _, passed = tools.renderer.calls[0]
-    assert passed == {1: None, 2: tmp_path / "2.jpg"}
+    assert passed == {1: SlideArt(None, None), 2: SlideArt(tmp_path / "2.jpg", None)}
     assert messages == []
     assert tools.covers.calls == [2]
 
@@ -257,3 +278,53 @@ def test_delete_failure_raises_storage_error(tmp_path, monkeypatch):
     monkeypatch.setattr("manhwatok.app.delete_post.shutil.rmtree", boom)
     with pytest.raises(StorageError, match="could not delete post 20260914-a3f9"):
         delete_post("20260914-a3f9", tools.posts)
+
+
+# --- background art (Phase 5) ---------------------------------------------------------------
+
+
+def _art_post(**overrides):
+    items = [
+        PostItem(manhwa=manhwa(anilist_id=1, banner_url="https://x.test/1-banner.jpg"), hook="a"),
+        PostItem(manhwa=manhwa(anilist_id=2, banner_url=""), hook="b"),
+    ]
+    return post(items=items, **overrides)
+
+
+def test_render_fetches_banners_for_background_art(tmp_path):
+    covers = FakeCovers(
+        {1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg"}, banners={1: tmp_path / "1-banner.jpg"}
+    )
+    tools = make_tools(tmp_path, covers=covers)
+    tools.posts.save(_art_post(art=ArtStyle.BACKGROUND))
+    render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed == {
+        1: SlideArt(tmp_path / "1.jpg", tmp_path / "1-banner.jpg"),
+        2: SlideArt(tmp_path / "2.jpg", None),  # no banner_url — falls back to the cover
+    }
+    assert covers.banner_calls == [1]  # never asked for the one with no banner_url
+
+
+def test_render_downloads_no_banners_when_art_is_none(tmp_path):
+    covers = FakeCovers(
+        {1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg"}, banners={1: tmp_path / "1-banner.jpg"}
+    )
+    tools = make_tools(tmp_path, covers=covers)
+    tools.posts.save(_art_post())
+    render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed[1].banner is None
+    assert covers.banner_calls == []
+
+
+def test_render_survives_a_banner_download_failure(tmp_path):
+    messages = []
+    covers = FakeCovers({1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg"}, fail_banners={1})
+    tools = make_tools(tmp_path, covers=covers, messages=messages)
+    tools.posts.save(_art_post(art=ArtStyle.BACKGROUND))
+    slides = render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed[1] == SlideArt(tmp_path / "1.jpg", None)  # the cover still renders
+    assert len(slides) == 4
+    assert len(messages) == 1 and "banner" in messages[0]

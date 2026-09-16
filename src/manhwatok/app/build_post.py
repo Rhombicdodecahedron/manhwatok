@@ -13,7 +13,7 @@ from manhwatok.domain.account import Account
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.draft import is_empty_draft, parse_draft, render_draft
 from manhwatok.domain.errors import DraftError, ManhwatokError
-from manhwatok.domain.models import Manhwa
+from manhwatok.domain.models import ArtStyle, Manhwa
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
@@ -36,13 +36,16 @@ def create_post(
     account: Account | None,
     hashtags: str | None,
     accent: str | None,
+    art: ArtStyle | None = None,
 ) -> ListPost:
-    """A new post (pure). Hashtags and accent: the override if given, else the account's, else
-    the defaults. End-slide texts come from the account."""
+    """A new post (pure). Hashtags, accent and art: the override if given, else the account's,
+    else the defaults. End-slide texts come from the account."""
     if hashtags is None:
         hashtags = account.hashtags if account else DEFAULT_HASHTAGS
     if accent is None:
         accent = account.accent if account else DEFAULT_ACCENT
+    if art is None:
+        art = account.art if account else ArtStyle.NONE
     return ListPost(
         id=post_id,
         created_at=now,
@@ -54,6 +57,7 @@ def create_post(
         account=account.handle if account else None,
         cta_title=account.cta_title if account else DEFAULT_CTA_TITLE,
         cta_follow=account.cta_follow if account else DEFAULT_CTA_FOLLOW,
+        art=art,
     )
 
 
@@ -65,6 +69,7 @@ def build_post(
     accent: str | None,
     tools: PostTools,
     now: datetime,
+    art: ArtStyle | None = None,
 ) -> tuple[ListPost, list[Path]] | None:
     """Returns (post, slide paths), or None if the user cancelled in the editor.
     `find_candidates` runs the search (e.g. `suggest_for_account`) once the inputs are valid."""
@@ -84,11 +89,11 @@ def build_post(
     try:
         title, items = parse_draft(edited, candidates)
     except DraftError as e:
-        draft = create_post(post_id, now, candidates, "", [], account, hashtags, accent)
+        draft = create_post(post_id, now, candidates, "", [], account, hashtags, accent, art)
         _save_new(draft, tools.posts)
         tools.posts.save_draft(post_id, edited)
         raise DraftError(f"{e} — your draft is saved; fix with: manhwatok edit {post_id}") from e
-    post = create_post(post_id, now, candidates, title, items, account, hashtags, accent)
+    post = create_post(post_id, now, candidates, title, items, account, hashtags, accent, art)
     _save_new(post, tools.posts)
     return post, render_post(post.id, tools)
 

@@ -22,12 +22,18 @@ from manhwatok.adapters.layout import (
 from manhwatok.domain.color import hex_to_rgb, readable_accent
 from manhwatok.domain.errors import StorageError
 from manhwatok.domain.labels import chapter_label
+from manhwatok.ports.posts import SlideArt
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import ListPost
 
 WHITE = (255, 255, 255)
 DARK = (11, 11, 16)
 DIM = (255, 255, 255, 77)
 SIZE = (SLIDE_W, SLIDE_H)
+# A cover behind its own card is blurred hard so the card reads; a banner is real art meant to
+# be seen, so it keeps more detail and brightness.
+COVER_BLUR, COVER_DIM = 36, 0.42
+BANNER_BLUR, BANNER_DIM = 18, 0.50
 GRADIENT_H = 920
 
 
@@ -49,6 +55,18 @@ def _blurred(
     small = small.filter(ImageFilter.GaussianBlur(radius / 4))
     small = ImageEnhance.Brightness(small).enhance(brightness)
     return small.resize(size, Image.Resampling.BICUBIC)
+
+
+def _backdrop(
+    banner: Image.Image | None, cover: Image.Image | None, accent: str
+) -> Image.Image:
+    """What fills a manhwa slide behind the card: the banner when the post asks for one and the
+    title has it, else the blurred cover, else a plain accent gradient."""
+    if banner:
+        return _blurred(banner, SIZE, BANNER_BLUR, BANNER_DIM)
+    if cover:
+        return _blurred(cover, SIZE, COVER_BLUR, COVER_DIM)
+    return _accent_gradient(SIZE, accent)
 
 
 def _accent_gradient(size: tuple[int, int], accent: str) -> Image.Image:
@@ -142,7 +160,7 @@ def _draw_pill(draw: ImageDraw.ImageDraw, pill: Pill, accent, filled: bool) -> N
 
 
 class PillowRenderer:
-    def render(self, post: ListPost, covers: dict[int, Path | None], out_dir: Path) -> list[Path]:
+    def render(self, post: ListPost, art: dict[int, SlideArt], out_dir: Path) -> list[Path]:
         """Write 01.png (cover) … NN.png (end slide) into out_dir, replacing old slides."""
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -150,9 +168,16 @@ class PillowRenderer:
                 old.unlink()
         except OSError as e:
             raise StorageError(f"could not prepare slide folder {out_dir}: {e}") from e
-        images = {m_id: _load(path) for m_id, path in covers.items()}
+        images = {m_id: _load(one.cover) for m_id, one in art.items()}
+        banners = (
+            {m_id: _load(one.banner) for m_id, one in art.items()}
+            if post.art is ArtStyle.BACKGROUND
+            else {}
+        )
         slides = [self.cover_slide(post, images)]
-        slides += [self.item_slide(post, i, images) for i in range(len(post.items))]
+        slides += [
+            self.item_slide(post, i, images, banners) for i in range(len(post.items))
+        ]
         slides.append(self.end_slide(post, images))
         paths = []
         for n, slide in enumerate(slides, 1):
@@ -165,17 +190,20 @@ class PillowRenderer:
         return paths
 
     def item_slide(
-        self, post: ListPost, index: int, images: dict[int, Image.Image | None]
+        self,
+        post: ListPost,
+        index: int,
+        images: dict[int, Image.Image | None],
+        banners: dict[int, Image.Image | None] | None = None,
     ) -> Image.Image:
         item = post.items[index]
         m = item.manhwa
         accent = hex_to_rgb(readable_accent(m.cover_color, post.accent))
         img = images.get(m.anilist_id)
-        canvas = (
-            _blurred(img, SIZE, 36, 0.42)
-            if img
-            else _accent_gradient(SIZE, readable_accent(m.cover_color, post.accent))
-        ).convert("RGBA")
+        banner = (banners or {}).get(m.anilist_id)
+        canvas = _backdrop(banner, img, readable_accent(m.cover_color, post.accent)).convert(
+            "RGBA"
+        )
         layout = layout_item(index + 1, m.title, chapter_label(m), item.hook)
         src = img or _accent_gradient((460, 650), readable_accent(m.cover_color, post.accent))
         box = fit_inside(src.width, src.height, layout.cover_area)

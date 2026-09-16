@@ -10,7 +10,7 @@ from manhwatok.app import container
 from manhwatok.app.post_tools import PostTools
 from manhwatok.cli import app
 from manhwatok.domain.account import Account
-from manhwatok.domain.models import Sort
+from manhwatok.domain.models import ArtStyle, Sort
 from manhwatok.domain.theme import Theme
 from tests.unit.fakes import (
     FakeChapters,
@@ -61,6 +61,10 @@ def wire(tmp_path, monkeypatch):
         return repo, editor
 
     return _wire
+
+
+def _store_posts(tmp_path) -> SqliteStore:
+    return SqliteStore(tmp_path / "data" / "manhwatok.db")
 
 
 def _post_id(output: str) -> str:
@@ -425,3 +429,53 @@ def test_posts_marks_sent_posts(wire):
     lines = runner.invoke(app, ["posts"]).output.strip().splitlines()
     assert re.match(r"20260914-0002  \S+ \S+  @reads   5 slides  sent  Manhwa", lines[0])
     assert re.match(r"20260913-0001  \S+ \S+  -        5 slides        Manhwa", lines[1])
+
+
+# --- --art (Phase 5) -------------------------------------------------------------------------
+
+
+def test_build_art_flag_is_saved_on_the_post(wire):
+    repo, _ = wire()
+    out = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--art", "background"])
+    assert out.exit_code == 0, out.output
+    assert repo.get(_post_id(out.output)).art is ArtStyle.BACKGROUND
+
+
+def test_build_takes_art_from_the_account_and_the_flag_overrides_it(wire, tmp_path):
+    repo, _ = wire()
+    with _store_posts(tmp_path) as store:
+        store.accounts.add(Account(handle="reads", art=ArtStyle.BACKGROUND))
+    from_account = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--account", "@reads"])
+    assert from_account.exit_code == 0, from_account.output
+    assert repo.get(_post_id(from_account.output)).art is ArtStyle.BACKGROUND
+
+    overridden = runner.invoke(
+        app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--account", "@reads", "--art", "none"]
+    )
+    assert overridden.exit_code == 0, overridden.output
+    assert repo.get(_post_id(overridden.output)).art is ArtStyle.NONE
+
+
+def test_render_art_flag_restyles_an_existing_post(wire):
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    assert repo.get(post_id).art is ArtStyle.NONE
+    out = runner.invoke(app, ["render", post_id, "--art", "background"])
+    assert out.exit_code == 0, out.output
+    assert repo.get(post_id).art is ArtStyle.BACKGROUND
+
+
+def test_render_without_the_flag_keeps_the_posts_art(wire):
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--art", "background"])
+    post_id = _post_id(built.output)
+    assert runner.invoke(app, ["render", post_id]).exit_code == 0
+    assert repo.get(post_id).art is ArtStyle.BACKGROUND
+
+
+def test_build_rejects_an_unknown_art_style(wire):
+    wire()
+    out = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--art", "epic"])
+    assert out.exit_code != 0
+    assert "background" in out.output  # the error names the styles that do exist

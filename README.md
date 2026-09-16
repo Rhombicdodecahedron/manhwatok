@@ -64,14 +64,34 @@ uv run manhwatok render <id>           # re-render only
 uv run manhwatok export <id>           # copy slides + caption to ~/Downloads/manhwatok/<id>/
 ```
 
-Options: `--hashtags "..."` (caption hashtags), `--accent "#43c9e4"` (cover/end slide colour);
-both default to the account's (see below). Manhwa slides take their accent colour from each cover.
+Options: `--hashtags "..."` (caption hashtags), `--accent "#43c9e4"` (cover/end slide colour),
+`--art none|background` (see below); all three default to the account's (see below). Manhwa
+slides take their accent colour from each cover.
 Export folder: `--out DIR` or `MANHWATOK_EXPORT_DIR`. Upload the PNGs as a TikTok photo post and
 paste `caption.txt` — or let `manhwatok upload` fill them in for you (see below).
 
 ```bash
 uv run manhwatok delete <id>           # asks first; --yes skips the question
 ```
+
+## Slide art
+
+A manhwa slide draws its cover on a backdrop. `--art` picks what that backdrop is:
+
+- `none` (default) — the cover itself, blurred. The original look.
+- `background` — AniList's banner art for that title, cropped to fill and blurred lightly, so
+  the slide takes its mood from the story's own art instead of its cover.
+
+```bash
+uv run manhwatok build -t Revenge --title "..." --art background
+uv run manhwatok render <id> --art background     # restyle a post you already built
+uv run manhwatok account set @manhwa.daily --art background   # default for new posts
+```
+
+Only about half of Korean manhwa have a banner on AniList — fewer among less popular titles. A
+title without one falls back to its blurred cover, so a post never renders half-finished. Banners
+are cached next to the covers in `$XDG_DATA_HOME/manhwatok/covers/` and downloaded only when a
+post actually asks for them.
 
 Fonts: Montserrat, bundled under the SIL Open Font License (`src/manhwatok/assets/fonts/`).
 
@@ -147,8 +167,9 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
 - Existing posts show `-` in the `posts` account column and don't count toward any account's
   repeat history.
 - Re-rendering an old post (`render`, `edit`) uses the new Montserrat style.
-- A post keeps the end-slide texts it was built with: a later `account set --cta-title` /
-  `--cta-follow` doesn't change existing posts.
+- A post keeps the end-slide texts and art style it was built with: a later `account set
+  --cta-title` / `--cta-follow` / `--art` doesn't change existing posts. Use `render <id> --art`
+  to restyle one.
 - Handles now need at least one letter or digit (TikTok allows no others). An account saved
   earlier with a handle of only `.` and `_` can't be loaded any more: `account list` stops with
   "is unreadable" and `account remove` refuses the handle. Delete it from the database by hand,

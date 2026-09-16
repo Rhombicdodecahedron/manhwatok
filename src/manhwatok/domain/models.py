@@ -16,6 +16,13 @@ class Status(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class ArtStyle(StrEnum):
+    """What art a manhwa slide is built around."""
+
+    NONE = "none"  # the cover, blurred, behind its own card — the original look
+    BACKGROUND = "background"  # AniList's banner behind the cover card, cover blur as fallback
+
+
 class Manhwa(BaseModel):
     anilist_id: int
     title: str
@@ -30,6 +37,7 @@ class Manhwa(BaseModel):
     popularity: int = 0
     cover_url: str = ""
     cover_color: str | None = None
+    banner_url: str = ""  # AniList bannerImage; about half of manhwa have none
     description: str = ""
     site_url: str = ""
 

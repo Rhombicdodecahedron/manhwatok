@@ -74,3 +74,39 @@ def test_cached_returns_path_after_download(tmp_path):
 
 def test_cached_is_none_for_missing_cover_url(tmp_path):
     assert _cache(tmp_path, Cdn()).cached(manhwa(cover_url="")) is None
+
+
+# --- banners (Phase 5 art) -----------------------------------------------------------------
+
+BANNER = "https://s4.anilist.co/file/anilistcdn/media/manga/banner/136220-abc.jpg"
+
+
+def test_banner_downloads_once_and_is_kept_beside_the_cover(tmp_path):
+    cdn = Cdn()
+    cache = _cache(tmp_path, cdn)
+    m = manhwa(anilist_id=136220, cover_url=URL, banner_url=BANNER)
+    first = cache.get_banner(m)
+    second = cache.get_banner(m)
+    assert first == second == tmp_path / "covers" / "136220-banner.jpg"
+    assert first.read_bytes() == b"\x89PNG fake"
+    assert len(cdn.requests) == 1
+    assert cache.get(m) == tmp_path / "covers" / "136220.png"  # cover is a separate file
+
+
+def test_cached_banner_never_downloads(tmp_path):
+    cdn = Cdn()
+    m = manhwa(anilist_id=7, banner_url=BANNER)
+    assert _cache(tmp_path, cdn).cached_banner(m) is None
+    assert cdn.requests == []
+
+
+def test_missing_banner_url(tmp_path):
+    with pytest.raises(MetadataError, match="no banner image"):
+        _cache(tmp_path, Cdn()).get_banner(manhwa(banner_url=""))
+
+
+def test_banner_http_error_raises(tmp_path):
+    with pytest.raises(MetadataError, match="banner download failed for Doom Breaker"):
+        _cache(tmp_path, Cdn(status=500)).get_banner(
+            manhwa(title="Doom Breaker", banner_url=BANNER)
+        )

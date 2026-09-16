@@ -1,6 +1,6 @@
 from datetime import date
 from pathlib import Path
-from typing import Protocol
+from typing import NamedTuple, Protocol
 
 from manhwatok.domain.models import Manhwa
 from manhwatok.domain.post import ListPost
@@ -24,6 +24,14 @@ class PostRepository(Protocol):
     def clear_draft(self, post_id: str) -> None: ...
 
 
+class SlideArt(NamedTuple):
+    """The images one manhwa slide can draw with. Either may be missing: no cover means a
+    plain accent background, no banner means the cover stands in for it."""
+
+    cover: Path | None
+    banner: Path | None
+
+
 class CoverSource(Protocol):
     def get(self, manhwa: Manhwa) -> Path: ...
 
@@ -31,8 +39,14 @@ class CoverSource(Protocol):
         """Local path of an already-downloaded cover, or None. Never downloads."""
         ...
 
+    def get_banner(self, manhwa: Manhwa) -> Path: ...
+
+    def cached_banner(self, manhwa: Manhwa) -> Path | None:
+        """Local path of an already-downloaded banner, or None. Never downloads."""
+        ...
+
 
 class SlideRenderer(Protocol):
     def render(
-        self, post: ListPost, covers: dict[int, Path | None], out_dir: Path
+        self, post: ListPost, art: dict[int, SlideArt], out_dir: Path
     ) -> list[Path]: ...

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.errors import InvalidName, ManhwatokError
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
@@ -42,6 +43,7 @@ class Account(BaseModel):
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
     repeat_days: int = DEFAULT_REPEAT_DAYS
+    art: ArtStyle = ArtStyle.NONE  # default for this account's new posts
 
     @field_validator("handle")
     @classmethod

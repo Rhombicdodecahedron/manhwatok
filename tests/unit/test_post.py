@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from manhwatok.domain.caption import build_caption
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
@@ -27,6 +28,7 @@ def test_defaults():
     p = post()
     assert p.hashtags == DEFAULT_HASHTAGS
     assert p.accent == DEFAULT_ACCENT
+    assert p.art is ArtStyle.NONE
 
 
 def test_created_at_must_be_timezone_aware():
@@ -86,6 +88,7 @@ def test_phase2_post_json_loads_with_new_defaults():
     assert p.cta_title == DEFAULT_CTA_TITLE == "Which one have you *read?*"
     assert p.cta_follow == DEFAULT_CTA_FOLLOW == "Follow for part 2"
     assert p.sent_at is None
+    assert p.art is ArtStyle.NONE  # an older post keeps the look it was built with
 
 
 def test_exported_at_must_be_timezone_aware():

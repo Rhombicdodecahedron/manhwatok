@@ -5,6 +5,7 @@ from typing import Callable
 from manhwatok.domain.errors import MetadataError
 from manhwatok.domain.models import Manhwa, SearchQuery, Status, TagInfo
 from manhwatok.domain.post import ListPost, PostItem
+from manhwatok.ports.posts import SlideArt
 
 
 def manhwa(**overrides) -> Manhwa:
@@ -87,11 +88,16 @@ class FakeCovers:
         paths: dict[int, Path] | None = None,
         fail: set[int] | None = None,
         on_disk: set[int] | None = None,
+        banners: dict[int, Path] | None = None,
+        fail_banners: set[int] | None = None,
     ):
         self.paths = dict(paths or {})
         self.fail = set(fail or ())
         self.on_disk = set(on_disk or ())
+        self.banners = dict(banners or {})
+        self.fail_banners = set(fail_banners or ())
         self.calls: list[int] = []
+        self.banner_calls: list[int] = []
 
     def get(self, manhwa: Manhwa) -> Path:
         self.calls.append(manhwa.anilist_id)
@@ -104,15 +110,26 @@ class FakeCovers:
             return self.paths[manhwa.anilist_id]
         return None
 
+    def get_banner(self, manhwa: Manhwa) -> Path:
+        self.banner_calls.append(manhwa.anilist_id)
+        if manhwa.anilist_id in self.fail_banners or manhwa.anilist_id not in self.banners:
+            raise MetadataError(f"banner download failed for {manhwa.title}: HTTP 500")
+        return self.banners[manhwa.anilist_id]
+
+    def cached_banner(self, manhwa: Manhwa) -> Path | None:
+        if manhwa.anilist_id in self.on_disk and manhwa.anilist_id in self.banners:
+            return self.banners[manhwa.anilist_id]
+        return None
+
 
 class FakeRenderer:
     """Writes placeholder NN.png files instead of drawing, and records what it was given."""
 
     def __init__(self):
-        self.calls: list[tuple[ListPost, dict[int, Path | None]]] = []
+        self.calls: list[tuple[ListPost, dict[int, SlideArt]]] = []
 
-    def render(self, post: ListPost, covers: dict[int, Path | None], out_dir: Path) -> list[Path]:
-        self.calls.append((post, covers))
+    def render(self, post: ListPost, art: dict[int, SlideArt], out_dir: Path) -> list[Path]:
+        self.calls.append((post, art))
         out_dir.mkdir(parents=True, exist_ok=True)
         for old in out_dir.glob("[0-9][0-9].png"):
             old.unlink()

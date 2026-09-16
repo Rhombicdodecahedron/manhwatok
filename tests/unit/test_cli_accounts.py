@@ -7,7 +7,7 @@ from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app import container
 from manhwatok.cli import app
 from manhwatok.domain.errors import MetadataError
-from manhwatok.domain.models import TagInfo
+from manhwatok.domain.models import ArtStyle, TagInfo
 from manhwatok.domain.post import DEFAULT_HASHTAGS
 from tests.unit.fakes import FakeMetadata
 
@@ -273,3 +273,32 @@ def test_theme_add_bad_name():
 def test_help_lists_account_and_theme():
     out = _ok(["--help"])
     assert "account" in out and "theme" in out
+
+
+# --- --art (Phase 5) -------------------------------------------------------------------------
+
+
+def test_account_add_stores_the_art_style(tmp_path):
+    _ok(["account", "add", "reads", "--art", "background"])
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").art is ArtStyle.BACKGROUND
+
+
+def test_account_defaults_to_no_art(tmp_path):
+    _ok(["account", "add", "reads"])
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").art is ArtStyle.NONE
+
+
+def test_account_set_changes_art_without_touching_the_rest(tmp_path):
+    _ok(["account", "add", "reads", "--hashtags", "#reads", "--art", "background"])
+    _ok(["account", "set", "reads", "--art", "none"])
+    with _store(tmp_path) as store:
+        a = store.accounts.get("reads")
+    assert a.art is ArtStyle.NONE
+    assert a.hashtags == "#reads"
+
+
+def test_account_show_lists_the_art_style(tmp_path):
+    _ok(["account", "add", "reads", "--art", "background"])
+    assert "background" in _ok(["account", "show", "reads"])

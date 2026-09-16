@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import AwareDatetime, BaseModel, Field
 
-from manhwatok.domain.models import Manhwa
+from manhwatok.domain.models import ArtStyle, Manhwa
 
 DEFAULT_ACCENT = "#43c9e4"
 DEFAULT_HASHTAGS = "#manhwa #manhwarecommendation #webtoon #manhwatiktok"
@@ -32,6 +32,8 @@ class ListPost(BaseModel):
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
     sent_at: AwareDatetime | None = None  # Phase 4: when the user confirmed it was posted
+    # Phase 5: a post keeps the art style it was built with, as it keeps its CTA texts.
+    art: ArtStyle = ArtStyle.NONE
 
     @property
     def slide_count(self) -> int:

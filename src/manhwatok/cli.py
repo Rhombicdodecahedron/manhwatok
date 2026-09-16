@@ -8,7 +8,7 @@ import typer
 
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import SearchQuery, Sort
+from manhwatok.domain.models import ArtStyle, SearchQuery, Sort
 
 app = typer.Typer(
     help="Themed manhwa recommendation slideshows for TikTok.", no_args_is_help=True
@@ -48,6 +48,12 @@ CHAPTERS = typer.Option(
 )
 ACCOUNT = typer.Option(
     None, "--account", "-a", help="Use this account's filters and skip its recent titles."
+)
+ART = typer.Option(
+    None,
+    "--art",
+    help="Manhwa slide backdrop: 'none' (the blurred cover) or 'background' (AniList's banner "
+    "art, falling back to the cover). Default: the account's, else none.",
 )
 
 
@@ -197,6 +203,7 @@ def build(
     accent: Optional[str] = typer.Option(
         None, help="Accent colour for cover and end slides (default: the account's, else #43c9e4)."
     ),
+    art: Optional[ArtStyle] = ART,
 ) -> None:
     """Build a post: pick titles and hooks in your editor, then render the slides."""
     from manhwatok.app import container
@@ -222,6 +229,7 @@ def build(
                 accent,
                 tools,
                 now=now,
+                art=art,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -234,13 +242,19 @@ def build(
 
 
 @app.command()
-def edit(post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`.")) -> None:
+def edit(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    art: Optional[ArtStyle] = ART,
+) -> None:
     """Reopen a post's draft in your editor and re-render it."""
     from manhwatok.app.edit_post import edit_post
+    from manhwatok.app.render_post import restyle
 
     settings = Settings()
     try:
         tools = _tools(settings)
+        if art is not None:
+            restyle(post_id, art, tools)
         slides = edit_post(post_id, tools)
     except ManhwatokError as e:
         _fail(e)
@@ -251,13 +265,18 @@ def edit(post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`
 
 
 @app.command()
-def render(post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`.")) -> None:
+def render(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    art: Optional[ArtStyle] = ART,
+) -> None:
     """Re-render a post's slides and caption."""
-    from manhwatok.app.render_post import render_post
+    from manhwatok.app.render_post import render_post, restyle
 
     settings = Settings()
     try:
         tools = _tools(settings)
+        if art is not None:
+            restyle(post_id, art, tools)
         slides = render_post(post_id, tools)
     except ManhwatokError as e:
         _fail(e)
@@ -451,6 +470,9 @@ ACCOUNT_HASHTAGS = typer.Option(None, "--hashtags", help="Caption hashtags for t
 ACCOUNT_ACCENT = typer.Option(None, "--accent", help="Accent colour, e.g. #43c9e4.")
 CTA_TITLE = typer.Option(None, "--cta-title", help="End-slide title; *word* = accent colour.")
 CTA_FOLLOW = typer.Option(None, "--cta-follow", help="End-slide follow line.")
+ACCOUNT_ART = typer.Option(
+    None, "--art", help="Default manhwa slide backdrop for this account's new posts."
+)
 REPEAT_DAYS = typer.Option(
     None, "--repeat-days", min=1, max=3650, help="Don't suggest titles exported this recently."
 )
@@ -465,6 +487,7 @@ def _account_fields(
     cta_title: Optional[str],
     cta_follow: Optional[str],
     repeat_days: Optional[int],
+    art: Optional[ArtStyle],
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -476,6 +499,7 @@ def _account_fields(
         "cta_title": cta_title,
         "cta_follow": cta_follow,
         "repeat_days": repeat_days,
+        "art": art,
     }
     fields.update({k: v for k, v in scalars.items() if v is not None})
     return fields
@@ -492,6 +516,7 @@ def _print_account(a) -> None:
         ("cta title", a.cta_title),
         ("cta follow", a.cta_follow),
         ("repeat days", str(a.repeat_days)),
+        ("art", a.art.value),
     ]:
         typer.echo(f"  {label:<13} {value}")
 
@@ -522,12 +547,13 @@ def account_add(
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
+    art: Optional[ArtStyle] = ACCOUNT_ART,
 ) -> None:
     """Add an account; unset options get the defaults."""
     from manhwatok.app.accounts import add_account
 
     fields = _account_fields(
-        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days
+        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -543,12 +569,13 @@ def account_set(
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
+    art: Optional[ArtStyle] = ACCOUNT_ART,
 ) -> None:
     """Change an account; only the given options change."""
     from manhwatok.app.accounts import update_account
 
     fields = _account_fields(
-        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days
+        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art
     )
     _save_account(update_account, "updated", handle, fields)
 

@@ -2,6 +2,7 @@ import pytest
 
 from manhwatok.domain.account import DEFAULT_REPEAT_DAYS, Account, normalize_handle
 from manhwatok.domain.errors import InvalidName, ManhwatokError
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
@@ -47,6 +48,7 @@ def test_defaults():
     assert a.cta_title == DEFAULT_CTA_TITLE
     assert a.cta_follow == DEFAULT_CTA_FOLLOW
     assert a.repeat_days == DEFAULT_REPEAT_DAYS == 30
+    assert a.art is ArtStyle.NONE
 
 
 def test_accent_is_validated_and_lowercased():
