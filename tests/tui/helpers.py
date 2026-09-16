@@ -13,6 +13,7 @@ from manhwatok.config import Settings
 from tests.unit.fakes import FakeChapters, FakeMetadata, FakeRenderer, FakeUploader, make_tools
 
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+OPEN_CONTEXTS: list[AppContext] = []  # closed after each test (conftest)
 
 
 class PngRenderer(FakeRenderer):
@@ -32,7 +33,7 @@ def make_ctx(tmp_path: Path, metadata=None, uploader=None, covers=None) -> AppCo
     Every `uploader()` call returns the same `uploader` (a FakeUploader by default)."""
     store = SqliteStore(tmp_path / "manhwatok.db")
     browser = uploader or FakeUploader()
-    return AppContext(
+    ctx = AppContext(
         settings=Settings(data_dir=tmp_path, export_dir=tmp_path / "exports"),
         store=store,
         metadata=metadata or FakeMetadata(),
@@ -41,6 +42,8 @@ def make_ctx(tmp_path: Path, metadata=None, uploader=None, covers=None) -> AppCo
         uploader_factory=lambda: browser,
         closers=[store],
     )
+    OPEN_CONTEXTS.append(ctx)
+    return ctx
 
 
 class Opened(list):
@@ -51,7 +54,8 @@ class Opened(list):
 
 
 def run_app(ctx: AppContext, scenario: Callable, size=(140, 45), opener=None) -> None:
-    """Run `await scenario(app, pilot)` inside a headless app, then close the context."""
+    """Run `await scenario(app, pilot)` inside a headless app. The context stays open until
+    the test ends, so the test can check the database afterwards."""
     from manhwatok.tui.app import ManhwatokApp
 
     app = ManhwatokApp(ctx, opener=Opened() if opener is None else opener, clock=lambda: NOW)
@@ -69,10 +73,7 @@ def run_app(ctx: AppContext, scenario: Callable, size=(140, 45), opener=None) ->
         async with app.run_test(size=size) as pilot:
             await scenario(app, pilot)
 
-    try:
-        asyncio.run(main())
-    finally:
-        ctx.close()
+    asyncio.run(main())
 
 
 async def wait_for(pilot, condition: Callable[[], bool], timeout: float = 5.0) -> None:

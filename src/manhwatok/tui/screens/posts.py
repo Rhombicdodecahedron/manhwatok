@@ -12,9 +12,11 @@ from manhwatok.app.edit_post import update_picks
 from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import render_post, rendered_files
 from manhwatok.app.songs import set_post_song, song_for
+from manhwatok.app.upload_post import upload_post
 from manhwatok.domain.errors import ManhwatokError, NotRendered
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
+from manhwatok.tui.screens.browser import BrowserScreen
 from manhwatok.tui.screens.picks import PicksScreen
 from manhwatok.tui.text import clip, post_details, post_status
 from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal, TextModal
@@ -47,6 +49,8 @@ class PostsPane(Vertical):
         Binding("e", "edit", "Edit picks"),
         Binding("r", "render", "Render"),
         Binding("x", "export", "Export"),
+        Binding("u", "upload", "Upload"),
+        Binding("U", "upload(True)", "Upload (debug)", show=False),
         Binding("s", "song", "Song"),
         Binding("d", "delete", "Delete"),
         Binding("f", "filter", "Filter"),
@@ -231,6 +235,33 @@ class PostsPane(Vertical):
             return
         self.app.notify(f"exported → {dest}")
         self.reload()
+
+    def action_upload(self, debug: bool = False) -> None:
+        post = self._selected()
+        if post is None:
+            return
+        if self.app.browser_open:
+            self.app.notify("a browser is already open — finish there first", severity="warning")
+            return
+        app, pid = self.app, post.id
+
+        def job(progress) -> str:
+            ctx = app.ctx
+            posted = upload_post(
+                pid,
+                ctx.tools.posts,
+                ctx.store.accounts,
+                ctx.store.history,
+                ctx.uploader(),
+                app.ask_from_thread,
+                progress,
+                now=app.clock(),
+                debug=debug,
+            )
+            return f"recorded post {pid} as sent" if posted else "nothing recorded"
+
+        heading = f"Upload post {pid}" + (" (debug)" if debug else "")
+        app.push_screen(BrowserScreen(heading, job), lambda _: self.reload(select=pid))
 
     def action_song(self) -> None:
         post = self._selected()

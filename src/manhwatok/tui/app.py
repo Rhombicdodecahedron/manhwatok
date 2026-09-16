@@ -101,6 +101,11 @@ class ManhwatokApp(App[None]):
         self.query_one(PostsPane).reload(select=post_id)
         self.action_tab("posts")
 
+    def later(self, callback: Callable[..., object], *args: object) -> None:
+        """Run `callback(*args)` on the app thread, from a worker; nothing once the app stopped."""
+        if self.is_running:
+            self.call_from_thread(callback, *args)
+
     def fail(self, error: Exception) -> None:
         """Show an expected failure; safe to call from any thread."""
         self.notify(str(error), title="error", severity="error", timeout=8)
