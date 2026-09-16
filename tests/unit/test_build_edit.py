@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from manhwatok.app.build_post import build_post, create_post
-from manhwatok.app.edit_post import edit_post
+from manhwatok.app.build_post import build_post, create_post, prefill_items, save_new_post
+from manhwatok.app.edit_post import edit_post, update_picks
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import DraftError, InvalidName, ManhwatokError, StorageError
 from manhwatok.domain.post import (
@@ -270,3 +270,85 @@ def test_build_saves_the_song(tmp_path):
     tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: text))
     built, _ = build_post(lambda: CANDIDATES, "T", None, None, None, tools, NOW, song="Mine")
     assert tools.posts.get(built.id).song == "Mine"
+
+
+# --- prefill_items / save_new_post / update_picks (the TUI's form path) ---------------------
+
+
+def test_prefill_items_hooks_the_first_max_items_candidates():
+    many = [manhwa(anilist_id=i, title=f"T{i}", description=f"Hook {i}. More.") for i in range(40)]
+    items = prefill_items(many)
+    assert len(items) == MAX_ITEMS
+    assert (items[0].manhwa, items[0].hook) == (many[0], "Hook 0.")
+    assert prefill_items([]) == []
+
+
+def _save_new(tools, title="T", items=None, accent=None, account=None, song=None):
+    items = [PostItem(manhwa=CANDIDATES[1], hook="k")] if items is None else items
+    return save_new_post(CANDIDATES, title, items, account, None, accent, song, tools, NOW)
+
+
+def test_save_new_post_saves_and_renders(tmp_path):
+    tools = make_tools(tmp_path)
+    built, slides = _save_new(tools, account=ACCOUNT, song="Mine")
+    assert built.id.startswith(NOW.astimezone().strftime("%Y%m%d") + "-")
+    assert tools.posts.get(built.id) == built
+    assert (built.title, built.account, built.song) == ("T", "reads", "Mine")
+    assert built.hashtags == "#reads"
+    assert [i.manhwa.anilist_id for i in built.items] == [22]
+    assert built.candidates == CANDIDATES
+    assert len(slides) == 3
+
+
+@pytest.mark.parametrize(
+    "title, items, accent, message",
+    [
+        ("  ", None, None, "give the post a title"),
+        ("T", [], None, "pick at least one title"),
+        ("T", [PostItem(manhwa=CANDIDATES[0])] * 2, None, "a title is picked twice"),
+        ("T", None, "cyan", "accent must look like #43c9e4"),
+    ],
+)
+def test_save_new_post_writes_nothing_when_invalid(tmp_path, title, items, accent, message):
+    tools = make_tools(tmp_path)
+    with pytest.raises(ManhwatokError, match=message):
+        _save_new(tools, title, items, accent)
+    assert not (tmp_path / "posts").exists() or list((tmp_path / "posts").iterdir()) == []
+
+
+def test_save_new_post_rejects_too_many_picks(tmp_path):
+    many = [PostItem(manhwa=manhwa(anilist_id=i)) for i in range(MAX_ITEMS + 1)]
+    with pytest.raises(DraftError, match=f"at most {MAX_ITEMS}"):
+        _save_new(make_tools(tmp_path), items=many)
+
+
+def test_update_picks_saves_title_and_order_and_rerenders(tmp_path):
+    tools = make_tools(tmp_path)
+    p = post()
+    tools.posts.save(p)
+    tools.posts.save_draft(p.id, "title: broken\n")
+    items = [PostItem(manhwa=p.items[2].manhwa, hook="new"), p.items[0]]
+    slides = update_picks(p.id, " New *title* ", items, tools)
+    saved = tools.posts.get(p.id)
+    assert saved.title == "New *title*"
+    assert [(i.manhwa.anilist_id, i.hook) for i in saved.items] == [(3, "new"), (1, "Hook 1")]
+    assert saved.candidates == p.candidates
+    assert tools.posts.load_draft(p.id) is None
+    assert len(slides) == 4
+
+
+def test_update_picks_only_takes_the_posts_candidates(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post())
+    stranger = PostItem(manhwa=manhwa(anilist_id=99, title="Stranger"))
+    with pytest.raises(DraftError, match="Stranger is not one of this post's candidates"):
+        update_picks("20260914-a3f9", "T", [stranger], tools)
+    assert tools.posts.get("20260914-a3f9") == post()
+    assert tools.renderer.calls == []
+
+
+def test_update_picks_needs_a_pick(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post())
+    with pytest.raises(DraftError, match="pick at least one title"):
+        update_picks("20260914-a3f9", "T", [], tools)

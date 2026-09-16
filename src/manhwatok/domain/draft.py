@@ -73,3 +73,16 @@ def parse_draft(text: str, candidates: list[Manhwa]) -> tuple[str, list[PostItem
     if len(items) > MAX_ITEMS:
         raise DraftError(f"{len(items)} titles — a TikTok post fits at most {MAX_ITEMS}")
     return title, items
+
+
+def check_picks(title: str, items: list[PostItem]) -> None:
+    """The rules a post's picks follow when they come from a form instead of a draft file."""
+    if not title.strip():
+        raise DraftError("give the post a title")
+    if not items:
+        raise DraftError("pick at least one title")
+    if len(items) > MAX_ITEMS:
+        raise DraftError(f"{len(items)} titles — a TikTok post fits at most {MAX_ITEMS}")
+    ids = [item.manhwa.anilist_id for item in items]
+    if len(set(ids)) != len(ids):
+        raise DraftError("a title is picked twice")

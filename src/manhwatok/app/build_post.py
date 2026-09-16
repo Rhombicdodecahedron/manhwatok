@@ -11,7 +11,7 @@ from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_post
 from manhwatok.domain.account import Account
 from manhwatok.domain.color import check_accent
-from manhwatok.domain.draft import is_empty_draft, parse_draft, render_draft
+from manhwatok.domain.draft import check_picks, is_empty_draft, parse_draft, render_draft
 from manhwatok.domain.errors import DraftError, ManhwatokError
 from manhwatok.domain.models import Manhwa
 from manhwatok.domain.post import (
@@ -60,6 +60,34 @@ def create_post(
     )
 
 
+def prefill_items(candidates: list[Manhwa]) -> list[PostItem]:
+    """The picks a new post starts with: the first MAX_ITEMS candidates, each hooked with the
+    first sentence of its description."""
+    return [
+        PostItem(manhwa=m, hook=first_sentence(m.description)) for m in candidates[:MAX_ITEMS]
+    ]
+
+
+def save_new_post(
+    candidates: list[Manhwa],
+    title: str,
+    items: list[PostItem],
+    account: Account | None,
+    hashtags: str | None,
+    accent: str | None,
+    song: str | None,
+    tools: PostTools,
+    now: datetime,
+) -> tuple[ListPost, list[Path]]:
+    """Check the picks, save them as a new post and render it. Nothing is written if the
+    picks or the style are invalid."""
+    check_picks(title, items)
+    post = create_post("", now, candidates, title, items, account, hashtags, accent, song)
+    post = post.model_copy(update={"id": tools.posts.new_id(now.astimezone().date())})
+    _save_new(post, tools.posts)
+    return post, render_post(post.id, tools)
+
+
 def build_post(
     find_candidates: Callable[[], list[Manhwa]],
     title: str,
@@ -77,24 +105,20 @@ def build_post(
     candidates = find_candidates()
     if not candidates:
         raise ManhwatokError("no matches — try fewer tags or a lower --min-tag-rank")
-    items = [
-        PostItem(manhwa=m, hook=first_sentence(m.description)) for m in candidates[:MAX_ITEMS]
-    ]
+    items = prefill_items(candidates)
     edited = tools.editor(render_draft(title, items, candidates))
     if edited is None or is_empty_draft(edited):
         return None
 
-    post_id = tools.posts.new_id(now.astimezone().date())
     try:
         title, items = parse_draft(edited, candidates)
     except DraftError as e:
-        draft = create_post(post_id, now, candidates, "", [], account, hashtags, accent)
+        post_id = tools.posts.new_id(now.astimezone().date())
+        draft = create_post(post_id, now, candidates, "", [], account, hashtags, accent, song)
         _save_new(draft, tools.posts)
         tools.posts.save_draft(post_id, edited)
         raise DraftError(f"{e} — your draft is saved; fix with: manhwatok edit {post_id}") from e
-    post = create_post(post_id, now, candidates, title, items, account, hashtags, accent, song)
-    _save_new(post, tools.posts)
-    return post, render_post(post.id, tools)
+    return save_new_post(candidates, title, items, account, hashtags, accent, song, tools, now)
 
 
 def _save_new(post: ListPost, posts: PostRepository) -> None:
