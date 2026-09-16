@@ -18,6 +18,7 @@ from manhwatok.app.context import AppContext, open_context
 from manhwatok.app.post_tools import PostTools
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
+from manhwatok.tui.screens.posts import PostsPane
 from manhwatok.tui.widgets.dialogs import ConfirmModal
 
 RENDER, BROWSER = "render", "browser"  # worker groups the app waits for before quitting
@@ -66,7 +67,7 @@ class ManhwatokApp(App[None]):
         yield Header()
         with TabbedContent(initial="posts", id="tabs"):
             with TabPane("Posts", id="posts"):
-                yield Static("posts")
+                yield PostsPane()
             with TabPane("Build", id="build"):
                 yield Static("build")
             with TabPane("Accounts", id="accounts"):
@@ -75,8 +76,21 @@ class ManhwatokApp(App[None]):
                 yield Static("themes")
         yield Footer()
 
+    def on_mount(self) -> None:
+        self._focus_pane("posts")
+
     def action_tab(self, tab: str) -> None:
         self.query_one("#tabs", TabbedContent).active = tab
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        self._focus_pane(event.pane.id)
+
+    def _focus_pane(self, tab: str | None) -> None:
+        """Put the keyboard in the tab's main widget, so its keys work right away."""
+        pane = self.query_one(f"#{tab}", TabPane).children[0]
+        focus_main = getattr(pane, "focus_main", None)
+        if focus_main is not None:
+            focus_main()
 
     def fail(self, error: Exception) -> None:
         """Show an expected failure; safe to call from any thread."""

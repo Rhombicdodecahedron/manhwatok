@@ -10,9 +10,21 @@ from typing import Awaitable, Callable
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app.context import AppContext
 from manhwatok.config import Settings
-from tests.unit.fakes import FakeChapters, FakeMetadata, FakeUploader, make_tools
+from tests.unit.fakes import FakeChapters, FakeMetadata, FakeRenderer, FakeUploader, make_tools
 
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+
+
+class PngRenderer(FakeRenderer):
+    """FakeRenderer whose slides are real (tiny, 9:16) PNGs, so the preview can load them."""
+
+    def render(self, post, covers, out_dir):
+        from PIL import Image
+
+        paths = super().render(post, covers, out_dir)
+        for n, path in enumerate(paths):
+            Image.new("RGB", (27, 48), (40 * n % 255, 80, 120)).save(path)
+        return paths
 
 
 def make_ctx(tmp_path: Path, metadata=None, uploader=None, covers=None) -> AppContext:
@@ -25,7 +37,7 @@ def make_ctx(tmp_path: Path, metadata=None, uploader=None, covers=None) -> AppCo
         store=store,
         metadata=metadata or FakeMetadata(),
         chapters=FakeChapters(),
-        tools=make_tools(tmp_path, covers=covers),
+        tools=make_tools(tmp_path, covers=covers, renderer=PngRenderer()),
         uploader_factory=lambda: browser,
         closers=[store],
     )
