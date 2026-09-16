@@ -276,21 +276,26 @@ def test_cancelled_search_error_not_shown(tmp_path):
     ctx.store.themes.add(REVENGE)
 
     async def scenario(app, pilot):
-        pane = await _open_build(app, pilot)
-        await _set(pilot, pane, tags="Revenge")
-        pane.search()
-        await pilot.pause()
-        # Start a second search immediately (before first completes); this cancels the first
-        pane.search()
-        await pilot.pause()
-        # Release the first search so it can fail (but it's already cancelled)
-        meta.events["call_1"].set()
-        await pilot.pause()
-        # Verify the first search's error never appeared in notifications
-        assert not any("first search failed" in str(n) for n in notes(app))
-        # Now release the second search which should succeed
-        meta.events["call_2"].set()
-        await wait_for(pilot, lambda: isinstance(app.screen, PicksScreen))
+        try:
+            pane = await _open_build(app, pilot)
+            await _set(pilot, pane, tags="Revenge")
+            pane.search()
+            await pilot.pause()
+            # Start a second search immediately (before first completes); this cancels the first
+            pane.search()
+            await pilot.pause()
+            # Release the first search so it can fail (but it's already cancelled)
+            meta.events["call_1"].set()
+            await pilot.pause()
+            # Verify the first search's error never appeared in notifications
+            assert not any("first search failed" in str(n) for n in notes(app))
+            # Now release the second search which should succeed
+            meta.events["call_2"].set()
+            await wait_for(pilot, lambda: isinstance(app.screen, PicksScreen))
+        finally:
+            # Ensure all pending events are released so the app can shut down
+            for event in meta.events.values():
+                event.set()
 
     run_app(ctx, scenario)
 
