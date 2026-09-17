@@ -1,7 +1,9 @@
 <!doctype html>
 <!-- Stands in for TikTok's upload page in tests/browser; it follows the selectors in
      src/manhwatok/adapters/tiktok_page.py. Query-string flags: ?no-input (no file input),
-     ?no-editor (the editor never opens), ?no-caption (the editor has no caption box). -->
+     ?no-editor (the editor never opens), ?no-caption (the editor has no description box),
+     ?no-title (no title box), ?no-hashtags (a typed hashtag is never suggested as such),
+     ?no-sounds (a sound search finds nothing). -->
 <html lang="en">
 <head><meta charset="utf-8"><title>Upload</title></head>
 <body>
@@ -13,13 +15,25 @@
   </main>
   <section id="editor" hidden>
     <ol id="files"></ol>
+    <input class="titleInput-x1" placeholder="Add a catchy title" value="IMG_0001">
     <div class="caption-editor"><div contenteditable="true">01.png</div></div>
+    <!-- TikTok lists hashtags while one is typed; picking one inserts it and a space. -->
+    <div id="hashtags" hidden></div>
+    <button type="button" id="add-sound">Add sound</button>
+    <div id="sounds" hidden>
+      <input placeholder="Search sounds">
+      <div class="MusicPanelTabListMusicList__list">
+        <div role="listitem"><div class="MusicPanelMusicItem__infoBasicTitle">For You pick</div><button type="button">Use</button></div>
+      </div>
+      <div id="results"></div>
+    </div>
     <button type="button" data-e2e="post_video_button" onclick="document.body.dataset.posted = 'yes'">Post</button>
   </section>
   <script>
     const flags = new URLSearchParams(location.search);
     if (flags.has("no-input")) document.querySelector("input[type=file]").remove();
     if (flags.has("no-caption")) document.querySelector(".caption-editor").remove();
+    if (flags.has("no-title")) document.querySelector(".titleInput-x1").remove();
     const input = document.querySelector("input[type=file]");
     input?.addEventListener("change", () => {
       for (const file of input.files) {
@@ -31,6 +45,59 @@
       if (!flags.has("no-editor")) {
         setTimeout(() => { document.getElementById("editor").hidden = false; }, 100);
       }
+    });
+
+    const picked = [];
+    const list = document.getElementById("hashtags");
+    document.querySelector(".caption-editor [contenteditable]")?.addEventListener("input", (e) => {
+      const typed = e.currentTarget.innerText.match(/#([^\s#]+)$/);
+      if (!typed) { list.hidden = true; return; }
+      const tag = "#" + typed[1].toLowerCase();
+      const topics = flags.has("no-hashtags") ? [tag + "x"] : [tag + "x", tag];
+      list.replaceChildren(...topics.map((topic) => {
+        const option = document.createElement("div");
+        option.className = "hashtag-suggestion-item";
+        option.innerHTML = `<span class="hash-tag-topic"></span><span>1K posts</span>`;
+        option.firstChild.textContent = topic;
+        option.onmousedown = (event) => event.preventDefault();  // keep the caret in the box
+        option.onclick = () => {
+          picked.push(topic);
+          document.body.dataset.hashtags = picked.join(" ");
+          document.execCommand("insertText", false, " ");
+          list.hidden = true;
+        };
+        return option;
+      }));
+      list.hidden = false;
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { list.hidden = true; document.body.dataset.escaped = "yes"; }
+    });
+
+    const sounds = document.getElementById("sounds");
+    document.getElementById("add-sound").onclick = () => { sounds.hidden = false; };
+    sounds.querySelector("input").addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      const query = e.currentTarget.value;
+      setTimeout(() => {
+        const results = document.getElementById("results");
+        results.className = "MusicPanelSearchResultList__list";
+        results.replaceChildren();
+        if (flags.has("no-sounds")) return;
+        for (const n of [1, 2]) {
+          const item = document.createElement("div");
+          item.setAttribute("role", "listitem");
+          item.innerHTML = `<div class="MusicPanelMusicItem__infoBasicTitle"></div>
+            <div class="MusicPanelMusicItem__infoBasicDesc">00:3${n} · Fixture</div>
+            <button type="button">Use</button>`;
+          item.firstChild.textContent = `${query} ${n}`;
+          item.querySelector("button").onclick = () => {
+            document.body.dataset.sound = `${query} ${n}`;
+            sounds.hidden = true;
+          };
+          results.append(item);
+        }
+      }, 100);
     });
   </script>
 </body>

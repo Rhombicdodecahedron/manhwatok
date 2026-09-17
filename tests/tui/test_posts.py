@@ -7,6 +7,7 @@ pytest.importorskip("textual")
 
 from manhwatok.app.render_post import render_post  # noqa: E402
 from manhwatok.domain.account import Account  # noqa: E402
+from manhwatok.domain.models import ArtStyle  # noqa: E402
 from manhwatok.tui.screens.posts import PostsPane, PostTable  # noqa: E402
 from manhwatok.tui.widgets.slide_preview import SlidePreview  # noqa: E402
 from tests.tui.helpers import NOW, Opened, make_ctx, notes, run_app, wait_for  # noqa: E402
@@ -16,10 +17,12 @@ OLD, NEW = "20260913-0001", "20260914-0002"
 
 
 def _two_posts(ctx):
-    """NEW (rendered, @reads, account song) above OLD (not rendered, no account, own song)."""
-    ctx.store.accounts.add(Account(handle="reads", song="Acct Song"))
+    """NEW (rendered, @reads with two sounds) above OLD (not rendered, no account, with its own
+    art style and emojis)."""
+    ctx.store.accounts.add(Account(handle="reads", sounds=["Dark Aria", "night drive"]))
     posts = ctx.tools.posts
-    posts.save(post(id=OLD, created_at=datetime(2026, 9, 13, tzinfo=timezone.utc), song="Own"))
+    old = datetime(2026, 9, 13, tzinfo=timezone.utc)
+    posts.save(post(id=OLD, created_at=old, art=ArtStyle.BACKGROUND, emojis="🔥📚"))
     new = datetime(2026, 9, 14, tzinfo=timezone.utc)
     posts.save(post(id=NEW, account="reads", created_at=new))
     render_post(NEW, ctx.tools)
@@ -34,14 +37,14 @@ def _details(app) -> str:
     return str(app.query_one("#details").render())
 
 
-def test_lists_posts_with_status_and_song(tmp_path):
+def test_lists_posts_with_status(tmp_path):
     ctx = make_ctx(tmp_path)
     _two_posts(ctx)
 
     async def scenario(app, pilot):
         assert _rows(app) == [
-            [NEW, "@reads", "Manhwa where the MC regresses", "rendered", "Acct Song", "5"],
-            [OLD, "-", "Manhwa where the MC regresses", "not rendered", "Own", "5"],
+            [NEW, "@reads", "Manhwa where the MC regresses", "rendered", "5"],
+            [OLD, "-", "Manhwa where the MC regresses", "not rendered", "5"],
         ]
 
     run_app(ctx, scenario)
@@ -56,7 +59,7 @@ def test_the_preview_flips_through_the_highlighted_posts_slides(tmp_path):
         preview = app.query_one(SlidePreview)
         assert preview.current == folder / "01.png"
         assert str(app.query_one("#slide-counter").render()) == "◀ 1/5 ▶"
-        assert "Song: Acct Song\n" in _details(app)
+        assert "\nSounds: Dark Aria | night drive\n\nCaption\n" in _details(app)
         await pilot.press("right", "right")
         assert preview.current == folder / "03.png"
         await pilot.press("left", "left", "left")
@@ -66,7 +69,7 @@ def test_the_preview_flips_through_the_highlighted_posts_slides(tmp_path):
         await pilot.press("down")
         assert preview.current is None
         assert str(app.query_one("#slide-note").render()) == "not rendered — press r"
-        assert "Song: Own (this post's)" in _details(app)
+        assert "\nSounds: –\nArt: background\nEmojis: 🔥📚\n" in _details(app)
         assert "Caption (not rendered)" in _details(app)
         await pilot.press("o")
         assert "no slide to open" in notes(app)
@@ -171,53 +174,26 @@ def test_export_copies_the_slides_and_records_the_titles(tmp_path):
     assert len(list((tmp_path / "exports" / NEW).glob("*.png"))) == 5
 
 
-def test_song_sets_and_clears_the_posts_own_song(tmp_path):
+def test_details_show_no_sounds_for_a_removed_account(tmp_path):
+    ctx = make_ctx(tmp_path)
+    ctx.tools.posts.save(post(id=NEW, account="gone"))
+
+    async def scenario(app, pilot):
+        assert "\nSounds: –\n" in _details(app)
+        assert notes(app) == []
+
+    run_app(ctx, scenario)
+
+
+def test_s_does_nothing_now_that_posts_have_no_song(tmp_path):
     ctx = make_ctx(tmp_path)
     _two_posts(ctx)
 
     async def scenario(app, pilot):
         await pilot.press("s")
         await pilot.pause()
-        assert "leave empty for the account's: Acct Song" in str(
-            app.screen.query_one("Label").render()
-        )
-        await pilot.press(*"Mine", "enter")
-        await pilot.pause()
-        assert ctx.tools.posts.get(NEW).song == "Mine"
-        assert _rows(app)[0][4] == "Mine"
-        await pilot.press("s")
-        await pilot.pause()
-        await pilot.press("backspace", "enter")  # the old value is selected: clear it
-        await pilot.pause()
-        assert ctx.tools.posts.get(NEW).song is None
-        assert _rows(app)[0][4] == "Acct Song"
-        await pilot.press("s")
-        await pilot.pause()
-        await pilot.press("x", "escape")
-        await pilot.pause()
-        assert ctx.tools.posts.get(NEW).song is None
-
-    run_app(ctx, scenario)
-
-
-def test_song_enter_without_editing_keeps_a_posts_explicit_no_song(tmp_path):
-    """A post whose own song is "" (explicitly no song) shows blank in the prompt too, just
-    like one that simply follows the account — pressing enter unedited must not turn that
-    explicit "no song" into "follow the account's song"."""
-    ctx = make_ctx(tmp_path)
-    ctx.store.accounts.add(Account(handle="reads", song="Acct Song"))
-    ctx.tools.posts.save(
-        post(id=NEW, account="reads", song="", created_at=datetime(2026, 9, 14, tzinfo=timezone.utc))
-    )
-
-    async def scenario(app, pilot):
-        await pilot.press("s")
-        await pilot.pause()
-        label = str(app.screen.query_one("Label").render())
-        assert label.startswith("this post has no song of its own — ")
-        await pilot.press("enter")
-        await pilot.pause()
-        assert ctx.tools.posts.get(NEW).song == ""
+        assert isinstance(app.screen.query_one(PostsPane), PostsPane)
+        assert len(app.screen_stack) == 1
 
     run_app(ctx, scenario)
 
@@ -275,7 +251,7 @@ def test_export_upload_delete_refuse_while_a_render_is_running(tmp_path):
 
 def test_actions_without_a_post_warn(tmp_path):
     async def scenario(app, pilot):
-        await pilot.press("r", "x", "s", "d")
-        assert notes(app).count("no post selected") == 4
+        await pilot.press("e", "r", "x", "u", "d")
+        assert notes(app).count("no post selected") == 5
 
     run_app(make_ctx(tmp_path), scenario)

@@ -5,6 +5,7 @@ import pytest
 from manhwatok.app.build_post import build_post, create_post, prefill_items, save_new_post
 from manhwatok.app.edit_post import edit_post, update_picks
 from manhwatok.domain.account import Account
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.errors import DraftError, InvalidName, ManhwatokError, StorageError
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
@@ -24,18 +25,22 @@ CANDIDATES = [
 ACCOUNT = Account(
     handle="reads",
     hashtags="#reads",
+    emojis="📚",
     accent="#ff00aa",
     cta_title="Seen *these*?",
     cta_follow="More tomorrow",
+    art=ArtStyle.BACKGROUND,
 )
 
 
 # --- create_post (pure) --------------------------------------------------------------------
 
 
-def _create(account=None, hashtags=None, accent=None):
+def _create(account=None, hashtags=None, accent=None, art=None, emojis=None):
     items = [PostItem(manhwa=CANDIDATES[0], hook="h")]
-    return create_post("20260914-a3f9", NOW, CANDIDATES, "T", items, account, hashtags, accent)
+    return create_post(
+        "20260914-a3f9", NOW, CANDIDATES, "T", items, account, hashtags, accent, art, emojis
+    )
 
 
 def test_create_post_without_account_uses_defaults():
@@ -44,6 +49,7 @@ def test_create_post_without_account_uses_defaults():
     assert p.account is None
     assert (p.hashtags, p.accent) == (DEFAULT_HASHTAGS, DEFAULT_ACCENT)
     assert (p.cta_title, p.cta_follow) == (DEFAULT_CTA_TITLE, DEFAULT_CTA_FOLLOW)
+    assert p.art is ArtStyle.NONE
 
 
 def test_create_post_takes_style_and_cta_from_the_account():
@@ -51,12 +57,25 @@ def test_create_post_takes_style_and_cta_from_the_account():
     assert p.account == "reads"
     assert (p.hashtags, p.accent) == ("#reads", "#ff00aa")
     assert (p.cta_title, p.cta_follow) == ("Seen *these*?", "More tomorrow")
+    assert p.art is ArtStyle.BACKGROUND  # the account's default
 
 
 def test_create_post_overrides_beat_the_account():
     p = _create(ACCOUNT, hashtags="#once", accent="#ABCDEF")
     assert (p.hashtags, p.accent) == ("#once", "#abcdef")
     assert p.cta_title == "Seen *these*?"
+
+
+def test_create_post_emojis_come_from_the_override_else_the_account():
+    assert _create().emojis == ""
+    assert _create(ACCOUNT).emojis == "📚"
+    assert _create(ACCOUNT, emojis=" 🔥⏳ ").emojis == "🔥⏳"
+    assert _create(ACCOUNT, emojis="").emojis == ""
+
+
+def test_create_post_art_override_beats_the_account():
+    assert _create(ACCOUNT, art=ArtStyle.NONE).art is ArtStyle.NONE
+    assert _create(art=ArtStyle.BACKGROUND).art is ArtStyle.BACKGROUND
 
 
 def test_create_post_rejects_a_bad_accent():
@@ -259,19 +278,6 @@ def test_edit_bad_draft_is_saved(tmp_path):
     assert tools.posts.get("20260914-a3f9") == post()
 
 
-def test_create_post_stores_the_song_override_as_given():
-    items = [PostItem(manhwa=CANDIDATES[0], hook="h")]
-    args = ("20260914-a3f9", NOW, CANDIDATES, "T", items, ACCOUNT.model_copy(update={"song": "A"}))
-    assert create_post(*args, None, None).song is None
-    assert create_post(*args, None, None, "Mine").song == "Mine"
-
-
-def test_build_saves_the_song(tmp_path):
-    tools = make_tools(tmp_path, editor=ScriptedEditor(lambda text: text))
-    built, _ = build_post(lambda: CANDIDATES, "T", None, None, None, tools, NOW, song="Mine")
-    assert tools.posts.get(built.id).song == "Mine"
-
-
 # --- prefill_items / save_new_post / update_picks (the TUI's form path) ---------------------
 
 
@@ -283,21 +289,31 @@ def test_prefill_items_hooks_the_first_max_items_candidates():
     assert prefill_items([]) == []
 
 
-def _save_new(tools, title="T", items=None, accent=None, account=None, song=None):
+def _save_new(tools, title="T", items=None, accent=None, account=None, **style):
     items = [PostItem(manhwa=CANDIDATES[1], hook="k")] if items is None else items
-    return save_new_post(CANDIDATES, title, items, account, None, accent, song, tools, NOW)
+    return save_new_post(CANDIDATES, title, items, account, None, accent, tools, NOW, **style)
 
 
 def test_save_new_post_saves_and_renders(tmp_path):
     tools = make_tools(tmp_path)
-    built, slides = _save_new(tools, account=ACCOUNT, song="Mine")
+    built, slides = _save_new(tools, account=ACCOUNT)
     assert built.id.startswith(NOW.astimezone().strftime("%Y%m%d") + "-")
     assert tools.posts.get(built.id) == built
-    assert (built.title, built.account, built.song) == ("T", "reads", "Mine")
+    assert (built.title, built.account) == ("T", "reads")
     assert built.hashtags == "#reads"
     assert [i.manhwa.anilist_id for i in built.items] == [22]
     assert built.candidates == CANDIDATES
     assert len(slides) == 3
+
+
+def test_save_new_post_takes_art_and_emojis_else_the_accounts(tmp_path):
+    tools = make_tools(tmp_path)
+    account = ACCOUNT.model_copy(update={"emojis": "📚", "art": ArtStyle.PANEL})
+    own, _ = _save_new(tools, account=account, art=ArtStyle.BACKGROUND, emojis="🔥")
+    assert (own.art, own.emojis) == (ArtStyle.BACKGROUND, "🔥")
+    assert tools.posts.get(own.id) == own
+    inherited, _ = _save_new(tools, account=account)
+    assert (inherited.art, inherited.emojis) == (ArtStyle.PANEL, "📚")
 
 
 @pytest.mark.parametrize(

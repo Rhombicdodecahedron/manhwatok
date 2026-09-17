@@ -62,7 +62,7 @@ def build_post_tools(settings: Settings, editor: EditorFn, progress: ProgressFn)
 
 
 def build_uploader(settings: Settings) -> Uploader:
-    """The assisted-upload browser: a visible Chromium with one profile per account. Playwright
+    """The assisted-upload browser: a visible Google Chrome with one profile per account. Playwright
     itself is only imported once a browser is opened (it's the optional `upload` extra)."""
     from manhwatok.adapters.playwright_uploader import PlaywrightUploader
 

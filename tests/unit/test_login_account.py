@@ -19,7 +19,7 @@ def test_login_tells_the_user_then_opens_the_accounts_browser(store):
     messages = []
     account = login_account("@Reads", store.accounts, uploader, messages.append)
     assert account.handle == "reads"
-    assert messages == ["Log in to @reads in the browser, then close the window."]
+    assert messages == ["Log in to @reads in the Chrome window, then quit that Chrome (⌘Q)."]
     assert uploader.logins == ["reads"]
     assert uploader.events == ["login", "close"]
 

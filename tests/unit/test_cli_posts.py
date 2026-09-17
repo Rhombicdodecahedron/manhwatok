@@ -10,7 +10,7 @@ from manhwatok.app import container
 from manhwatok.app.post_tools import PostTools
 from manhwatok.cli import app
 from manhwatok.domain.account import Account
-from manhwatok.domain.models import Sort
+from manhwatok.domain.models import ArtStyle, Sort
 from manhwatok.domain.theme import Theme
 from tests.unit.fakes import (
     FakeChapters,
@@ -63,6 +63,10 @@ def wire(tmp_path, monkeypatch):
     return _wire
 
 
+def _store_posts(tmp_path) -> SqliteStore:
+    return SqliteStore(tmp_path / "data" / "manhwatok.db")
+
+
 def _post_id(output: str) -> str:
     return re.search(r"post (\d{8}-[0-9a-f]{4})", output).group(1)
 
@@ -78,6 +82,16 @@ def test_build_renders_and_prints_next_step(wire):
     assert f"export with: manhwatok export {post_id}" in result.output
     assert repo.get(post_id).title == "MC *regresses*"
     assert "title: MC *regresses*" in editor.shown[0]
+
+
+def test_build_emojis_go_to_the_post_not_the_slides(wire):
+    repo, _ = wire()
+    args = ["build", "-t", "Revenge", "--title", "MC", "--emojis", "🔥", "--no-chapters"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    post_id = _post_id(result.output)
+    assert (repo.get(post_id).title, repo.get(post_id).emojis) == ("MC", "🔥")
+    assert (repo.folder(post_id) / "caption.txt").read_text().startswith("MC 🔥\n\n1. ")
 
 
 def test_build_requires_a_filter(wire):
@@ -427,59 +441,138 @@ def test_posts_marks_sent_posts(wire):
     assert re.match(r"20260913-0001  \S+ \S+  -        5 slides        Manhwa", lines[1])
 
 
-def test_build_song_is_saved_on_the_post(wire):
-    repo, _ = wire(respond=lambda text: text)
-    args = ["build", "-t", "Revenge", "--title", "T", "--song", "Die For You", "--no-chapters"]
-    result = runner.invoke(app, args)
-    assert result.exit_code == 0, result.output
-    assert repo.get(_post_id(result.output)).song == "Die For You"
+# --- --art (Phase 5) -------------------------------------------------------------------------
 
 
-def test_posts_shows_songs_only_when_some_post_has_one(wire, tmp_path):
+def test_build_art_flag_is_saved_on_the_post(wire):
     repo, _ = wire()
-    _save(tmp_path, Account(handle="reads", song="A very long account song name here"))
-    repo.save(post(id="20260913-0001", created_at=datetime(2026, 9, 13, tzinfo=timezone.utc)))
-    no_song = runner.invoke(app, ["posts"]).output.strip().splitlines()
-    assert re.match(r"20260913-0001  \S+ \S+  -   5 slides  Manhwa", no_song[0])
-    repo.save(
-        post(
-            id="20260914-0002",
-            account="reads",
-            created_at=datetime(2026, 9, 14, tzinfo=timezone.utc),
-        )
+    out = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--art", "background"])
+    assert out.exit_code == 0, out.output
+    assert repo.get(_post_id(out.output)).art is ArtStyle.BACKGROUND
+
+
+def test_build_takes_art_from_the_account_and_the_flag_overrides_it(wire, tmp_path):
+    repo, _ = wire()
+    with _store_posts(tmp_path) as store:
+        store.accounts.add(Account(handle="reads", art=ArtStyle.BACKGROUND))
+    from_account = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--account", "@reads"])
+    assert from_account.exit_code == 0, from_account.output
+    assert repo.get(_post_id(from_account.output)).art is ArtStyle.BACKGROUND
+
+    overridden = runner.invoke(
+        app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--account", "@reads", "--art", "none"]
     )
-    lines = runner.invoke(app, ["posts"]).output.strip().splitlines()
-    assert re.match(
-        r"20260914-0002  \S+ \S+  @reads   5 slides  A very long account son…  Manhwa", lines[0]
-    )
-    assert re.match(r"20260913-0001  \S+ \S+  -        5 slides  - {25}Manhwa", lines[1])
+    assert overridden.exit_code == 0, overridden.output
+    assert repo.get(_post_id(overridden.output)).art is ArtStyle.NONE
 
 
-def test_song_shows_sets_and_clears_a_posts_song(wire, tmp_path):
+def test_render_art_flag_restyles_an_existing_post(wire):
     repo, _ = wire()
-    _save(tmp_path, Account(handle="reads", song="Acct"))
-    repo.save(post(account="reads"))
-    pid = "20260914-a3f9"
-    assert runner.invoke(app, ["song", pid]).output == f"post {pid} song: Acct (the account's)\n"
-    out = runner.invoke(app, ["song", pid, "Own"]).output
-    assert out == f"post {pid} song: Own (its own)\n"
-    assert repo.get(pid).song == "Own"
-    assert runner.invoke(app, ["song", pid, ""]).output == f"post {pid}: no song\n"
-    assert repo.get(pid).song == ""
-    assert "(the account's)" in runner.invoke(app, ["song", pid, "--clear"]).output
-    assert repo.get(pid).song is None
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    assert repo.get(post_id).art is ArtStyle.NONE
+    out = runner.invoke(app, ["render", post_id, "--art", "background"])
+    assert out.exit_code == 0, out.output
+    assert repo.get(post_id).art is ArtStyle.BACKGROUND
 
 
-def test_song_rejects_text_and_clear_together(wire):
+def test_render_without_the_flag_keeps_the_posts_art(wire):
     repo, _ = wire()
-    repo.save(post())
-    result = runner.invoke(app, ["song", "20260914-a3f9", "X", "--clear"])
-    assert result.exit_code == 1
-    assert "error: give a song or --clear, not both" in result.output
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--art", "background"])
+    post_id = _post_id(built.output)
+    assert runner.invoke(app, ["render", post_id]).exit_code == 0
+    assert repo.get(post_id).art is ArtStyle.BACKGROUND
 
 
-def test_song_unknown_post(wire):
+def test_build_rejects_an_unknown_art_style(wire):
     wire()
-    result = runner.invoke(app, ["song", "20260914-ffff"])
-    assert result.exit_code == 1
-    assert "error: no post 20260914-ffff" in result.output
+    out = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--art", "epic"])
+    assert out.exit_code != 0
+    assert "background" in out.output  # the error names the styles that do exist
+
+
+# --- art <post> <title> <file> ----------------------------------------------------------------
+
+
+def _pick_file(tmp_path, name="pick.png"):
+    path = tmp_path / name
+    path.write_bytes(b"\x89PNG pretend")
+    return path
+
+
+def test_art_attaches_a_file_to_one_title_and_rerenders(wire, tmp_path):
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(app, ["art", post_id, "11", str(_pick_file(tmp_path))])
+    assert out.exit_code == 0, out.output
+    item = next(i for i in repo.get(post_id).items if i.manhwa.anilist_id == 11)
+    assert item.custom_art == "art-11.png"
+    assert (repo.folder(post_id) / "art-11.png").is_file()
+    assert "slides" in out.output  # it re-rendered
+
+
+def test_art_clear_removes_it(wire, tmp_path):
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    runner.invoke(app, ["art", post_id, "11", str(_pick_file(tmp_path))])
+    out = runner.invoke(app, ["art", post_id, "11", "--clear"])
+    assert out.exit_code == 0, out.output
+    item = next(i for i in repo.get(post_id).items if i.manhwa.anilist_id == 11)
+    assert item.custom_art == ""
+    assert not (repo.folder(post_id) / "art-11.png").exists()
+
+
+def test_art_without_a_file_or_clear_fails(wire):
+    wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["art", _post_id(built.output), "11"])
+    assert out.exit_code != 0
+    assert "--clear" in out.output
+
+
+def test_art_on_an_unknown_title_lists_the_ones_in_the_post(wire, tmp_path):
+    wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["art", _post_id(built.output), "999", str(_pick_file(tmp_path))])
+    assert out.exit_code != 0
+    assert "Doom Breaker" in out.output
+
+
+def test_art_downloads_a_url(wire, monkeypatch):
+    import httpx
+
+    from manhwatok.adapters import picture_download
+
+    def host(request):
+        return httpx.Response(200, content=b"\x89PNG pretend", headers={"Content-Type": "image/png"})
+
+    real = picture_download.download_picture
+    monkeypatch.setattr(
+        picture_download,
+        "download_picture",
+        lambda url, into, **kw: real(
+            url, into, client=httpx.Client(transport=httpx.MockTransport(host))
+        ),
+    )
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(app, ["art", post_id, "11", "https://example.test/cool.png"])
+    assert out.exit_code == 0, out.output
+    item = next(i for i in repo.get(post_id).items if i.manhwa.anilist_id == 11)
+    assert item.custom_art == "art-11.png"
+    assert (repo.folder(post_id) / "art-11.png").read_bytes() == b"\x89PNG pretend"
+
+
+def test_art_expands_a_tilde_path(wire, tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    pick = tmp_path / "pick.png"
+    pick.write_bytes(b"\x89PNG pretend")
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(app, ["art", post_id, "11", "~/pick.png"])
+    assert out.exit_code == 0, out.output
+    assert repo.get(post_id).items[0].custom_art == "art-11.png"

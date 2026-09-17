@@ -7,7 +7,7 @@ from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app import container
 from manhwatok.cli import app
 from manhwatok.domain.errors import MetadataError
-from manhwatok.domain.models import TagInfo
+from manhwatok.domain.models import ArtStyle, TagInfo
 from manhwatok.domain.post import DEFAULT_HASHTAGS
 from tests.unit.fakes import FakeMetadata
 
@@ -275,14 +275,44 @@ def test_help_lists_account_and_theme():
     assert "account" in out and "theme" in out
 
 
-def test_account_song_add_set_show_and_clear(tmp_path):
-    assert "  song          -\n" in _ok(["account", "add", "reads"])
-    out = _ok(["account", "set", "reads", "--song", " Die For You "])
-    assert "  song          Die For You\n" in out
+# --- --art (Phase 5) -------------------------------------------------------------------------
+
+
+def test_account_add_stores_the_art_style(tmp_path):
+    _ok(["account", "add", "reads", "--art", "background"])
     with _store(tmp_path) as store:
-        assert store.accounts.get("reads").song == "Die For You"
-    _ok(["account", "set", "reads", "--song", ""])
+        assert store.accounts.get("reads").art is ArtStyle.BACKGROUND
+
+
+def test_account_defaults_to_no_art(tmp_path):
+    _ok(["account", "add", "reads"])
     with _store(tmp_path) as store:
-        assert store.accounts.get("reads").song == ""
-    _ok(["account", "add", "other", "--song", "Mine"])
-    assert "  song          Mine\n" in _ok(["account", "show", "other"])
+        assert store.accounts.get("reads").art is ArtStyle.NONE
+
+
+def test_account_set_changes_art_without_touching_the_rest(tmp_path):
+    _ok(["account", "add", "reads", "--hashtags", "#reads", "--art", "background"])
+    _ok(["account", "set", "reads", "--art", "none"])
+    with _store(tmp_path) as store:
+        a = store.accounts.get("reads")
+    assert a.art is ArtStyle.NONE
+    assert a.hashtags == "#reads"
+
+
+def test_account_show_lists_the_art_style(tmp_path):
+    _ok(["account", "add", "reads", "--art", "background"])
+    assert "background" in _ok(["account", "show", "reads"])
+
+
+def test_account_emojis_and_sounds(tmp_path):
+    _ok(["account", "add", "reads", "--emojis", "🔥📚", "--sound", "solo leveling"])
+    out = _ok(["account", "set", "reads", "--sound", "Dark Aria", "--sound", "night drive"])
+    assert "  emojis        🔥📚\n" in out
+    assert "  sounds        Dark Aria | night drive\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").sounds == ["Dark Aria", "night drive"]
+    _ok(["account", "set", "reads", "--hashtags", "#x"])  # no --sound: the list stays
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").sounds == ["Dark Aria", "night drive"]
+    out = _ok(["account", "set", "reads", "--sound", "", "--emojis", ""])
+    assert "  emojis        -\n  sounds        -\n" in out

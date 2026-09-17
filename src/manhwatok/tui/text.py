@@ -6,6 +6,7 @@ from manhwatok.app.render_post import rendered_files
 from manhwatok.domain.caption import build_caption
 from manhwatok.domain.errors import NotRendered, StorageError
 from manhwatok.domain.labels import chapter_label
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 from manhwatok.ports.posts import PostRepository
@@ -34,17 +35,21 @@ def caption_text(post: ListPost, posts: PostRepository) -> tuple[str, bool]:
         return build_caption(post), False
 
 
-def post_details(post: ListPost, posts: PostRepository, song: str) -> str:
-    """The text beside the slide preview: title, song, caption, picks."""
+def post_details(post: ListPost, posts: PostRepository, sounds: list[str]) -> str:
+    """The text beside the slide preview: title, the account's sounds, art style, emojis,
+    caption, picks."""
     who = f"@{post.account}" if post.account else "no account"
     size = "no picks" if post.is_unfinished else f"{post.slide_count} slides"
-    own = " (this post's)" if post.song is not None else ""
     lines = [
         plain_title(post.title) or "(untitled)",
         f"{post.id} · {who} · {post_status(post, posts)} · {size}",
         "",
-        f"Song: {song}{own}" if song else "Song: –",
+        f"Sounds: {' | '.join(sounds) or '–'}",
     ]
+    if post.art is not ArtStyle.NONE:
+        lines.append(f"Art: {post.art.value}")
+    if post.emojis:
+        lines.append(f"Emojis: {post.emojis}")
     if post.is_unfinished:
         lines += ["", "no picks yet — press e to pick titles"]
         return "\n".join(lines)

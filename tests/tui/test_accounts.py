@@ -4,7 +4,7 @@ pytest.importorskip("textual")
 
 from manhwatok.domain.account import Account  # noqa: E402
 from manhwatok.domain.errors import ManhwatokError, MetadataError  # noqa: E402
-from manhwatok.domain.models import TagInfo  # noqa: E402
+from manhwatok.domain.models import ArtStyle, TagInfo  # noqa: E402
 from manhwatok.tui.screens.accounts import (  # noqa: E402
     AccountsPane,
     account_fields,
@@ -64,7 +64,9 @@ def test_add_an_account_in_anilist_spelling(tmp_path):
             handle="@Reads",
             genres="action, fantasy",
             block_tags="harem",
-            song="Die For You",
+            emojis=" 🔥📚 ",
+            sounds="Dark Aria |  night drive | ",
+            art="Panel",
             repeat_days="7",
         )
         await wait_for(pilot, lambda: not isinstance(app.screen, FormModal))
@@ -76,7 +78,8 @@ def test_add_an_account_in_anilist_spelling(tmp_path):
                 "Harem",
                 "#manhwa #manhwarecommendation…",
                 "#43c9e4",
-                "Die For You",
+                "2 sounds",
+                "panel",
                 "7d",
                 "-",
             ],
@@ -84,12 +87,8 @@ def test_add_an_account_in_anilist_spelling(tmp_path):
 
     run_app(ctx, scenario)
     a = ctx.store.accounts.get("reads")
-    assert (a.genres, a.block_tags, a.song, a.repeat_days) == (
-        ["Action", "Fantasy"],
-        ["Harem"],
-        "Die For You",
-        7,
-    )
+    assert (a.genres, a.block_tags, a.repeat_days) == (["Action", "Fantasy"], ["Harem"], 7)
+    assert (a.emojis, a.sounds, a.art) == ("🔥📚", ["Dark Aria", "night drive"], ArtStyle.PANEL)
 
 
 def test_a_bad_field_keeps_the_form_open(tmp_path):
@@ -129,7 +128,16 @@ def test_anilist_down_warns_and_saves_as_typed(tmp_path):
 
 def test_edit_changes_only_what_changed(tmp_path):
     ctx = _ctx(tmp_path)
-    ctx.store.accounts.add(Account(handle="reads", genres=["Actoin"], hashtags="#old"))
+    ctx.store.accounts.add(
+        Account(
+            handle="reads",
+            genres=["Actoin"],
+            hashtags="#old",
+            emojis="📚",
+            sounds=["Dark Aria", "night drive"],
+            art=ArtStyle.BACKGROUND,
+        )
+    )
 
     async def scenario(app, pilot):
         await _open(app, pilot)
@@ -138,12 +146,49 @@ def test_edit_changes_only_what_changed(tmp_path):
         form = app.screen
         assert form.form_title == "Edit @reads"
         assert form.query_one("#field-genres").value == "Actoin"  # not re-checked: unchanged
-        await _fill(app, pilot, hashtags="#new", song="Mine")
+        assert form.query_one("#field-sounds").value == "Dark Aria | night drive"
+        assert form.query_one("#field-emojis").value == "📚"
+        assert form.query_one("#field-art").value == "background"
+        await _fill(app, pilot, hashtags="#new", sounds="Solo | Dark Aria", emojis="", art="")
         await wait_for(pilot, lambda: "saved @reads" in notes(app))
+        assert _rows(app)[0][5:7] == ["2 sounds", "none"]
 
     run_app(ctx, scenario)
     a = ctx.store.accounts.get("reads")
-    assert (a.genres, a.hashtags, a.song) == (["Actoin"], "#new", "Mine")
+    assert (a.genres, a.hashtags, a.sounds) == (["Actoin"], "#new", ["Solo", "Dark Aria"])
+    assert (a.emojis, a.art) == ("", ArtStyle.NONE)
+
+
+def test_the_table_shows_a_single_sound_clipped(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.store.accounts.add(Account(handle="reads", sounds=["SOLO LEVELING RaijinLofi remix"]))
+    ctx.store.accounts.add(Account(handle="quiet"))
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        assert [row[5:7] for row in _rows(app)] == [
+            ["-", "none"],
+            ["SOLO LEVELING RaijinLof…", "none"],
+        ]
+
+    run_app(ctx, scenario)
+
+
+def test_an_unknown_art_style_keeps_the_form_open_and_lists_the_choices(tmp_path):
+    ctx = _ctx(tmp_path)
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        await pilot.press("a")
+        await pilot.pause()
+        await _fill(app, pilot, handle="reads", art="epic")
+        message = "art must be one of: none, background, panel, character"
+        await wait_for(pilot, lambda: any(n.startswith(message) for n in notes(app)))
+        await pilot.pause()
+        assert isinstance(app.screen, FormModal)
+
+    run_app(ctx, scenario)
+    assert ctx.store.accounts.list() == []
 
 
 def test_escape_cancels_the_form(tmp_path):
@@ -173,7 +218,7 @@ def test_login_opens_the_accounts_browser(tmp_path):
         log = app.screen.query_one("Log")
         await wait_for(pilot, lambda: "done — press escape to go back" in log.lines)
         assert list(log.lines)[:2] == [
-            "Log in to @reads in the browser, then close the window.",
+            "Log in to @reads in the Chrome window, then quit that Chrome (⌘Q).",
             "browser closed — once logged in, uploads post as @reads",
         ]
         (tmp_path / "browser" / "reads").mkdir(parents=True)  # what a real login leaves
@@ -228,12 +273,28 @@ def test_remove_can_be_declined(tmp_path):
 
 
 def test_account_fields():
-    before = account_texts(Account(handle="reads", genres=["Action"], song="S"))
+    before = account_texts(Account(handle="reads", genres=["Action"], sounds=["S"]))
     assert before["genres"] == "Action" and before["repeat_days"] == "30"
+    assert (before["sounds"], before["emojis"], before["art"]) == ("S", "", "")
     assert account_fields({**before, "handle": "x"}, before) == {}
-    changed = {**before, "genres": "", "repeat_days": "7", "song": ""}
-    assert account_fields(changed, before) == {"genres": [], "repeat_days": 7, "song": ""}
+    changed = {**before, "genres": "", "repeat_days": "7", "sounds": ""}
+    assert account_fields(changed, before) == {"genres": [], "repeat_days": 7, "sounds": []}
     new = {name: "" for name in before} | {"hashtags": "#h", "block_tags": "A, B"}
     assert account_fields(new, None) == {"hashtags": "#h", "block_tags": ["A", "B"]}
     with pytest.raises(ManhwatokError, match="repeat days must be a whole number"):
         account_fields({**before, "repeat_days": "soon"}, before)
+
+
+def test_account_fields_sounds_emojis_and_art():
+    before = account_texts(Account(handle="reads"))
+    texts = {**before, "sounds": " a | b |  | c ", "emojis": "🔥", "art": " Character "}
+    assert account_fields(texts, before) == {
+        "sounds": ["a", "b", "c"],
+        "emojis": "🔥",
+        "art": ArtStyle.CHARACTER,
+    }
+    styled = account_texts(Account(handle="reads", sounds=["a", "b"], art=ArtStyle.PANEL))
+    assert (styled["sounds"], styled["art"]) == ("a | b", "panel")
+    assert account_fields({**styled, "art": ""}, styled) == {"art": ArtStyle.NONE}
+    with pytest.raises(ManhwatokError, match="art must be one of: none, background, panel"):
+        account_fields({**before, "art": "epic"}, before)

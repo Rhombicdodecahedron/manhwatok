@@ -1,4 +1,4 @@
-"""Accounts: filters, style, song and saved TikTok login of each account."""
+"""Accounts: filters, style, sounds and saved TikTok login of each account."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from manhwatok.app.accounts import add_account, update_account
 from manhwatok.app.login_account import forget_login, login_account, saved_login
 from manhwatok.domain.account import MAX_REPEAT_DAYS, Account
 from manhwatok.domain.errors import ManhwatokError
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.text import split_names
 from manhwatok.tui.screens.browser import BrowserScreen
 from manhwatok.tui.text import clip
@@ -20,17 +21,20 @@ from manhwatok.tui.widgets.dialogs import ConfirmModal
 from manhwatok.tui.widgets.form import FormModal
 
 LISTS = ("genres", "block_genres", "block_tags")
-TEXTS = ("hashtags", "accent", "cta_title", "cta_follow", "song")
+TEXTS = ("hashtags", "emojis", "accent", "cta_title", "cta_follow")
+ART_CHOICES = ", ".join(style.value for style in ArtStyle)
 LABELS = {
     "genres": "Genres (comma-separated; a title needs one of them; empty = any)",
     "block_genres": "Blocked genres",
     "block_tags": "Blocked tags",
     "hashtags": "Hashtags",
+    "emojis": "Emojis after the title on TikTok (empty = none)",
+    "sounds": "TikTok sounds to pick from when uploading (separate with | ; empty = none)",
     "accent": "Accent colour",
+    "art": f"Slide art for new posts: {ART_CHOICES} (empty = none)",
     "cta_title": "End-slide title (*word* = accent colour)",
     "cta_follow": "End-slide follow line",
     "repeat_days": f"Repeat window in days (1–{MAX_REPEAT_DAYS})",
-    "song": "Song to add when posting (name or TikTok sound link)",
 }
 
 
@@ -38,8 +42,18 @@ def account_texts(account: Account) -> dict[str, str]:
     """The form's text for each field of `account`."""
     texts = {name: ", ".join(getattr(account, name)) for name in LISTS}
     texts.update({name: getattr(account, name) for name in TEXTS})
+    texts["sounds"] = " | ".join(account.sounds)
+    texts["art"] = "" if account.art is ArtStyle.NONE else account.art.value
     texts["repeat_days"] = str(account.repeat_days)
     return texts
+
+
+def _art(text: str) -> ArtStyle:
+    try:
+        return ArtStyle(text.strip().lower() or ArtStyle.NONE)
+    except ValueError:
+        got = text.strip()
+        raise ManhwatokError(f"art must be one of: {ART_CHOICES} — got {got!r}") from None
 
 
 def account_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict[str, Any]:
@@ -55,6 +69,10 @@ def account_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict
             continue
         if name in LISTS:
             fields[name] = split_names(text)
+        elif name == "sounds":
+            fields[name] = [sound.strip() for sound in text.split("|") if sound.strip()]
+        elif name == "art":
+            fields[name] = _art(text)
         elif name == "repeat_days":
             try:
                 fields[name] = int(text)
@@ -65,6 +83,12 @@ def account_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict
         else:
             fields[name] = text
     return fields
+
+
+def _sounds_cell(sounds: list[str]) -> str:
+    if len(sounds) > 1:
+        return f"{len(sounds)} sounds"
+    return clip(sounds[0], 24) if sounds else "-"
 
 
 class AccountsPane(Vertical):
@@ -89,7 +113,8 @@ class AccountsPane(Vertical):
 
     def on_mount(self) -> None:
         self.query_one(DataTable).add_columns(
-            "account", "genres", "blocked", "hashtags", "accent", "song", "repeat", "login"
+            "account", "genres", "blocked", "hashtags", "accent", "sounds", "art", "repeat",
+            "login",
         )
         self.reload()
 
@@ -121,7 +146,8 @@ class AccountsPane(Vertical):
                 clip(", ".join(a.block_genres + a.block_tags) or "-", 30),
                 clip(a.hashtags or "-", 30),
                 a.accent,
-                clip(a.song or "-", 24),
+                _sounds_cell(a.sounds),
+                a.art.value,
                 f"{a.repeat_days}d",
                 login,
                 key=a.handle,

@@ -55,10 +55,10 @@ def test_text_and_choice_modals(tmp_path):
     answers = []
 
     async def scenario(app, pilot):
-        app.push_screen(TextModal("Song?", value="old"), answers.append)
+        app.push_screen(TextModal("Name?", value="old"), answers.append)
         await pilot.pause()
         await pilot.press("end", "backspace", "backspace", "backspace", *"  new  ", "enter")
-        app.push_screen(TextModal("Song?"), answers.append)
+        app.push_screen(TextModal("Name?"), answers.append)
         await pilot.pause()
         await pilot.press("escape")
         app.push_screen(ChoiceModal("Which?", [("All", "*"), ("@reads", "reads")]), answers.append)
@@ -115,6 +115,83 @@ def test_a_question_from_a_worker_waits_for_the_answer(tmp_path):
         await wait_for(pilot, lambda: answers == [True] and not app.browser_open)
 
     run_app(make_ctx(tmp_path), scenario)
+
+
+def test_a_choice_from_a_worker_waits_for_the_answer(tmp_path):
+    answers = []
+    choices = [("Dark Aria", "Dark Aria"), ("no sound", "")]
+
+    async def scenario(app, pilot):
+        app.start_browser(lambda: answers.append(app.choose_from_thread("Sound?", choices)))
+        await wait_for(pilot, lambda: isinstance(app.screen, ChoiceModal))
+        assert str(app.screen.query_one("Label").render()) == "Sound?"
+        await pilot.press("down", "enter")
+        await wait_for(pilot, lambda: answers == [""] and not app.browser_open)
+        app.start_browser(lambda: answers.append(app.choose_from_thread("Sound?", choices)))
+        await wait_for(pilot, lambda: isinstance(app.screen, ChoiceModal))
+        await pilot.press("enter")
+        await wait_for(pilot, lambda: answers == ["", "Dark Aria"] and not app.browser_open)
+
+    run_app(make_ctx(tmp_path), scenario)
+
+
+def test_quitting_answers_an_open_choice_none_even_under_another_screen(tmp_path):
+    answers = []
+    release = threading.Event()
+    app_ref = []
+
+    def job():
+        try:
+            answers.append(app_ref[0].choose_from_thread("Sound?", [("A", "A")]))
+            release.wait(5)
+        finally:
+            release.set()
+
+    async def scenario(app, pilot):
+        try:
+            app_ref.append(app)
+            app.start_browser(job)
+            await wait_for(pilot, lambda: isinstance(app.screen, ChoiceModal))
+            choice = app.screen
+            app.push_screen(TextModal("Something else?"))
+            await pilot.pause()
+            await pilot.press("ctrl+q")
+            await wait_for(pilot, lambda: answers == [None])
+            assert choice not in app.screen_stack
+            assert app.is_running  # still waiting for the browser
+        finally:
+            release.set()
+        await wait_for(pilot, lambda: not app.is_running)
+
+    run_app(make_ctx(tmp_path), scenario)
+
+
+def test_a_choice_asked_while_quitting_answers_none_at_once(tmp_path):
+    answers = []
+    release = threading.Event()
+    app_ref = []
+
+    def job():
+        try:
+            release.wait(5)
+            answers.append(app_ref[0].choose_from_thread("Sound?", [("A", "A")]))
+        finally:
+            release.set()
+
+    async def scenario(app, pilot):
+        try:
+            app_ref.append(app)
+            app.start_browser(job)
+            await wait_for(pilot, lambda: app.browser_open)
+            await pilot.press("q")
+            await pilot.pause()
+            assert app.is_running
+        finally:
+            release.set()
+        await wait_for(pilot, lambda: not app.is_running)
+
+    run_app(make_ctx(tmp_path), scenario)
+    assert answers == [None]
 
 
 def test_form_modal_covered_while_saving_stays_open_with_saving_reset(tmp_path):

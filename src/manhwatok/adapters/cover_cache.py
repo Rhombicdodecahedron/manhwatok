@@ -1,4 +1,4 @@
-"""Downloads AniList cover images once and keeps them under <data_dir>/covers/."""
+"""Downloads AniList cover and banner images once and keeps them under <data_dir>/covers/."""
 
 from __future__ import annotations
 
@@ -27,34 +27,62 @@ class CoverCache:
         if self._owns_client:
             self._client.close()
 
-    def _path_for(self, manhwa: Manhwa) -> Path:
-        ext = PurePosixPath(urlparse(manhwa.cover_url).path).suffix.lower()
-        return self._dir / f"{manhwa.anilist_id}{ext if ext in _EXTENSIONS else '.jpg'}"
+    def _path_for(self, manhwa: Manhwa, url: str, suffix: str = "") -> Path:
+        ext = PurePosixPath(urlparse(url).path).suffix.lower()
+        return self._dir / f"{manhwa.anilist_id}{suffix}{ext if ext in _EXTENSIONS else '.jpg'}"
 
-    def cached(self, manhwa: Manhwa) -> Path | None:
-        """Local path of an already-downloaded cover, or None. Never downloads."""
-        if not manhwa.cover_url:
+    @staticmethod
+    def _usable(path: Path) -> bool:
+        return path.is_file() and path.stat().st_size > 0
+
+    def _cached(self, manhwa: Manhwa, url: str, suffix: str) -> Path | None:
+        if not url:
             return None
-        path = self._path_for(manhwa)
-        return path if path.is_file() and path.stat().st_size > 0 else None
+        path = self._path_for(manhwa, url, suffix)
+        return path if self._usable(path) else None
 
-    def get(self, manhwa: Manhwa) -> Path:
-        """Local path of the cover, downloading it on first use. Raises MetadataError on failure."""
-        if not manhwa.cover_url:
-            raise MetadataError(f"{manhwa.title}: AniList has no cover image")
-        path = self._path_for(manhwa)
-        if path.is_file() and path.stat().st_size > 0:
+    def _get(self, manhwa: Manhwa, url: str, suffix: str, kind: str) -> Path:
+        if not url:
+            raise MetadataError(f"{manhwa.title}: AniList has no {kind} image")
+        path = self._path_for(manhwa, url, suffix)
+        if self._usable(path):
             return path
         try:
-            resp = self._client.get(manhwa.cover_url, headers={"User-Agent": USER_AGENT})
+            resp = self._client.get(url, headers={"User-Agent": USER_AGENT})
         except httpx.HTTPError as e:
-            raise MetadataError(f"cover download failed for {manhwa.title}: {e}") from e
+            raise MetadataError(f"{kind} download failed for {manhwa.title}: {e}") from e
         if resp.status_code >= 400 or not resp.content:
             raise MetadataError(
-                f"cover download failed for {manhwa.title}: HTTP {resp.status_code}"
+                f"{kind} download failed for {manhwa.title}: HTTP {resp.status_code}"
             )
         self._dir.mkdir(parents=True, exist_ok=True)
         partial = path.with_name(path.name + ".part")
         partial.write_bytes(resp.content)
         partial.replace(path)
         return path
+
+    def cached(self, manhwa: Manhwa) -> Path | None:
+        """Local path of an already-downloaded cover, or None. Never downloads."""
+        return self._cached(manhwa, manhwa.cover_url, "")
+
+    def get(self, manhwa: Manhwa) -> Path:
+        """Local path of the cover, downloading it on first use. Raises MetadataError on failure."""
+        return self._get(manhwa, manhwa.cover_url, "", "cover")
+
+    def cached_banner(self, manhwa: Manhwa) -> Path | None:
+        """Local path of an already-downloaded banner, or None. Never downloads."""
+        return self._cached(manhwa, manhwa.banner_url, "-banner")
+
+    def get_banner(self, manhwa: Manhwa) -> Path:
+        """Local path of the banner, downloading it on first use. Raises MetadataError on
+        failure. Only about half of manhwa have a banner at all — callers check banner_url."""
+        return self._get(manhwa, manhwa.banner_url, "-banner", "banner")
+
+    def cached_character(self, manhwa: Manhwa) -> Path | None:
+        """Local path of an already-downloaded character image, or None. Never downloads."""
+        return self._cached(manhwa, manhwa.character_url, "-char")
+
+    def get_character(self, manhwa: Manhwa) -> Path:
+        """Local path of the character image, downloading it on first use. Raises MetadataError
+        on failure. Callers check character_url first."""
+        return self._get(manhwa, manhwa.character_url, "-char", "character")

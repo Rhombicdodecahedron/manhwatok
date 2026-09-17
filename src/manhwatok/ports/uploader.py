@@ -12,19 +12,30 @@ class UploadReport:
     """What the browser managed to do; `problems` are steps the user has to finish by hand."""
 
     attached: bool
-    captioned: bool
+    captioned: bool  # the description
     problems: list[str]
     debug_dir: Path | None = None
+    titled: bool = False
+    sound: str | None = None  # the sound TikTok found and used, as it lists it
 
 
 class Uploader(Protocol):
     def login(self, handle: str) -> None:
-        """Open the account's browser profile on the login page; return once the user closed
-        the window."""
+        """Open the account's browser profile on the login page; return once the user quit
+        the browser."""
         ...
 
-    def upload(self, handle: str, slides: list[Path], caption: str, debug: bool) -> UploadReport:
-        """Open the upload page as `handle`, attach `slides` in order and type `caption`, then
+    def upload(
+        self,
+        handle: str,
+        slides: list[Path],
+        title: str,
+        description: str,
+        sound: str | None,
+        debug: bool,
+    ) -> UploadReport:
+        """Open the upload page as `handle`, attach `slides` in order, type `title` and
+        `description`, and use the first sound a search for `sound` finds (none if None), then
         leave the window open for the user to review and post. Raises NotLoggedIn,
         UploadUnavailable, or ManhwatokError if the browser is gone before the slides are
         attached; anything not found later is reported in `problems`."""

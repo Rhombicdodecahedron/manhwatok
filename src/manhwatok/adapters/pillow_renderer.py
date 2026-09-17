@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import NamedTuple
 
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps, UnidentifiedImageError
 
 from manhwatok.adapters.layout import (
     BAR_H,
+    Box,
     PILL_BORDER,
     PILL_PAD_X,
     SLIDE_H,
@@ -22,12 +24,30 @@ from manhwatok.adapters.layout import (
 from manhwatok.domain.color import hex_to_rgb, readable_accent
 from manhwatok.domain.errors import StorageError
 from manhwatok.domain.labels import chapter_label
+from manhwatok.ports.posts import SlideArt
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import ListPost
 
 WHITE = (255, 255, 255)
 DARK = (11, 11, 16)
 DIM = (255, 255, 255, 77)
 SIZE = (SLIDE_W, SLIDE_H)
+# A cover behind its own card is blurred hard so the card reads; a banner is real art meant to
+# be seen, so it keeps more detail and brightness.
+COVER_BLUR, COVER_DIM = 36, 0.42
+BANNER_BLUR, BANNER_DIM = 18, 0.50
+# Where a panel crop takes its band from. A banner is already composed wide, so it crops from
+# the middle; an upright cover's subject sits high, so its band is lifted off the centre.
+BANNER_CROP, COVER_CROP = (0.5, 0.5), (0.5, 0.28)
+
+
+class _Art(NamedTuple):
+    """One slide's images, opened. Only the ones the post's style needs are loaded."""
+
+    cover: Image.Image | None
+    banner: Image.Image | None
+    character: Image.Image | None
+    custom: Image.Image | None
 GRADIENT_H = 920
 
 
@@ -49,6 +69,25 @@ def _blurred(
     small = small.filter(ImageFilter.GaussianBlur(radius / 4))
     small = ImageEnhance.Brightness(small).enhance(brightness)
     return small.resize(size, Image.Resampling.BICUBIC)
+
+
+def _filled(src: Image.Image, area: Box, centering: tuple[float, float]) -> Image.Image:
+    """`src` cropped to fill `area` exactly, as a rounded card."""
+    return _rounded(
+        ImageOps.fit(src, (area.w, area.h), Image.Resampling.LANCZOS, centering=centering), 24
+    )
+
+
+def _backdrop(
+    banner: Image.Image | None, cover: Image.Image | None, accent: str
+) -> Image.Image:
+    """What fills a manhwa slide behind the card: the banner when the post asks for one and the
+    title has it, else the blurred cover, else a plain accent gradient."""
+    if banner:
+        return _blurred(banner, SIZE, BANNER_BLUR, BANNER_DIM)
+    if cover:
+        return _blurred(cover, SIZE, COVER_BLUR, COVER_DIM)
+    return _accent_gradient(SIZE, accent)
 
 
 def _accent_gradient(size: tuple[int, int], accent: str) -> Image.Image:
@@ -142,7 +181,7 @@ def _draw_pill(draw: ImageDraw.ImageDraw, pill: Pill, accent, filled: bool) -> N
 
 
 class PillowRenderer:
-    def render(self, post: ListPost, covers: dict[int, Path | None], out_dir: Path) -> list[Path]:
+    def render(self, post: ListPost, art: dict[int, SlideArt], out_dir: Path) -> list[Path]:
         """Write 01.png (cover) … NN.png (end slide) into out_dir, replacing old slides."""
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -150,10 +189,20 @@ class PillowRenderer:
                 old.unlink()
         except OSError as e:
             raise StorageError(f"could not prepare slide folder {out_dir}: {e}") from e
-        images = {m_id: _load(path) for m_id, path in covers.items()}
-        slides = [self.cover_slide(post, images)]
-        slides += [self.item_slide(post, i, images) for i in range(len(post.items))]
-        slides.append(self.end_slide(post, images))
+        wants_banner = post.art in (ArtStyle.BACKGROUND, ArtStyle.PANEL)
+        loaded = {
+            m_id: _Art(
+                _load(one.cover),
+                _load(one.banner) if wants_banner else None,
+                _load(one.character) if post.art is ArtStyle.CHARACTER else None,
+                _load(one.custom),
+            )
+            for m_id, one in art.items()
+        }
+        covers = {m_id: one.cover for m_id, one in loaded.items()}
+        slides = [self.cover_slide(post, covers)]
+        slides += [self.item_slide(post, i, loaded) for i in range(len(post.items))]
+        slides.append(self.end_slide(post, covers))
         paths = []
         for n, slide in enumerate(slides, 1):
             path = out_dir / f"{n:02d}.png"
@@ -164,22 +213,30 @@ class PillowRenderer:
             paths.append(path)
         return paths
 
-    def item_slide(
-        self, post: ListPost, index: int, images: dict[int, Image.Image | None]
-    ) -> Image.Image:
+    def item_slide(self, post: ListPost, index: int, loaded: dict[int, _Art]) -> Image.Image:
         item = post.items[index]
         m = item.manhwa
-        accent = hex_to_rgb(readable_accent(m.cover_color, post.accent))
-        img = images.get(m.anilist_id)
-        canvas = (
-            _blurred(img, SIZE, 36, 0.42)
-            if img
-            else _accent_gradient(SIZE, readable_accent(m.cover_color, post.accent))
-        ).convert("RGBA")
-        layout = layout_item(index + 1, m.title, chapter_label(m), item.hook)
-        src = img or _accent_gradient((460, 650), readable_accent(m.cover_color, post.accent))
-        box = fit_inside(src.width, src.height, layout.cover_area)
-        card = _rounded(src.resize((box.w, box.h), Image.Resampling.LANCZOS), 24)
+        accent_hex = readable_accent(m.cover_color, post.accent)
+        accent = hex_to_rgb(accent_hex)
+        art = loaded.get(m.anilist_id) or _Art(None, None, None, None)
+        img, banner = art.cover, art.banner
+        canvas = _backdrop(banner, img, accent_hex).convert("RGBA")
+        layout = layout_item(index + 1, m.title, chapter_label(m), item.hook, art=post.art)
+        area = layout.cover_area
+        if post.art is ArtStyle.PANEL:
+            # The banner is the point of this style; the cover stands in, cropped to the same
+            # shape, so a title without a banner doesn't break the post's rhythm. Art the user
+            # picked by hand beats both, and is framed like a cover since it could be anything.
+            src = art.custom or banner or img or _accent_gradient((area.w, area.h), accent_hex)
+            crop = BANNER_CROP if banner and not art.custom else COVER_CROP
+            box, card = area, _filled(src, area, crop)
+        else:
+            # Hand-picked art first, then the character portrait when this style has one, then
+            # the cover. All are fitted, never cropped: the art is already framed tightly on its
+            # subject, and the bigger box is there to show more of it, not less.
+            src = art.custom or art.character or img or _accent_gradient((460, 650), accent_hex)
+            box = fit_inside(src.width, src.height, area)
+            card = _rounded(src.resize((box.w, box.h), Image.Resampling.LANCZOS), 24)
         _paste_with_shadow(canvas, card, box.x, box.y)
         _bottom_gradient(canvas)
         draw = ImageDraw.Draw(canvas)

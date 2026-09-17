@@ -3,15 +3,17 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from manhwatok.domain.caption import build_caption
+from manhwatok.domain.caption import build_caption, upload_description, upload_title
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
     DEFAULT_CTA_TITLE,
     DEFAULT_HASHTAGS,
     ListPost,
+    PostItem,
 )
-from tests.unit.fakes import post
+from tests.unit.fakes import manhwa, post
 
 
 def test_slide_count_is_items_plus_cover_and_end():
@@ -27,6 +29,7 @@ def test_defaults():
     p = post()
     assert p.hashtags == DEFAULT_HASHTAGS
     assert p.accent == DEFAULT_ACCENT
+    assert p.art is ArtStyle.NONE
 
 
 def test_created_at_must_be_timezone_aware():
@@ -43,6 +46,20 @@ def test_caption_lists_picks_and_hashtags_with_plain_title():
     assert build_caption(post(hashtags="#manhwa #webtoon")) == (
         "Manhwa where the MC regresses\n\n1. Title 1\n2. Title 2\n3. Title 3\n\n#manhwa #webtoon"
     )
+
+
+def test_tiktok_title_is_the_plain_title_then_the_emojis():
+    p = post(hashtags="#manhwa", emojis="🔥⏳")
+    assert upload_title(p) == "Manhwa where the MC regresses 🔥⏳"
+    assert upload_description(p) == "1. Title 1\n2. Title 2\n3. Title 3\n\n#manhwa"
+    assert build_caption(p).startswith("Manhwa where the MC regresses 🔥⏳\n\n1. Title 1\n")
+    assert upload_title(post()) == "Manhwa where the MC regresses"
+
+
+def test_a_long_tiktok_title_loses_words_not_emojis():
+    title = upload_title(post(title="word " * 30, emojis="🔥"))
+    assert title == "word " * 17 + "🔥"
+    assert len(title) <= 90
 
 
 # A post.json exactly as Phase 2 wrote it: no account, exported_at or CTA fields.
@@ -86,6 +103,8 @@ def test_phase2_post_json_loads_with_new_defaults():
     assert p.cta_title == DEFAULT_CTA_TITLE == "Which one have you *read?*"
     assert p.cta_follow == DEFAULT_CTA_FOLLOW == "Follow for part 2"
     assert p.sent_at is None
+    assert p.art is ArtStyle.NONE  # an older post keeps the look it was built with
+    assert p.items[0].custom_art == ""  # no hand-picked art until you set one
 
 
 def test_exported_at_must_be_timezone_aware():
@@ -98,13 +117,11 @@ def test_sent_at_must_be_timezone_aware():
         post(sent_at=datetime(2026, 9, 15, 12, 0))
 
 
-def test_song_defaults_to_the_accounts_and_is_trimmed():
-    assert post().song is None
-    assert post(song="  Die For You  ").song == "Die For You"
-    assert post(song=" ").song == ""
+def test_post_item_carries_hand_picked_art():
+    item = PostItem(manhwa=manhwa(), hook="h", custom_art="art-11.png")
+    assert item.custom_art == "art-11.png"
 
 
-def test_post_json_without_a_song_loads():
-    data = post().model_dump(mode="json")
-    del data["song"]
-    assert ListPost.model_validate(data).song is None
+def test_a_post_saved_with_a_song_note_still_loads():
+    data = post().model_dump(mode="json") | {"song": "Die For You"}  # the song note was dropped
+    assert ListPost.model_validate(data) == post()

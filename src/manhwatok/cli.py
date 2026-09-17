@@ -8,7 +8,7 @@ import typer
 
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import SearchQuery, Sort
+from manhwatok.domain.models import ArtStyle, SearchQuery, Sort
 
 app = typer.Typer(
     help="Themed manhwa recommendation slideshows for TikTok.", no_args_is_help=True
@@ -48,6 +48,14 @@ CHAPTERS = typer.Option(
 )
 ACCOUNT = typer.Option(
     None, "--account", "-a", help="Use this account's filters and skip its recent titles."
+)
+ART = typer.Option(
+    None,
+    "--art",
+    help="Manhwa slide art: 'none' (the cover on its own blur), 'background' (the cover on "
+    "AniList's banner art), 'panel' (a wide crop of the banner in place of the cover) or "
+    "'character' (the title's main character in place of the cover). Default: the account's, "
+    "else none.",
 )
 
 
@@ -194,12 +202,13 @@ def build(
     hashtags: Optional[str] = typer.Option(
         None, help="Caption hashtags (default: the account's, else the standard set)."
     ),
+    emojis: Optional[str] = typer.Option(
+        None, help="Emojis after the title on TikTok (default: the account's, else none)."
+    ),
     accent: Optional[str] = typer.Option(
         None, help="Accent colour for cover and end slides (default: the account's, else #43c9e4)."
     ),
-    song: Optional[str] = typer.Option(
-        None, help="Song to add when posting (default: the account's song)."
-    ),
+    art: Optional[ArtStyle] = ART,
 ) -> None:
     """Build a post: pick titles and hooks in your editor, then render the slides."""
     from manhwatok.app import container
@@ -225,7 +234,8 @@ def build(
                 accent,
                 tools,
                 now=now,
-                song=song,
+                art=art,
+                emojis=emojis,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -238,13 +248,19 @@ def build(
 
 
 @app.command()
-def edit(post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`.")) -> None:
+def edit(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    art: Optional[ArtStyle] = ART,
+) -> None:
     """Reopen a post's draft in your editor and re-render it."""
     from manhwatok.app.edit_post import edit_post
+    from manhwatok.app.render_post import restyle
 
     settings = Settings()
     try:
         tools = _tools(settings)
+        if art is not None:
+            restyle(post_id, art, tools)
         slides = edit_post(post_id, tools)
     except ManhwatokError as e:
         _fail(e)
@@ -255,13 +271,18 @@ def edit(post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`
 
 
 @app.command()
-def render(post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`.")) -> None:
+def render(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    art: Optional[ArtStyle] = ART,
+) -> None:
     """Re-render a post's slides and caption."""
-    from manhwatok.app.render_post import render_post
+    from manhwatok.app.render_post import render_post, restyle
 
     settings = Settings()
     try:
         tools = _tools(settings)
+        if art is not None:
+            restyle(post_id, art, tools)
         slides = render_post(post_id, tools)
     except ManhwatokError as e:
         _fail(e)
@@ -303,18 +324,14 @@ def posts(
 ) -> None:
     """List saved posts, newest first; `sent` marks posts confirmed after `upload`."""
     from manhwatok.app import container
-    from manhwatok.app.songs import song_for
     from manhwatok.domain.account import normalize_handle
     from manhwatok.domain.text import plain_title
 
-    settings = Settings()
     try:
-        saved = container.build_posts(settings).list()
+        saved = container.build_posts(Settings()).list()
         if account:
             handle = normalize_handle(account)
             saved = [p for p in saved if p.account == handle]
-        with container.build_store(settings) as store:
-            songs = {p.id: song_for(p, store.accounts) for p in saved}
     except ManhwatokError as e:
         _fail(e)
     if not saved:
@@ -324,21 +341,57 @@ def posts(
     who = {p.id: f"@{p.account}" if p.account else "-" for p in saved}
     width = max(len(w) for w in who.values())
     any_sent = any(p.sent_at for p in saved)
-    any_song = any(songs.values())
     for post in saved:
         when = post.created_at.astimezone().strftime("%Y-%m-%d %H:%M")
         size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
         sent = f"{'sent' if post.sent_at else '':<4}  " if any_sent else ""
-        song = f"{_clip(songs[post.id] or '-', SONG_WIDTH):<{SONG_WIDTH}}  " if any_song else ""
         title = plain_title(post.title) or "(untitled)"
-        typer.echo(f"{post.id}  {when}  {who[post.id]:<{width}}  {size:>9}  {sent}{song}{title}")
+        typer.echo(f"{post.id}  {when}  {who[post.id]:<{width}}  {size:>9}  {sent}{title}")
 
 
-SONG_WIDTH = 24
+@app.command()
+def art(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    anilist_id: int = typer.Argument(..., help="The title's AniList id, as shown in the draft."),
+    picture: Optional[str] = typer.Argument(
+        None, help="Image file or URL to use for that title (jpg, png, webp or gif)."
+    ),
+    clear: bool = typer.Option(
+        False, "--clear", help="Drop this title's picked art and go back to its style's own."
+    ),
+) -> None:
+    """Use a picture of your own for one title, instead of the art its style would fetch."""
+    import tempfile
 
+    from manhwatok.adapters.picture_download import download_picture, looks_like_url
+    from manhwatok.app.item_art import clear_item_art, set_item_art
+    from manhwatok.app.render_post import render_post
 
-def _clip(text: str, width: int) -> str:
-    return text if len(text) <= width else text[: width - 1] + "…"
+    if clear and picture is not None:
+        _fail(ManhwatokError("give a file or --clear, not both"))
+    if not clear and picture is None:
+        _fail(ManhwatokError("give a picture to use, or --clear to drop the one it has"))
+
+    settings = Settings()
+    try:
+        tools = _tools(settings)
+        if clear:
+            clear_item_art(post_id, anilist_id, tools)
+            typer.echo(f"dropped the picked art for {anilist_id}")
+        elif looks_like_url(picture):
+            # Kept only until it is copied into the post's folder.
+            with tempfile.TemporaryDirectory() as scratch:
+                typer.echo(f"downloading {picture}")
+                got = download_picture(picture, Path(scratch))
+                kept = set_item_art(post_id, anilist_id, got, tools)
+            typer.echo(f"using {kept.name} for {anilist_id}")
+        else:
+            kept = set_item_art(post_id, anilist_id, Path(picture).expanduser(), tools)
+            typer.echo(f"using {kept.name} for {anilist_id}")
+        slides = render_post(post_id, tools)
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo(f"post {post_id} · {len(slides)} slides → {tools.posts.folder(post_id)}")
 
 
 @app.command()
@@ -368,36 +421,6 @@ def delete(
 
 
 @app.command()
-def song(
-    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
-    text: Optional[str] = typer.Argument(None, help="New song for this post; omit to show it."),
-    clear: bool = typer.Option(False, "--clear", help="Use the account's song again."),
-) -> None:
-    """Show or set the song to add when posting. Posts use their account's song unless they
-    set their own."""
-    from manhwatok.app import container
-    from manhwatok.app.songs import set_post_song, song_for
-
-    settings = Settings()
-    try:
-        if text is not None and clear:
-            raise ManhwatokError("give a song or --clear, not both")
-        posts = container.build_posts(settings)
-        post = posts.get(post_id)
-        if text is not None or clear:
-            post = set_post_song(post_id, None if clear else text, posts)
-        with container.build_store(settings) as store:
-            current = song_for(post, store.accounts)
-    except ManhwatokError as e:
-        _fail(e)
-    if not current:
-        typer.echo(f"post {post_id}: no song")
-        return
-    source = "its own" if post.song is not None else "the account's"
-    typer.echo(f"post {post_id} song: {current} ({source})")
-
-
-@app.command()
 def tui() -> None:
     """Open the terminal app: posts with slide previews, building, accounts and themes."""
     try:
@@ -422,6 +445,26 @@ def _ask(question: str) -> bool:
     except typer.Abort:
         typer.echo()
         return False
+
+
+def _choose_sound(sounds: list[str]) -> Optional[str]:
+    """Numbered list of the account's sounds; Enter takes the first, 0 means none. No answer
+    at all (Ctrl-D, Ctrl-C) is no sound."""
+    typer.echo("Sound for this post:")
+    for n, sound in enumerate(sounds, 1):
+        typer.echo(f"  {n}. {sound}")
+    typer.echo("  0. no sound")
+    while True:
+        try:
+            answer = typer.prompt("Pick", default=1, type=int)
+        except typer.Abort:
+            typer.echo()
+            return None
+        if answer == 0:
+            return None
+        if 1 <= answer <= len(sounds):
+            return sounds[answer - 1]
+        typer.echo(f"pick 0–{len(sounds)}")
 
 
 def _ctrl_c(message: str) -> NoReturn:
@@ -457,9 +500,17 @@ def upload(
     debug: bool = typer.Option(
         False, "--debug", help="Save a screenshot and the page's HTML if something isn't found."
     ),
+    sound: Optional[str] = typer.Option(
+        None,
+        "--sound",
+        help="Search TikTok's sounds for this and use the first one found (default: ask which "
+        "of the account's sounds to use).",
+    ),
+    no_sound: bool = typer.Option(False, "--no-sound", help="Add no sound, don't ask."),
 ) -> None:
-    """Open TikTok's upload page as the post's account with the slides and caption filled in.
-    You check it and click Post yourself, then answer y here to record the post as sent."""
+    """Open TikTok's upload page as the post's account with the slides, title, description and
+    sound filled in. You check it and click Post yourself, then answer y here to record the post
+    as sent."""
     from manhwatok.app import container
     from manhwatok.app.upload_post import upload_post
 
@@ -476,6 +527,8 @@ def upload(
                 typer.echo,
                 now=datetime.now(timezone.utc),
                 debug=debug,
+                sound="" if no_sound else sound,
+                choose_sound=_choose_sound,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -510,14 +563,23 @@ BLOCK_GENRES = typer.Option(
 )
 BLOCK_TAGS = typer.Option(None, "--block-tags", help="Tags never to suggest, comma-separated.")
 ACCOUNT_HASHTAGS = typer.Option(None, "--hashtags", help="Caption hashtags for this account.")
+ACCOUNT_EMOJIS = typer.Option(
+    None, "--emojis", help='Emojis after the title on TikTok, e.g. "🔥📚". "" clears.'
+)
+ACCOUNT_SOUNDS = typer.Option(
+    None,
+    "--sound",
+    help="A TikTok sound search, e.g. \"SOLO LEVELING RaijinLofi\"; repeat for several. "
+    "Replaces the account's list; --sound \"\" clears it. `upload` asks which one to use.",
+)
 ACCOUNT_ACCENT = typer.Option(None, "--accent", help="Accent colour, e.g. #43c9e4.")
 CTA_TITLE = typer.Option(None, "--cta-title", help="End-slide title; *word* = accent colour.")
 CTA_FOLLOW = typer.Option(None, "--cta-follow", help="End-slide follow line.")
+ACCOUNT_ART = typer.Option(
+    None, "--art", help="Default manhwa slide art for this account's new posts."
+)
 REPEAT_DAYS = typer.Option(
     None, "--repeat-days", min=1, max=3650, help="Don't suggest titles exported this recently."
-)
-ACCOUNT_SONG = typer.Option(
-    None, "--song", help='Song to add when posting (name or TikTok sound link). "" clears.'
 )
 
 
@@ -530,7 +592,9 @@ def _account_fields(
     cta_title: Optional[str],
     cta_follow: Optional[str],
     repeat_days: Optional[int],
-    song: Optional[str],
+    art: Optional[ArtStyle],
+    emojis: Optional[str] = None,
+    sounds: Optional[list[str]] = None,
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -538,13 +602,16 @@ def _account_fields(
     fields: dict = {k: split_names(v) for k, v in lists.items() if v is not None}
     scalars = {
         "hashtags": hashtags,
+        "emojis": emojis,
         "accent": accent,
         "cta_title": cta_title,
         "cta_follow": cta_follow,
         "repeat_days": repeat_days,
-        "song": song,
+        "art": art,
     }
     fields.update({k: v for k, v in scalars.items() if v is not None})
+    if sounds:  # typer gives [] when --sound wasn't used
+        fields["sounds"] = sounds
     return fields
 
 
@@ -555,11 +622,13 @@ def _print_account(a) -> None:
         ("block genres", ", ".join(a.block_genres) or "-"),
         ("block tags", ", ".join(a.block_tags) or "-"),
         ("hashtags", a.hashtags or "-"),
+        ("emojis", a.emojis or "-"),
+        ("sounds", " | ".join(a.sounds) or "-"),
         ("accent", a.accent),
         ("cta title", a.cta_title),
         ("cta follow", a.cta_follow),
         ("repeat days", str(a.repeat_days)),
-        ("song", a.song or "-"),
+        ("art", a.art.value),
     ]:
         typer.echo(f"  {label:<13} {value}")
 
@@ -586,25 +655,20 @@ def account_add(
     block_genres: Optional[str] = BLOCK_GENRES,
     block_tags: Optional[str] = BLOCK_TAGS,
     hashtags: Optional[str] = ACCOUNT_HASHTAGS,
+    emojis: Optional[str] = ACCOUNT_EMOJIS,
+    sound: Optional[list[str]] = ACCOUNT_SOUNDS,
     accent: Optional[str] = ACCOUNT_ACCENT,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
-    song: Optional[str] = ACCOUNT_SONG,
+    art: Optional[ArtStyle] = ACCOUNT_ART,
 ) -> None:
     """Add an account; unset options get the defaults."""
     from manhwatok.app.accounts import add_account
 
     fields = _account_fields(
-        genres,
-        block_genres,
-        block_tags,
-        hashtags,
-        accent,
-        cta_title,
-        cta_follow,
-        repeat_days,
-        song,
+        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
+        emojis, sound,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -616,25 +680,20 @@ def account_set(
     block_genres: Optional[str] = BLOCK_GENRES,
     block_tags: Optional[str] = BLOCK_TAGS,
     hashtags: Optional[str] = ACCOUNT_HASHTAGS,
+    emojis: Optional[str] = ACCOUNT_EMOJIS,
+    sound: Optional[list[str]] = ACCOUNT_SOUNDS,
     accent: Optional[str] = ACCOUNT_ACCENT,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
-    song: Optional[str] = ACCOUNT_SONG,
+    art: Optional[ArtStyle] = ACCOUNT_ART,
 ) -> None:
     """Change an account; only the given options change."""
     from manhwatok.app.accounts import update_account
 
     fields = _account_fields(
-        genres,
-        block_genres,
-        block_tags,
-        hashtags,
-        accent,
-        cta_title,
-        cta_follow,
-        repeat_days,
-        song,
+        genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
+        emojis, sound,
     )
     _save_account(update_account, "updated", handle, fields)
 

@@ -14,7 +14,7 @@ from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import Manhwa, SearchQuery, Sort, TagInfo
+from manhwatok.domain.models import ArtStyle, Manhwa, SearchQuery, Sort, TagInfo
 from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS
 from manhwatok.domain.text import split_names
 from manhwatok.tui.screens.picks import PicksScreen
@@ -101,9 +101,12 @@ class BuildPane(VerticalScroll):
             with Vertical(classes="field narrow"):
                 yield Label("Accent")
                 yield Input(id="accent")
-            with Vertical(classes="field"):
-                yield Label("Song")
-                yield Input(id="song")
+            with Vertical(classes="field narrow"):
+                yield Label("Emojis")
+                yield Input(id="emojis")
+            with Vertical(classes="field narrow"):
+                yield Label("Art")
+                yield Select([(a.value, a) for a in ArtStyle], prompt="none", id="art")
         yield Button("Search", id="search", variant="primary")
         yield Static("", id="status", markup=False)
         yield Label("Find a tag (enter adds it to Tags)")
@@ -157,8 +160,8 @@ class BuildPane(VerticalScroll):
         """Blank style fields use the account's values (or the standard ones): show them."""
         self._input("hashtags").placeholder = account.hashtags if account else DEFAULT_HASHTAGS
         self._input("accent").placeholder = account.accent if account else DEFAULT_ACCENT
-        song = account.song if account else ""
-        self._input("song").placeholder = f"{song} (the account's)" if song else "no song"
+        self._input("emojis").placeholder = (account.emojis if account else "") or "none"
+        self.query_one("#art", Select).prompt = (account.art if account else ArtStyle.NONE).value
 
     def _theme_changed(self, name: str | None) -> None:
         title = self._input("title")
@@ -215,7 +218,8 @@ class BuildPane(VerticalScroll):
             "title": self._input("title").value.strip(),
             "hashtags": self._input("hashtags").value.strip() or None,
             "accent": accent,
-            "song": self._input("song").value.strip() or None,
+            "emojis": self._input("emojis").value.strip() or None,
+            "art": self.query_one("#art", Select).selection,
         }
         repeats = self.query_one("#repeats", Checkbox).value
         chapters = self.query_one("#chapters", Checkbox).value
@@ -282,9 +286,10 @@ class BuildPane(VerticalScroll):
                     account,
                     style["hashtags"],
                     style["accent"],
-                    style["song"],
                     tools,
                     self.app.clock(),
+                    art=style["art"],
+                    emojis=style["emojis"],
                 )
 
             if self.app.start_render(save, self._saved):

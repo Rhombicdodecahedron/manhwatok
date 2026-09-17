@@ -7,10 +7,11 @@ import threading
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.screen import ModalScreen
 from textual.widgets import Footer, Header, TabbedContent, TabPane
 from textual.worker import Worker, WorkerState
 
@@ -22,7 +23,7 @@ from manhwatok.tui.screens.accounts import AccountsPane
 from manhwatok.tui.screens.build import BuildPane
 from manhwatok.tui.screens.posts import PostsPane
 from manhwatok.tui.screens.themes import ThemesPane
-from manhwatok.tui.widgets.dialogs import ConfirmModal
+from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal
 
 RENDER, BROWSER = "render", "browser"  # worker groups the app waits for before quitting
 
@@ -64,7 +65,8 @@ class ManhwatokApp(App[None]):
         self.opener = opener
         self.clock = clock
         self._quitting = False
-        self._open_question: ConfirmModal | None = None
+        # The modal a worker is waiting on, and the answer it gets if the app quits.
+        self._open_question: tuple[ModalScreen, Any] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -167,27 +169,37 @@ class ManhwatokApp(App[None]):
     def ask_from_thread(self, question: str) -> bool:
         """Ask a yes/no question from a worker thread and wait for the answer. Quitting the
         app answers no."""
+        return bool(self._wait_for_answer(lambda: ConfirmModal(question), False))
+
+    def choose_from_thread(self, prompt: str, choices: list[tuple[str, str]]) -> str | None:
+        """Ask the user to pick one of `choices` (label, value) from a worker thread and wait
+        for the value. Escape and quitting the app answer None."""
+        return self._wait_for_answer(lambda: ChoiceModal(prompt, choices), None)
+
+    def _wait_for_answer(self, make_modal: Callable[[], ModalScreen], on_quit: Any) -> Any:
+        """Show `make_modal()` on the app thread and block the calling worker until it is
+        dismissed; `on_quit` is the answer when the app quits meanwhile."""
         answered = threading.Event()
-        answer = [False]
+        answer = [on_quit]
 
         def show() -> None:
             if self._quitting:
                 answered.set()
                 return
-            modal = ConfirmModal(question)
+            modal = make_modal()
 
-            def done(yes: bool | None) -> None:
+            def done(value: Any) -> None:
                 self._open_question = None
-                answer[0] = bool(yes)
+                answer[0] = value
                 answered.set()
 
-            self._open_question = modal
+            self._open_question = (modal, on_quit)
             self.push_screen(modal, done)
 
         self.call_from_thread(show)
         while not answered.wait(0.2):
             if not self.is_running:
-                return False
+                return on_quit
         return answer[0]
 
     # --- quitting ------------------------------------------------------------------------
@@ -200,14 +212,14 @@ class ManhwatokApp(App[None]):
             self.exit()
             return
         self._quitting = True
-        question = self._open_question
-        if question is not None:
+        if self._open_question is not None:
+            question, on_quit = self._open_question
             # Screen.dismiss() pops the TOP screen, so bring the question there first — a
             # no-op when it already is. (is_current can't tell us this: our dialogs dim, not
             # hide, the screen below, so a covered screen still counts as "current"/visible.)
             while self.screen is not question:
                 self.pop_screen()
-            question.dismiss(False)
+            question.dismiss(on_quit)
         self.notify("closing — waiting for the browser or the render to finish…")
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:

@@ -11,15 +11,14 @@ from manhwatok.app.delete_post import delete_post
 from manhwatok.app.edit_post import update_picks
 from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import render_post, rendered_files
-from manhwatok.app.songs import set_post_song, song_for
 from manhwatok.app.upload_post import upload_post
-from manhwatok.domain.errors import ManhwatokError, NotRendered
+from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 from manhwatok.tui.screens.browser import BrowserScreen
 from manhwatok.tui.screens.picks import PicksScreen
 from manhwatok.tui.text import clip, post_details, post_status
-from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal, TextModal
+from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal
 from manhwatok.tui.widgets.slide_preview import SlidePreview
 
 ALL = "*"
@@ -51,7 +50,6 @@ class PostsPane(Vertical):
         Binding("x", "export", "Export"),
         Binding("u", "upload", "Upload"),
         Binding("U", "upload(True)", "Upload (debug)", show=False),
-        Binding("s", "song", "Song"),
         Binding("d", "delete", "Delete"),
         Binding("f", "filter", "Filter"),
     ]
@@ -70,7 +68,7 @@ class PostsPane(Vertical):
 
     def on_mount(self) -> None:
         table = self.query_one(PostTable)
-        table.add_columns("id", "account", "title", "status", "song", "slides")
+        table.add_columns("id", "account", "title", "status", "slides")
         self.reload()
 
     def focus_main(self) -> None:
@@ -87,10 +85,9 @@ class PostsPane(Vertical):
             posts = ctx.tools.posts.list()
             if self.account_filter:
                 posts = [p for p in posts if p.account == self.account_filter]
-            songs = {p.id: song_for(p, ctx.store.accounts) for p in posts}
         except ManhwatokError as e:
             self.app.fail(e)
-            posts, songs = [], {}
+            posts = []
         self.posts = {p.id: p for p in posts}
         table = self.query_one(PostTable)
         table.clear()
@@ -100,7 +97,6 @@ class PostsPane(Vertical):
                 f"@{p.account}" if p.account else "-",
                 clip(plain_title(p.title) or "(untitled)", 40),
                 post_status(p, ctx.tools.posts),
-                clip(songs[p.id], 24) or "–",
                 "-" if p.is_unfinished else str(p.slide_count),
                 key=p.id,
             )
@@ -139,12 +135,19 @@ class PostsPane(Vertical):
             slides = []
             note = "no picks — press e" if post.is_unfinished else "not rendered — press r"
         preview.show(slides, note)
+        details.update(post_details(post, ctx.tools.posts, self._sounds(post)))
+
+    def _sounds(self, post: ListPost) -> list[str]:
+        """The sounds of the post's account; none for a post without one (or a removed one)."""
+        if not post.account:
+            return []
         try:
-            song = song_for(post, ctx.store.accounts)
+            return self.app.ctx.store.accounts.get(post.account).sounds
+        except AccountNotFound:
+            return []
         except ManhwatokError as e:
             self.app.fail(e)
-            song = ""
-        details.update(post_details(post, ctx.tools.posts, song))
+            return []
 
     def action_slide(self, delta: int) -> None:
         self.query_one(SlidePreview).step(delta)
@@ -248,6 +251,10 @@ class PostsPane(Vertical):
             return
         app, pid = self.app, post.id
 
+        def choose_sound(sounds: list[str]) -> str | None:
+            choices = [(sound, sound) for sound in sounds] + [("no sound", "")]
+            return app.choose_from_thread(f"Sound for @{post.account}", choices) or None
+
         def job(progress) -> str:
             ctx = app.ctx
             posted = upload_post(
@@ -260,37 +267,12 @@ class PostsPane(Vertical):
                 progress,
                 now=app.clock(),
                 debug=debug,
+                choose_sound=choose_sound,
             )
             return f"recorded post {pid} as sent" if posted else "nothing recorded"
 
         heading = f"Upload post {pid}" + (" (debug)" if debug else "")
         app.push_screen(BrowserScreen(heading, job), lambda _: self.reload(select=pid))
-
-    def action_song(self) -> None:
-        post = self._selected()
-        if post is None:
-            return
-        ctx, pid = self.app.ctx, post.id
-        try:
-            account_song = song_for(post.model_copy(update={"song": None}), ctx.store.accounts)
-        except ManhwatokError as e:
-            self.app.fail(e)
-            return
-        default = f": {account_song}" if account_song else ", none"
-        prefix = "this post has no song of its own — " if post.song == "" else ""
-        prompt = f"{prefix}Song for post {pid} — leave empty for the account's{default}"
-
-        def entered(value: str | None) -> None:
-            if value is None or value == (post.song or ""):
-                return
-            try:
-                set_post_song(pid, value or None, ctx.tools.posts)
-            except ManhwatokError as e:
-                self.app.fail(e)
-                return
-            self.reload(select=pid)
-
-        self.app.push_screen(TextModal(prompt, post.song or "", account_song), entered)
 
     def action_delete(self) -> None:
         post = self._selected()

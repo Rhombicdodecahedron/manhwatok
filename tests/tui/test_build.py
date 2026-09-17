@@ -5,7 +5,7 @@ pytest.importorskip("textual")
 
 from manhwatok.domain.account import Account  # noqa: E402
 from manhwatok.domain.errors import ManhwatokError  # noqa: E402
-from manhwatok.domain.models import SearchQuery, Sort, TagInfo  # noqa: E402
+from manhwatok.domain.models import ArtStyle, SearchQuery, Sort, TagInfo  # noqa: E402
 from manhwatok.domain.theme import Theme  # noqa: E402
 from manhwatok.tui.screens.build import BuildPane, matching_tags  # noqa: E402
 from manhwatok.tui.screens.picks import PicksScreen  # noqa: E402
@@ -28,7 +28,7 @@ REVENGE = Theme(name="revenge", tags=["Revenge"], title="MC gets *revenge*", sor
 def _ctx(tmp_path, results=CANDIDATES):
     meta = FakeMetadata(results, tags=TAGS)
     ctx = make_ctx(tmp_path, metadata=meta)
-    ctx.store.accounts.add(Account(handle="reads", hashtags="#reads", song="Acct Song"))
+    ctx.store.accounts.add(Account(handle="reads", hashtags="#reads", emojis="📚", art=ArtStyle.PANEL))
     ctx.store.themes.add(REVENGE)
     return ctx, meta
 
@@ -54,7 +54,8 @@ def test_build_from_a_theme_for_an_account(tmp_path):
 
     async def scenario(app, pilot):
         pane = await _open_build(app, pilot)
-        await _set(pilot, pane, account="reads", theme="revenge", song="Own", limit="5")
+        await _set(pilot, pane, account="reads", theme="revenge", limit="5")
+        await _set(pilot, pane, emojis=" 🔥 ", art=ArtStyle.BACKGROUND)
         assert _field(pane, "title").value == "MC gets *revenge*"
         pane.search()
         await wait_for(pilot, lambda: isinstance(app.screen, PicksScreen))
@@ -68,7 +69,8 @@ def test_build_from_a_theme_for_an_account(tmp_path):
     [query] = meta.queries
     assert (query.tags, query.sort, query.limit) == (["Revenge"], Sort.POPULARITY, 5)
     [saved] = ctx.tools.posts.list()
-    assert (saved.title, saved.hashtags, saved.song) == ("MC gets *revenge*", "#reads", "Own")
+    assert (saved.title, saved.hashtags) == ("MC gets *revenge*", "#reads")
+    assert (saved.emojis, saved.art) == ("🔥", ArtStyle.BACKGROUND)
     assert [i.manhwa.anilist_id for i in saved.items] == [11, 22]
     assert [i.hook for i in saved.items] == ["Sent back ten years.", "Gods."]
     assert saved.created_at == NOW
@@ -104,7 +106,8 @@ def test_build_from_tags_without_an_account(tmp_path):
         12,
     )
     [saved] = ctx.tools.posts.list()
-    assert (saved.account, saved.accent, saved.song) == (None, "#abcdef", None)
+    assert (saved.account, saved.accent) == (None, "#abcdef")
+    assert (saved.emojis, saved.art) == ("", ArtStyle.NONE)
     assert ctx.chapters.calls == []
 
 
@@ -193,13 +196,37 @@ def test_blank_style_fields_show_the_accounts_values(tmp_path):
 
     async def scenario(app, pilot):
         pane = await _open_build(app, pilot)
-        assert _field(pane, "song").placeholder == "no song"
+        assert _field(pane, "emojis").placeholder == "none"
+        assert _field(pane, "art").prompt == "none"
         await _set(pilot, pane, account="reads")
         assert _field(pane, "hashtags").placeholder == "#reads"
         assert _field(pane, "accent").placeholder == "#43c9e4"
-        assert _field(pane, "song").placeholder == "Acct Song (the account's)"
+        assert _field(pane, "emojis").placeholder == "📚"
+        assert _field(pane, "art").prompt == "panel"
 
     run_app(ctx, scenario)
+
+
+def test_blank_emojis_and_art_take_the_accounts(tmp_path):
+    ctx, _ = _ctx(tmp_path)
+
+    async def scenario(app, pilot):
+        pane = await _open_build(app, pilot)
+        assert [str(p) for p, _ in _field(pane, "art")._options[1:]] == [
+            "none",
+            "background",
+            "panel",
+            "character",
+        ]
+        await _set(pilot, pane, account="reads", theme="revenge")
+        pane.search()
+        await wait_for(pilot, lambda: isinstance(app.screen, PicksScreen))
+        await pilot.press("ctrl+s")
+        await wait_for(pilot, lambda: ctx.tools.posts.list() != [])
+
+    run_app(ctx, scenario)
+    [saved] = ctx.tools.posts.list()
+    assert (saved.emojis, saved.art) == ("📚", ArtStyle.PANEL)
 
 
 def test_accounts_and_themes_added_elsewhere_show_up(tmp_path):
@@ -276,7 +303,7 @@ def test_cancelled_search_error_not_shown(tmp_path):
     """When a search is cancelled by a second search, the first's error doesn't appear."""
     meta = BlockingMetadata(CANDIDATES, tags=TAGS)
     ctx = make_ctx(tmp_path, metadata=meta)
-    ctx.store.accounts.add(Account(handle="reads", hashtags="#reads", song="Acct Song"))
+    ctx.store.accounts.add(Account(handle="reads", hashtags="#reads", emojis="📚", art=ArtStyle.PANEL))
     ctx.store.themes.add(REVENGE)
 
     async def scenario(app, pilot):
@@ -320,7 +347,7 @@ def test_a_result_landing_on_another_tab_does_not_push_picks(tmp_path):
 
     meta = SlowMetadata(CANDIDATES, tags=TAGS)
     ctx = make_ctx(tmp_path, metadata=meta)
-    ctx.store.accounts.add(Account(handle="reads", hashtags="#reads", song="Acct Song"))
+    ctx.store.accounts.add(Account(handle="reads", hashtags="#reads", emojis="📚", art=ArtStyle.PANEL))
     ctx.store.themes.add(REVENGE)
 
     async def scenario(app, pilot):

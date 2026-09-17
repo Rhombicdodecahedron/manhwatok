@@ -8,16 +8,16 @@ from manhwatok.domain.errors import NotLoggedIn  # noqa: E402
 from manhwatok.ports.uploader import UploadReport  # noqa: E402
 from manhwatok.tui.screens.browser import BrowserScreen  # noqa: E402
 from manhwatok.tui.screens.posts import PostTable  # noqa: E402
-from manhwatok.tui.widgets.dialogs import ConfirmModal  # noqa: E402
+from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal  # noqa: E402
 from tests.tui.helpers import NOW, make_ctx, notes, run_app, wait_for  # noqa: E402
 from tests.unit.fakes import FakeUploader, post  # noqa: E402
 
 PID = "20260914-a3f9"
 
 
-def _ctx(tmp_path, uploader, **fields):
+def _ctx(tmp_path, uploader, sounds=(), **fields):
     ctx = make_ctx(tmp_path, uploader=uploader)
-    ctx.store.accounts.add(Account(handle="reads", song="Die For You"))
+    ctx.store.accounts.add(Account(handle="reads", sounds=list(sounds)))
     ctx.tools.posts.save(post(**{"account": "reads", **fields}))
     render_post(PID, ctx.tools)
     return ctx
@@ -47,7 +47,6 @@ def test_yes_records_the_post_as_sent(tmp_path):
             "caption box not found",
             f"slides and caption.txt: {ctx.tools.posts.folder(PID)}",
         ]
-        assert "song: Die For You" in log
         assert f"recorded post {PID} as sent" in log
         await pilot.press("escape")
         await pilot.pause()
@@ -56,7 +55,7 @@ def test_yes_records_the_post_as_sent(tmp_path):
 
     run_app(ctx, scenario)
     assert uploader.events == ["upload", "close"]
-    assert uploader.uploads[0][3] is False  # no debug
+    assert uploader.uploads[0][4:] == (None, False)  # no sounds to pick from, no debug
     assert ctx.tools.posts.get(PID).sent_at == NOW
     assert ctx.store.history.recent("reads", NOW) == {1, 2, 3}
 
@@ -72,7 +71,7 @@ def test_no_records_nothing_and_debug_is_passed_on(tmp_path):
         await wait_for(pilot, lambda: "nothing recorded" in _log(app))
 
     run_app(ctx, scenario)
-    assert uploader.uploads[0][3] is True
+    assert uploader.uploads[0][5] is True
     assert ctx.tools.posts.get(PID).sent_at is None
     assert ctx.store.history.recent("reads", NOW) == set()
 
@@ -144,3 +143,61 @@ def test_a_post_without_an_account_never_opens_the_browser(tmp_path):
 
     run_app(ctx, scenario)
     assert uploader.events == []  # checked before any browser was opened
+
+
+# --- picking the sound ------------------------------------------------------------------------
+
+SOUNDS = ("Dark Aria", "night drive")
+
+
+def _choices(app) -> list[str]:
+    options = app.screen.query_one("OptionList")
+    return [str(options.get_option_at_index(i).prompt) for i in range(options.option_count)]
+
+
+@pytest.mark.parametrize(
+    "keys, chosen",
+    [
+        (["down", "enter"], "night drive"),
+        (["enter"], "Dark Aria"),
+        (["end", "enter"], None),  # "no sound"
+        (["escape"], None),
+    ],
+)
+def test_upload_asks_which_sound_and_passes_it_on(tmp_path, keys, chosen):
+    found = f"{chosen} · TikTok" if chosen else None
+    report = UploadReport(True, True, [], titled=True, sound=found)
+    uploader = FakeUploader(report)
+    ctx = _ctx(tmp_path, uploader, sounds=SOUNDS)
+
+    async def scenario(app, pilot):
+        await pilot.press("u")
+        await wait_for(pilot, lambda: isinstance(app.screen, ChoiceModal))
+        assert str(app.screen.query_one("Label").render()) == "Sound for @reads"
+        assert _choices(app) == ["Dark Aria", "night drive", "no sound"]
+        assert uploader.events == []  # asked before the browser opens
+        await pilot.press(*keys)
+        await wait_for(pilot, lambda: isinstance(app.screen, ConfirmModal))
+        await pilot.press("n")
+        await wait_for(pilot, lambda: "nothing recorded" in _log(app))
+        added = [line for line in _log(app) if line.startswith("added the sound")]
+        assert added == ([f"added the sound {chosen} · TikTok"] if chosen else [])
+
+    run_app(ctx, scenario)
+    assert uploader.uploads[0][4] == chosen
+
+
+def test_quitting_while_the_sound_choice_is_open_uploads_without_a_sound(tmp_path):
+    uploader = FakeUploader()
+    ctx = _ctx(tmp_path, uploader, sounds=SOUNDS)
+
+    async def scenario(app, pilot):
+        await pilot.press("u")
+        await wait_for(pilot, lambda: isinstance(app.screen, ChoiceModal))
+        await pilot.press("ctrl+q")  # the option list takes plain keys; ctrl+q always quits
+        await wait_for(pilot, lambda: not app.is_running)
+
+    run_app(ctx, scenario)
+    assert uploader.uploads[0][4] is None
+    assert uploader.events == ["upload", "close"]
+    assert ctx.tools.posts.get(PID).sent_at is None

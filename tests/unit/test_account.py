@@ -1,19 +1,14 @@
 import pytest
 
-from manhwatok.domain.account import (
-    DEFAULT_REPEAT_DAYS,
-    Account,
-    effective_song,
-    normalize_handle,
-)
+from manhwatok.domain.account import DEFAULT_REPEAT_DAYS, Account, normalize_handle
 from manhwatok.domain.errors import InvalidName, ManhwatokError
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
     DEFAULT_CTA_TITLE,
     DEFAULT_HASHTAGS,
 )
-from tests.unit.fakes import post
 
 
 @pytest.mark.parametrize(
@@ -53,6 +48,15 @@ def test_defaults():
     assert a.cta_title == DEFAULT_CTA_TITLE
     assert a.cta_follow == DEFAULT_CTA_FOLLOW
     assert a.repeat_days == DEFAULT_REPEAT_DAYS == 30
+    assert a.art is ArtStyle.NONE
+    assert (a.emojis, a.sounds) == ("", [])
+
+
+def test_sounds_are_tidied_and_deduplicated_emojis_trimmed():
+    sounds = ["  solo   leveling ", "", "solo leveling", "Dark Aria"]
+    a = Account(handle="ab", sounds=sounds, emojis=" 🔥 ")
+    assert a.sounds == ["solo leveling", "Dark Aria"]
+    assert a.emojis == "🔥"
 
 
 def test_accent_is_validated_and_lowercased():
@@ -82,26 +86,6 @@ def test_json_round_trip():
     assert Account.model_validate_json(a.model_dump_json()) == a
 
 
-def test_song_defaults_empty_and_is_trimmed():
-    assert Account(handle="reads").song == ""
-    assert Account(handle="reads", song="  Die For You ").song == "Die For You"
-
-
-def test_account_json_without_a_song_loads():
-    data = Account(handle="reads").model_dump(mode="json")
-    del data["song"]
-    assert Account.model_validate(data).song == ""
-
-
-@pytest.mark.parametrize(
-    "post_song, account, expected",
-    [
-        (None, Account(handle="reads", song="Acct Song"), "Acct Song"),
-        ("Own Song", Account(handle="reads", song="Acct Song"), "Own Song"),
-        ("", Account(handle="reads", song="Acct Song"), ""),
-        (None, None, ""),
-        ("Own Song", None, "Own Song"),
-    ],
-)
-def test_effective_song(post_song, account, expected):
-    assert effective_song(post(song=post_song), account) == expected
+def test_an_account_saved_with_a_song_note_still_loads():
+    data = {"handle": "reads", "song": "Die For You"}  # the song note was dropped
+    assert Account.model_validate(data) == Account(handle="reads")

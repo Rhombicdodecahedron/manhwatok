@@ -1,5 +1,18 @@
 # manhwatok Phase 3b: Textual TUI + song notes
 
+## Superseded: song notes
+At merge time on 2026-09-17 (merging `origin/main`), the song note described below was dropped in favour of origin's
+`Account.sounds`: each account keeps a list of TikTok sound searches and `upload` asks which one to add, so there is no
+per-post song, no `song` command, no `build`/`account --song` and no `s` key. What the TUI shows instead:
+- Posts: no song column; the details pane shows the post's account sounds (`Sounds: a | b`, or `Sounds: –`), the
+  post's art style (`Art: background`, left out when none) and its emojis when set.
+- Upload: before the browser opens, a dialog asks which of the account's sounds to add, plus "no sound" (escape and
+  quitting also mean none); `upload_post` gets it through `choose_sound` (`ManhwatokApp.choose_from_thread`).
+- Build: no Song field; an Emojis input and an Art select (blank = the account's) are passed to `save_new_post`.
+- Accounts: the form edits `sounds` (one line, separated by ` | `), `emojis` and `art`; the table shows `sounds`
+  (the sound, or how many) and `art` instead of `song`.
+The rest of this spec is unchanged and still describes the song note as it was designed.
+
 Parent spec: `2026-09-14-manhwatok-design.md` (Phase 3, "Textual TUI"). Phases 1–4 are merged (suggest, rendering,
 accounts/themes/history, assisted upload). Carry-forward items from the 3a review marked "Phase 3b" are handled here.
 

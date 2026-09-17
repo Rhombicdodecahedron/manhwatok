@@ -64,14 +64,71 @@ uv run manhwatok render <id>           # re-render only
 uv run manhwatok export <id>           # copy slides + caption to ~/Downloads/manhwatok/<id>/
 ```
 
-Options: `--hashtags "..."` (caption hashtags), `--accent "#43c9e4"` (cover/end slide colour);
-both default to the account's (see below). Manhwa slides take their accent colour from each cover.
+Options: `--hashtags "..."` (caption hashtags), `--accent "#43c9e4"` (cover/end slide colour),
+`--art none|background` (see below); all three default to the account's (see below). Manhwa
+slides take their accent colour from each cover.
 Export folder: `--out DIR` or `MANHWATOK_EXPORT_DIR`. Upload the PNGs as a TikTok photo post and
 paste `caption.txt` — or let `manhwatok upload` fill them in for you (see below).
 
 ```bash
 uv run manhwatok delete <id>           # asks first; --yes skips the question
 ```
+
+## Slide art
+
+`--art` picks what a manhwa slide is built around:
+
+- `none` (default) — the upright cover on its own blurred self. The original look.
+- `background` — the same upright cover, on that title's AniList banner art instead. The slide
+  takes its mood from the story's art rather than from a cover blurred past recognition.
+- `panel` — the banner itself, cropped wide and sharp in place of the cover card, with the
+  blurred banner behind it. The most cinematic of the four.
+- `character` — the title's most-favourited character in place of the cover, on the usual
+  blurred cover. The only art AniList has that carries no title lettering.
+
+```bash
+uv run manhwatok build -t Revenge --title "..." --art panel
+uv run manhwatok render <id> --art background     # restyle a post you already built
+uv run manhwatok account set @manhwa.daily --art panel   # default for new posts
+```
+
+Every style falls back to the cover, so a post never renders half-finished:
+
+| Style | Needs | Roughly how often AniList has it | Without it |
+| --- | --- | --- | --- |
+| `background` | banner | 37–61%, lower on niche tags | the blurred cover, as `none` |
+| `panel` | banner | as above | the cover, cropped to the same wide shape |
+| `character` | character image | 61–99%, lower on niche tags | the cover card, as `none` |
+
+Character images are small (about 230×345 against a 460×650 cover), but manhwa art is flat and
+clean-lined, so it holds up scaled into a slide. Extra images are cached next to the covers in
+`$XDG_DATA_HOME/manhwatok/covers/` and downloaded only when a post's style asks for them.
+
+## Your own art for one title
+
+AniList only has what AniList has, and for the long tail that is a cover and nothing else. When
+you find something better yourself, hand it to the title directly:
+
+```bash
+uv run manhwatok art <id> 128067 https://example.com/art.jpg   # a link, downloaded for you
+uv run manhwatok art <id> 128067 ~/Downloads/pick.png          # or a file you saved
+uv run manhwatok art <id> 128067 --clear                       # back to the style's own art
+```
+
+`128067` is the title's AniList id, the first field on each line of the draft. A link must point
+at the image itself, not the page it sits on — right-click the picture and copy the image
+address. Linking a page gets you "it served text/html" rather than a broken slide.
+
+The picture is copied into the post's folder, so it survives the original moving or being
+deleted, and every later `render` and `edit` keeps using it. It beats whatever the post's style
+would have fetched, and re-renders the post straight away. The rest of the slide is unchanged:
+the backdrop still comes from the style.
+
+Good places to look: AniList and MyAnimeList to pin down who a character actually is, then
+Zerochan, Safebooru or Pinterest for art of them. Two things worth knowing before you post it —
+those boards are mostly fan art by individual artists, who do notice their work on growing
+accounts, and their coverage is thinnest for exactly the small titles this option exists for.
+Publisher art (the covers and banners the tool fetches itself) does not carry that risk.
 
 Fonts: Montserrat, bundled under the SIL Open Font License (`src/manhwatok/assets/fonts/`).
 
@@ -113,19 +170,32 @@ uv run manhwatok posts --account @manhwa.daily
 ## Uploading to TikTok (assisted)
 
 `upload` takes the manual steps out of posting but leaves the decision to you: it opens a real,
-visible Chromium window logged in as the post's account, attaches the slides in order and types
-the caption. You check the post (add a sound, pick the cover) and click **Post** yourself.
+visible Google Chrome window logged in as the post's account, attaches the slides in order, types
+the title and description and adds a sound. You check the post (pick the cover) and click **Post**
+yourself.
 
 ```bash
-uv sync --extra upload && uv run playwright install chromium   # once: Playwright + its Chromium
+uv sync --extra upload                    # once: Playwright (uses your installed Google Chrome)
 
-uv run manhwatok login @manhwa.daily      # once per account: log in by hand, close the window
+uv run manhwatok login @manhwa.daily      # once per account: log in by hand, then quit Chrome (⌘Q)
+uv run manhwatok account set @manhwa.daily --emojis "🔥📚" \
+  --sound "SOLO LEVELING RaijinLofi" --sound "Dark Aria SawanoHiroyuki"   # optional
 uv run manhwatok upload <id>              # an account's post with up-to-date slides
 ```
+
+- TikTok's title field gets the post title plus the post's emojis (`build --emojis`, default:
+  the account's `--emojis`); emojis never go on the slides. The description gets the numbered
+  picks and the hashtags, each picked from TikTok's suggestions so it becomes a real hashtag.
+- Each `--sound` is a search in TikTok's sound library. `upload` asks which of the account's
+  sounds to use (Enter: the first, 0: none) and adds the first result TikTok finds.
+  `upload --sound "..."` searches for something else; `--no-sound` adds none.
 
 - Each account gets its own browser profile in `$XDG_DATA_HOME/manhwatok/browser/<handle>/`;
   manhwatok never sees your password. Captchas and login checks are yours to answer in the
   window.
+- `login` opens Chrome on its own, with nothing automating it: TikTok won't finish a login in a
+  browser Playwright controls. `upload` then drives Chrome with Playwright on that same profile.
+  A profile saved before this change has no login in it — run `login` again.
 - `upload` prints what it did and anything left for you (e.g. "caption box not found — paste
   caption.txt yourself"), plus the slides folder, then asks `Posted on @x? [y/N]` with the
   window still open. `y` records the post: its titles count as posted for the repeat window and
@@ -140,23 +210,6 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
   browser is automated. Automating TikTok's website is against TikTok's Terms of Service and may
   trigger captchas or account checks — use it at your own risk.
 
-## Songs
-
-TikTok photo posts get their sound in TikTok itself. manhwatok keeps a note of which one to add:
-a song name or a TikTok sound link, per account (the default) and per post.
-
-```bash
-uv run manhwatok account set @manhwa.daily --song "Die For You – The Weeknd"
-uv run manhwatok build --account @manhwa.daily --theme regression-revenge --song "Other song"
-uv run manhwatok song <id>                  # show the post's song
-uv run manhwatok song <id> "New song"       # set this post's own song ("" = no song)
-uv run manhwatok song <id> --clear          # follow the account's song again
-```
-
-A post without its own song follows its account's, including later `account set --song` changes.
-`posts` shows each post's song (once any post has one), and `upload` prints it right before you
-check the post. Songs aren't on the slides or in the caption.
-
 ## Terminal app
 
 ```bash
@@ -167,19 +220,24 @@ uv run manhwatok tui
 Everything the commands above do, in one window with four tabs (`1`–`4`, `q` quits):
 
 - **Posts** — the list, and a preview of the highlighted post: its slides (`←`/`→` flip, `o`
-  opens the slide in your image viewer), caption, song and picks. `e` edit picks, `r` render,
-  `x` export, `u` upload (`U` with `--debug`), `s` song, `d` delete, `f` show one account's posts.
-- **Build** — account, theme or tags/genres, and the post's style; **Search** opens the picks
-  editor: `space` picks or drops a title, `shift+↑`/`shift+↓` reorder, `enter` edits a hook,
-  `ctrl+s` saves and renders, `esc` cancels. "Find a tag" searches AniList's tags.
+  opens the slide in your image viewer), its account's sounds, its art style and emojis (when
+  set), caption and picks. `e` edit picks, `r` render, `x` export, `u` upload (`U` with
+  `--debug`), `d` delete, `f` show one account's posts.
+- **Build** — account, theme or tags/genres, and the post's style: hashtags, accent, emojis and
+  art (blank = the account's, shown greyed out); **Search** opens the picks editor: `space`
+  picks or drops a title, `shift+↑`/`shift+↓` reorder, `enter` edits a hook, `ctrl+s` saves and
+  renders, `esc` cancels. "Find a tag" searches AniList's tags.
 - **Accounts** / **Themes** — `a` add, `e` or `enter` edit, `d` remove; `l` logs an account in
-  to TikTok.
+  to TikTok. The account form also edits its emojis, its art style (`none`, `background`,
+  `panel` or `character`; blank = none) and its sounds, one line separated by ` | ` (e.g.
+  `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none).
 
 Slides show as real pictures in terminals with image support (kitty, WezTerm, Konsole, foot and
 other sixel terminals); elsewhere as coloured blocks. Uploading works as with `manhwatok upload`:
-the log shows what the browser did, and a dialog asks whether you posted it. Only one render and
-one browser run at a time; quitting waits for both. The TUI and the commands can be used at the
-same time.
+if the account has sounds, a dialog first asks which one to add (or "no sound"; `esc` adds
+none), the log shows what the browser did, and a dialog asks whether you posted it. Only one
+render and one browser run at a time; quitting waits for both. The TUI and the commands can be
+used at the same time.
 
 ## Upgrading from earlier versions
 
@@ -188,11 +246,11 @@ same time.
 - Existing posts show `-` in the `posts` account column and don't count toward any account's
   repeat history.
 - Re-rendering an old post (`render`, `edit`) uses the new Montserrat style.
-- A post keeps the end-slide texts it was built with: a later `account set --cta-title` /
-  `--cta-follow` doesn't change existing posts.
+- A post keeps the end-slide texts and art style it was built with: a later `account set
+  --cta-title` / `--cta-follow` / `--art` doesn't change existing posts. Use `render <id> --art`
+  to restyle one.
 - The database switches to WAL mode the first time any command opens it (`manhwatok.db-wal` and
-  `manhwatok.db-shm` appear next to it while it's in use). Accounts and posts from earlier
-  versions have no song.
+  `manhwatok.db-shm` appear next to it while it's in use).
 - Handles now need at least one letter or digit (TikTok allows no others). An account saved
   earlier with a handle of only `.` and `_` can't be loaded any more: `account list` stops with
   "is unreadable" and `account remove` refuses the handle. Delete it from the database by hand,

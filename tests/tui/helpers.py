@@ -19,10 +19,10 @@ OPEN_CONTEXTS: list[AppContext] = []  # closed after each test (conftest)
 class PngRenderer(FakeRenderer):
     """FakeRenderer whose slides are real (tiny, 9:16) PNGs, so the preview can load them."""
 
-    def render(self, post, covers, out_dir):
+    def render(self, post, art, out_dir):
         from PIL import Image
 
-        paths = super().render(post, covers, out_dir)
+        paths = super().render(post, art, out_dir)
         for n, path in enumerate(paths):
             Image.new("RGB", (27, 48), (40 * n % 255, 80, 120)).save(path)
         return paths
