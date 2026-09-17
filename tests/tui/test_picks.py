@@ -151,6 +151,65 @@ def test_escape_with_changes_asks_first(tmp_path):
     assert results == [None]
 
 
+def test_q_with_changes_asks_first_and_does_not_quit(tmp_path):
+    results = []
+
+    async def scenario(app, pilot):
+        _open(app, results)
+        await pilot.pause()
+        await pilot.press("space", "q")
+        await pilot.pause()
+        assert isinstance(app.screen, ConfirmModal)
+        assert app.is_running
+        await pilot.press("n")
+        await pilot.pause()
+        assert isinstance(app.screen, PicksScreen)
+        assert app.is_running
+        await pilot.press("q")
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+        assert app.is_running
+
+    run_app(make_ctx(tmp_path), scenario)
+    assert results == [None]
+
+
+def test_q_without_changes_closes_the_editor(tmp_path):
+    results = []
+
+    async def scenario(app, pilot):
+        _open(app, results)
+        await pilot.pause()
+        await pilot.press("q")
+        await pilot.pause()
+        assert not isinstance(app.screen, PicksScreen)
+        assert app.is_running
+
+    run_app(make_ctx(tmp_path), scenario)
+    assert results == [None]
+
+
+def test_number_keys_do_nothing_on_the_picks_editor(tmp_path):
+    """1-4 must not leak through to the app's tab-switching bindings while the editor is
+    open — even though switching tabs wouldn't itself change which screen is on top, it would
+    silently change the tab waiting underneath once the editor closes."""
+    results = []
+
+    async def scenario(app, pilot):
+        _open(app, results)
+        await pilot.pause()
+        before = app.query_one("#tabs").active
+        for key in ("2", "3", "4", "1"):
+            await pilot.press(key)
+            await pilot.pause()
+            assert app.query_one("#tabs").active == before
+        assert isinstance(app.screen, PicksScreen)
+
+    run_app(make_ctx(tmp_path), scenario)
+    assert results == []
+
+
 def test_the_highlighted_titles_cached_cover_is_shown(tmp_path):
     path = cover_file(tmp_path / "covers", 2)
     covers = FakeCovers({2: path}, on_disk={2})

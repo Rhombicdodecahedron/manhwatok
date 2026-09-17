@@ -46,6 +46,11 @@ class PicksScreen(Screen[Picks | None]):
         Binding("shift+down", "move(1)", "Move down"),
         Binding("ctrl+s", "save", "Save"),
         Binding("escape", "cancel", "Cancel"),
+        Binding("q", "cancel", "Cancel", show=False),
+        Binding("1", "noop", show=False),
+        Binding("2", "noop", show=False),
+        Binding("3", "noop", show=False),
+        Binding("4", "noop", show=False),
     ]
 
     def __init__(
@@ -177,6 +182,9 @@ class PicksScreen(Screen[Picks | None]):
                 self._fill()
 
         self.app.push_screen(TextModal(f"Hook for {item.manhwa.title}", item.hook), entered)
+
+    def action_noop(self) -> None:
+        pass
 
     def action_save(self) -> None:
         if self.app.refuse_while_rendering():
