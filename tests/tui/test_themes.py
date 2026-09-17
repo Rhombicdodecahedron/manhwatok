@@ -101,6 +101,21 @@ def test_edit_and_remove_a_theme(tmp_path):
     assert ctx.store.themes.list() == []
 
 
+def test_a_bracketed_title_renders_verbatim_in_the_table(tmp_path):
+    """A theme title with square brackets must not be parsed as Rich markup: it must not crash
+    the table, and must not be silently mangled (e.g. "[bold]" swallowed)."""
+    ctx = _ctx(tmp_path)
+    ctx.store.themes.add(Theme(name="bold-pick", tags=["Murim"], title="Big [bold] Comeback"))
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        table = app.query_one(ThemesPane).query_one("DataTable")
+        rendered = str(table._get_row_renderables(0).cells[1])
+        assert rendered == "Big [bold] Comeback"
+
+    run_app(ctx, scenario)
+
+
 def test_theme_fields():
     before = theme_texts(REVENGE)
     assert before == {

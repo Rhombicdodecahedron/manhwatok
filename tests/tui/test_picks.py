@@ -101,6 +101,32 @@ def test_save_checks_the_picks(tmp_path, title, items, message):
     assert results == []
 
 
+def test_a_bracketed_title_renders_verbatim_and_the_hook_editor_shows_it_too(tmp_path):
+    """A manhwa title with square brackets must not be parsed as markup: not crash the picks
+    table, and the hook editor's prompt (built from that title) must show it verbatim too."""
+    bracketed = manhwa(anilist_id=9, title="Solo Leveling [/] Uncut", description="Hook 9. More.")
+    results = []
+
+    async def scenario(app, pilot):
+        _open(
+            app,
+            results,
+            items=[PostItem(manhwa=bracketed)],
+            candidates=[bracketed],
+        )
+        await pilot.pause()
+        table = app.screen.query_one("#picks")
+        rendered = str(table._get_row_renderables(0).cells[1])
+        assert rendered == "Solo Leveling [/] Uncut"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert str(app.screen.query_one("Label").render()) == "Hook for Solo Leveling [/] Uncut"
+        await pilot.press("escape")
+        await pilot.pause()
+
+    run_app(make_ctx(tmp_path), scenario)
+
+
 def test_a_post_fits_at_most_max_items(tmp_path):
     many = [manhwa(anilist_id=i, title=f"T{i}") for i in range(MAX_ITEMS + 1)]
     results = []

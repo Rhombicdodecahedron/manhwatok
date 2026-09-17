@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -105,11 +106,19 @@ class PicksScreen(Screen[Picks | None]):
         picks.clear()
         for n, item in enumerate(self.items, 1):
             m = item.manhwa
-            picks.add_row(n, clip(m.title, 36), chapter_label(m), item.hook, key=str(m.anilist_id))
+            picks.add_row(
+                n,
+                Text(clip(m.title, 36)),
+                chapter_label(m),
+                Text(item.hook),
+                key=str(m.anilist_id),
+            )
         others.clear()
         for m in self.others:
             hook = self.hooks[m.anilist_id]
-            others.add_row(clip(m.title, 36), chapter_label(m), hook, key=str(m.anilist_id))
+            others.add_row(
+                Text(clip(m.title, 36)), chapter_label(m), Text(hook), key=str(m.anilist_id)
+            )
         if picks.row_count:
             picks.move_cursor(row=min(picks_row, picks.row_count - 1))
         if others.row_count:

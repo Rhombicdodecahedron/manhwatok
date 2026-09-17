@@ -105,6 +105,12 @@ class ManhwatokApp(App[None]):
         self.query_one(PostsPane).reload(select=post_id)
         self.action_tab("posts")
 
+    @property
+    def quitting(self) -> bool:
+        """True once the user asked to quit (and the app is waiting for a render or a browser
+        job to finish before it actually exits)."""
+        return self._quitting
+
     def later(self, callback: Callable[..., object], *args: object) -> None:
         """Run `callback(*args)` on the app thread, from a worker; nothing once the app stopped."""
         if self.is_running:

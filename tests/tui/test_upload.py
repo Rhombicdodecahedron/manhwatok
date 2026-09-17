@@ -187,7 +187,30 @@ def test_upload_asks_which_sound_and_passes_it_on(tmp_path, keys, chosen):
     assert uploader.uploads[0][4] == chosen
 
 
-def test_quitting_while_the_sound_choice_is_open_uploads_without_a_sound(tmp_path):
+def test_sound_names_with_brackets_render_verbatim_and_pass_through(tmp_path):
+    """Square brackets in a sound name must not be parsed as Textual markup: they must not
+    crash the option list, and must not be silently dropped from what's shown or chosen."""
+    tricky = ("Dark Aria [Remix]", "a [/] b")
+    report = UploadReport(True, True, [], titled=True, sound="Dark Aria [Remix] · TikTok")
+    uploader = FakeUploader(report)
+    ctx = _ctx(tmp_path, uploader, sounds=tricky)
+
+    async def scenario(app, pilot):
+        await pilot.press("u")
+        await wait_for(pilot, lambda: isinstance(app.screen, ChoiceModal))
+        assert _choices(app) == ["Dark Aria [Remix]", "a [/] b", "no sound"]
+        await pilot.press("enter")  # choose "Dark Aria [Remix]"
+        await wait_for(pilot, lambda: isinstance(app.screen, ConfirmModal))
+        await pilot.press("n")
+        await wait_for(pilot, lambda: "nothing recorded" in _log(app))
+
+    run_app(ctx, scenario)
+    assert uploader.uploads[0][4] == "Dark Aria [Remix]"
+
+
+def test_quitting_while_the_sound_choice_is_open_cancels_the_upload(tmp_path):
+    """Answering the sound question with None because the app is quitting must not fall
+    through to a real upload — choose_sound must refuse before upload_post opens the browser."""
     uploader = FakeUploader()
     ctx = _ctx(tmp_path, uploader, sounds=SOUNDS)
 
@@ -198,6 +221,5 @@ def test_quitting_while_the_sound_choice_is_open_uploads_without_a_sound(tmp_pat
         await wait_for(pilot, lambda: not app.is_running)
 
     run_app(ctx, scenario)
-    assert uploader.uploads[0][4] is None
-    assert uploader.events == ["upload", "close"]
+    assert uploader.events == []
     assert ctx.tools.posts.get(PID).sent_at is None

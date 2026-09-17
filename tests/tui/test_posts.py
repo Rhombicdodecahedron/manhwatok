@@ -78,6 +78,21 @@ def test_the_preview_flips_through_the_highlighted_posts_slides(tmp_path):
     run_app(ctx, scenario, opener=opened)
 
 
+def test_a_bracketed_title_renders_verbatim_in_the_table(tmp_path):
+    """A post title with square brackets must not be parsed as Rich markup: it must not crash
+    the table, and must not be silently mangled (e.g. an unclosed tag raising MarkupError)."""
+    ctx = make_ctx(tmp_path)
+    ctx.tools.posts.save(post(title="The Ending [/] Twist"))
+
+    async def scenario(app, pilot):
+        assert _rows(app)[0][2] == "The Ending [/] Twist"
+        table = app.query_one(PostTable)
+        rendered = str(table._get_row_renderables(0).cells[2])
+        assert rendered == "The Ending [/] Twist"
+
+    run_app(ctx, scenario)
+
+
 def test_a_slide_that_isnt_an_image_gets_a_note(tmp_path):
     ctx = make_ctx(tmp_path)
     _two_posts(ctx)

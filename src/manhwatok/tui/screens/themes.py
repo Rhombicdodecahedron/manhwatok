@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -105,9 +106,9 @@ class ThemesPane(Vertical):
         for t in themes:
             table.add_row(
                 t.name,
-                clip(plain_title(t.title), 40),
-                clip(", ".join(t.tags) or "-", 30),
-                clip(", ".join(t.genres) or "-", 30),
+                Text(clip(plain_title(t.title), 40)),
+                Text(clip(", ".join(t.tags) or "-", 30)),
+                Text(clip(", ".join(t.genres) or "-", 30)),
                 t.sort.value,
                 str(t.min_tag_rank),
                 key=t.name,

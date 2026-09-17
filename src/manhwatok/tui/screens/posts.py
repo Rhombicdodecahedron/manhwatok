@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -95,7 +96,7 @@ class PostsPane(Vertical):
             table.add_row(
                 p.id,
                 f"@{p.account}" if p.account else "-",
-                clip(plain_title(p.title) or "(untitled)", 40),
+                Text(clip(plain_title(p.title) or "(untitled)", 40)),
                 post_status(p, ctx.tools.posts),
                 "-" if p.is_unfinished else str(p.slide_count),
                 key=p.id,
@@ -253,7 +254,10 @@ class PostsPane(Vertical):
 
         def choose_sound(sounds: list[str]) -> str | None:
             choices = [(sound, sound) for sound in sounds] + [("no sound", "")]
-            return app.choose_from_thread(f"Sound for @{post.account}", choices) or None
+            answer = app.choose_from_thread(f"Sound for @{post.account}", choices)
+            if app.quitting:
+                raise ManhwatokError("upload cancelled — the app is closing")
+            return answer or None
 
         def job(progress) -> str:
             ctx = app.ctx

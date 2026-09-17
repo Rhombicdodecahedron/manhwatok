@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -29,7 +30,10 @@ LABELS = {
     "block_tags": "Blocked tags",
     "hashtags": "Hashtags",
     "emojis": "Emojis after the title on TikTok (empty = none)",
-    "sounds": "TikTok sounds to pick from when uploading (separate with | ; empty = none)",
+    "sounds": (
+        "TikTok sounds to pick from when uploading (separate with | ; "
+        "a sound can't contain | ; empty = none)"
+    ),
     "accent": "Accent colour",
     "art": f"Slide art for new posts: {ART_CHOICES} (empty = none)",
     "cta_title": "End-slide title (*word* = accent colour)",
@@ -142,11 +146,11 @@ class AccountsPane(Vertical):
                 login = "check"
             table.add_row(
                 a.display,
-                clip(", ".join(a.genres) or "any", 30),
-                clip(", ".join(a.block_genres + a.block_tags) or "-", 30),
-                clip(a.hashtags or "-", 30),
+                Text(clip(", ".join(a.genres) or "any", 30)),
+                Text(clip(", ".join(a.block_genres + a.block_tags) or "-", 30)),
+                Text(clip(a.hashtags or "-", 30)),
                 a.accent,
-                _sounds_cell(a.sounds),
+                Text(_sounds_cell(a.sounds)),
                 a.art.value,
                 f"{a.repeat_days}d",
                 login,
@@ -192,6 +196,12 @@ class AccountsPane(Vertical):
         if account is None:
             return
         ctx = self.app.ctx
+        for sound in account.sounds:
+            if "|" in sound:
+                self.app.notify(
+                    f"sound {sound!r} contains | — edit it with manhwatok account set --sound",
+                    severity="warning",
+                )
         before = account_texts(account)
         fields = [(name, LABELS[name], before[name], "") for name in LABELS]
 

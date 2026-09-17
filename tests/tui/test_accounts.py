@@ -6,6 +6,7 @@ from manhwatok.domain.account import Account  # noqa: E402
 from manhwatok.domain.errors import ManhwatokError, MetadataError  # noqa: E402
 from manhwatok.domain.models import ArtStyle, TagInfo  # noqa: E402
 from manhwatok.tui.screens.accounts import (  # noqa: E402
+    LABELS,
     AccountsPane,
     account_fields,
     account_texts,
@@ -174,6 +175,24 @@ def test_the_table_shows_a_single_sound_clipped(tmp_path):
     run_app(ctx, scenario)
 
 
+def test_a_sound_and_hashtag_with_brackets_render_verbatim_in_the_table(tmp_path):
+    """User text (sounds, hashtags, genres...) must not be parsed as Rich markup: it must not
+    crash the table, and must not be silently mangled (e.g. "[bold]" swallowed)."""
+    ctx = _ctx(tmp_path)
+    ctx.store.accounts.add(
+        Account(handle="reads", sounds=["x [/] y"], hashtags="[bold]#h", genres=["Action"])
+    )
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        table = app.query_one(AccountsPane).query_one("DataTable")
+        rendered = [str(c) for c in table._get_row_renderables(0).cells]
+        assert rendered[3] == "[bold]#h"
+        assert rendered[5] == "x [/] y"
+
+    run_app(ctx, scenario)
+
+
 def test_an_unknown_art_style_keeps_the_form_open_and_lists_the_choices(tmp_path):
     ctx = _ctx(tmp_path)
 
@@ -270,6 +289,32 @@ def test_remove_can_be_declined(tmp_path):
         assert len(_rows(app)) == 1
 
     run_app(ctx, scenario)
+
+
+def test_sounds_label_warns_that_a_sound_cant_contain_a_pipe():
+    assert "|" in LABELS["sounds"]
+    assert "can't contain |" in LABELS["sounds"]
+
+
+def test_editing_an_account_with_a_piped_sound_warns_but_keeps_it_if_untouched(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.store.accounts.add(Account(handle="reads", sounds=["clean", "weird|sound"]))
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert (
+            "sound 'weird|sound' contains | — edit it with manhwatok account set --sound"
+            in notes(app)
+        )
+        await _fill(app, pilot, hashtags="#new")
+        await wait_for(pilot, lambda: "saved @reads" in notes(app))
+
+    run_app(ctx, scenario)
+    a = ctx.store.accounts.get("reads")
+    assert a.sounds == ["clean", "weird|sound"]
+    assert a.hashtags == "#new"
 
 
 def test_account_fields():

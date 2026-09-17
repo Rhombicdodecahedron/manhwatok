@@ -161,7 +161,8 @@ class BuildPane(VerticalScroll):
         self._input("hashtags").placeholder = account.hashtags if account else DEFAULT_HASHTAGS
         self._input("accent").placeholder = account.accent if account else DEFAULT_ACCENT
         self._input("emojis").placeholder = (account.emojis if account else "") or "none"
-        self.query_one("#art", Select).prompt = (account.art if account else ArtStyle.NONE).value
+        art_prompt = f"account's: {account.art.value}" if account else "default: none"
+        self.query_one("#art", Select).prompt = art_prompt
 
     def _theme_changed(self, name: str | None) -> None:
         title = self._input("title")

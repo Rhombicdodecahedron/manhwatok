@@ -37,7 +37,7 @@ class ConfirmModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
-            yield Label(self.question, id="question")
+            yield Label(self.question, id="question", markup=False)
             with Horizontal(classes="buttons"):
                 yield Button("Yes", id="yes")
                 yield Button("No", id="no", variant="primary")
@@ -65,7 +65,7 @@ class TextModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
-            yield Label(self.prompt)
+            yield Label(self.prompt, markup=False)
             yield Input(self.value, placeholder=self.placeholder, id="text")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -88,8 +88,10 @@ class ChoiceModal(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="dialog"):
-            yield Label(self.prompt)
-            yield OptionList(*[Option(label, id=value) for label, value in self.choices])
+            yield Label(self.prompt, markup=False)
+            yield OptionList(
+                *[Option(label, id=value) for label, value in self.choices], markup=False
+            )
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         event.stop()

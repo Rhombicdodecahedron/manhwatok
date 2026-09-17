@@ -197,12 +197,12 @@ def test_blank_style_fields_show_the_accounts_values(tmp_path):
     async def scenario(app, pilot):
         pane = await _open_build(app, pilot)
         assert _field(pane, "emojis").placeholder == "none"
-        assert _field(pane, "art").prompt == "none"
+        assert _field(pane, "art").prompt == "default: none"
         await _set(pilot, pane, account="reads")
         assert _field(pane, "hashtags").placeholder == "#reads"
         assert _field(pane, "accent").placeholder == "#43c9e4"
         assert _field(pane, "emojis").placeholder == "📚"
-        assert _field(pane, "art").prompt == "panel"
+        assert _field(pane, "art").prompt == "account's: panel"
 
     run_app(ctx, scenario)
 
