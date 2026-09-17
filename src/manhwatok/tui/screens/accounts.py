@@ -29,7 +29,7 @@ LABELS = {
     "block_genres": "Blocked genres",
     "block_tags": "Blocked tags",
     "hashtags": "Hashtags",
-    "emojis": "Emojis after the title on TikTok (empty = none)",
+    "emojis": "Emojis after the title on TikTok (\"auto\" = from each post's genres; empty = none)",
     "sounds": (
         "TikTok sounds to pick from when uploading (separate with | ; "
         "a sound can't contain | ; empty = none)"

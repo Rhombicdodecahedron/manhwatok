@@ -2,8 +2,9 @@ from datetime import datetime, timezone
 
 from manhwatok.app.render_post import render_post
 from manhwatok.domain.models import ArtStyle
+from manhwatok.domain.post import PostItem
 from manhwatok.tui.text import caption_text, clip, post_details, post_status
-from tests.unit.fakes import make_tools, post
+from tests.unit.fakes import make_tools, manhwa, post
 
 WHEN = datetime(2026, 9, 15, tzinfo=timezone.utc)
 
@@ -49,6 +50,13 @@ def test_post_details_shows_art_and_emojis_when_set(tmp_path):
     styled = post(art=ArtStyle.BACKGROUND, emojis="🔥📚")
     text = post_details(styled, make_tools(tmp_path).posts, ["S"])
     assert text.splitlines()[3:6] == ["Sounds: S", "Art: background", "Emojis: 🔥📚"]
+
+
+def test_post_details_shows_the_emojis_auto_picked(tmp_path):
+    items = [PostItem(manhwa=manhwa(anilist_id=1, genres=["Romance"]), hook="Hook")]
+    auto = post(items=items, emojis="auto")
+    text = post_details(auto, make_tools(tmp_path).posts, [])
+    assert "Emojis: 💗🌹 (auto)" in text
 
 
 def test_post_details_of_a_draft(tmp_path):

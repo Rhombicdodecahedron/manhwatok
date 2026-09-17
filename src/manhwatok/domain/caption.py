@@ -1,3 +1,4 @@
+from manhwatok.domain.emoji import post_emojis
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 
@@ -5,9 +6,10 @@ TITLE_MAX = 90  # TikTok's title field
 
 
 def upload_title(post: ListPost) -> str:
-    """TikTok's title field: the plain title, then the post's emojis. A title too long for the
-    field loses words from its end; the emojis stay."""
-    emojis = f" {post.emojis}" if post.emojis else ""
+    """TikTok's title field: the plain title, then the post's emojis (`auto`: the ones its picks
+    earn). A title too long for the field loses words from its end; the emojis stay."""
+    chosen = post_emojis(post)
+    emojis = f" {chosen}" if chosen else ""
     words = plain_title(post.title).split()
     while words and len(" ".join(words)) + len(emojis) > TITLE_MAX:
         words.pop()

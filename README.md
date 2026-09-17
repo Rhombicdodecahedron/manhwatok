@@ -186,6 +186,16 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
 - TikTok's title field gets the post title plus the post's emojis (`build --emojis`, default:
   the account's `--emojis`); emojis never go on the slides. The description gets the numbered
   picks and the hashtags, each picked from TikTok's suggestions so it becomes a real hashtag.
+- `--emojis auto` (on the account or one post) drops the fixed string: the emojis come from the
+  genres its picks share — every genre more than half of them carry, commonest first, up to four
+  emojis; with no such genre, the commonest one alone. One account can then run several genres:
+
+  ```bash
+  uv run manhwatok account add @manhwa.generic \
+    --genres "Action,Fantasy,Romance,Horror" --emojis auto
+  ```
+
+  They are worked out when the caption is written, so re-picking a post updates them.
 - Each `--sound` is a search in TikTok's sound library. `upload` asks which of the account's
   sounds to use (Enter: the first, 0: none) and adds the first result TikTok finds.
   `upload --sound "..."` searches for something else; `--no-sound` adds none.
@@ -228,7 +238,8 @@ Everything the commands above do, in one window with four tabs (`1`–`4`, `q` q
   picks or drops a title, `shift+↑`/`shift+↓` reorder, `enter` edits a hook, `ctrl+s` saves and
   renders, `esc` cancels. "Find a tag" searches AniList's tags.
 - **Accounts** / **Themes** — `a` add, `e` or `enter` edit, `d` remove; `l` logs an account in
-  to TikTok. The account form also edits its emojis, its art style (`none`, `background`,
+  to TikTok. The account form also edits its emojis (`auto` = from each post's genres), its art
+  style (`none`, `background`,
   `panel` or `character`; blank = none) and its sounds, one line separated by ` | ` (e.g.
   `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none).
 

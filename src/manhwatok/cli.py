@@ -203,7 +203,9 @@ def build(
         None, help="Caption hashtags (default: the account's, else the standard set)."
     ),
     emojis: Optional[str] = typer.Option(
-        None, help="Emojis after the title on TikTok (default: the account's, else none)."
+        None,
+        help="Emojis after the title on TikTok; \"auto\" picks them from the post's genres "
+        "(default: the account's, else none).",
     ),
     accent: Optional[str] = typer.Option(
         None, help="Accent colour for cover and end slides (default: the account's, else #43c9e4)."
@@ -564,7 +566,10 @@ BLOCK_GENRES = typer.Option(
 BLOCK_TAGS = typer.Option(None, "--block-tags", help="Tags never to suggest, comma-separated.")
 ACCOUNT_HASHTAGS = typer.Option(None, "--hashtags", help="Caption hashtags for this account.")
 ACCOUNT_EMOJIS = typer.Option(
-    None, "--emojis", help='Emojis after the title on TikTok, e.g. "🔥📚". "" clears.'
+    None,
+    "--emojis",
+    help='Emojis after the title on TikTok, e.g. "🔥📚"; "auto" picks them from each post\'s '
+    'genres. "" clears.',
 )
 ACCOUNT_SOUNDS = typer.Option(
     None,

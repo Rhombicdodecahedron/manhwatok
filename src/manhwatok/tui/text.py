@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from manhwatok.app.render_post import rendered_files
 from manhwatok.domain.caption import build_caption
+from manhwatok.domain.emoji import AUTO, post_emojis
 from manhwatok.domain.errors import NotRendered, StorageError
 from manhwatok.domain.labels import chapter_label
 from manhwatok.domain.models import ArtStyle
@@ -48,8 +49,9 @@ def post_details(post: ListPost, posts: PostRepository, sounds: list[str]) -> st
     ]
     if post.art is not ArtStyle.NONE:
         lines.append(f"Art: {post.art.value}")
-    if post.emojis:
-        lines.append(f"Emojis: {post.emojis}")
+    emojis = post_emojis(post)
+    if emojis:
+        lines.append(f"Emojis: {emojis}{' (auto)' if post.emojis == AUTO else ''}")
     if post.is_unfinished:
         lines += ["", "no picks yet — press e to pick titles"]
         return "\n".join(lines)
