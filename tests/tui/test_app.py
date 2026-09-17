@@ -10,6 +10,7 @@ from typer.testing import CliRunner  # noqa: E402
 from manhwatok.cli import app as cli  # noqa: E402
 from manhwatok.domain.errors import ManhwatokError  # noqa: E402
 from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal, TextModal  # noqa: E402
+from manhwatok.tui.widgets.form import FormModal  # noqa: E402
 from tests.tui.helpers import make_ctx, notes, run_app, wait_for  # noqa: E402
 
 
@@ -112,6 +113,66 @@ def test_a_question_from_a_worker_waits_for_the_answer(tmp_path):
         assert "a browser is already open — finish there first" in notes(app)
         await pilot.press("y")
         await wait_for(pilot, lambda: answers == [True] and not app.browser_open)
+
+    run_app(make_ctx(tmp_path), scenario)
+
+
+def test_form_modal_covered_while_saving_stays_open_with_saving_reset(tmp_path):
+    """A screen pushed on top of a saving FormModal must not be the one that gets dismissed
+    when the save finishes (Screen.dismiss pops the TOP screen)."""
+    release = threading.Event()
+
+    def save(values):
+        release.wait(5)
+        return values["name"]
+
+    async def scenario(app, pilot):
+        try:
+            form = FormModal("Add", [("name", "Name", "", "")], save)
+            app.push_screen(form)
+            await pilot.pause()
+            form.action_save()
+            await wait_for(pilot, lambda: form.saving)
+            top = ConfirmModal("Sure?")
+            app.push_screen(top)
+            await pilot.pause()
+            release.set()
+            await wait_for(pilot, lambda: not form.saving)
+            assert app.screen is top
+            assert "saved — close the form with escape" in notes(app)
+            await pilot.press("n")
+            await pilot.pause()
+            assert app.screen is form
+        finally:
+            release.set()
+
+    run_app(make_ctx(tmp_path), scenario)
+
+
+def test_quitting_pops_screens_above_the_open_question_first(tmp_path):
+    """Quitting while another screen sits on top of the browser's yes/no question must still
+    answer it (and not hang), instead of dismissing that other screen by mistake."""
+    answers = []
+    release = threading.Event()
+    app_ref = []
+
+    def job():
+        answers.append(app_ref[0].ask_from_thread("Posted?"))
+        release.wait(5)
+
+    async def scenario(app, pilot):
+        app_ref.append(app)
+        app.start_browser(job)
+        await wait_for(pilot, lambda: isinstance(app.screen, ConfirmModal))
+        question = app.screen
+        app.push_screen(TextModal("Something else?"))
+        await pilot.pause()
+        assert app.screen is not question
+        await pilot.press("ctrl+q")  # the modal takes plain keys; ctrl+q always quits
+        await wait_for(pilot, lambda: answers == [False])
+        assert question not in app.screen_stack
+        release.set()
+        await wait_for(pilot, lambda: not app.is_running)
 
     run_app(make_ctx(tmp_path), scenario)
 

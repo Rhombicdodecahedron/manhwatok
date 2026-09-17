@@ -84,9 +84,20 @@ class FormModal(ModalScreen[T | None], Generic[T]):
                 self.app.fail(e)
                 self.app.later(setattr, self, "saving", False)
                 return
-            self.app.later(self.dismiss, saved)
+            self.app.later(self._saved, saved)
 
         self.run_worker(run, thread=True, group="form-save")
+
+    def _saved(self, saved: T) -> None:
+        """Close the form — unless another screen was pushed on top while we were saving, in
+        which case Screen.dismiss() would wrongly close that screen instead. (Not `is_current`:
+        our dialogs dim, not hide, the screen below, so a covered form still counts as
+        "current"/visible by that check.)"""
+        if self.app.screen is self:
+            self.dismiss(saved)
+        else:
+            self.saving = False
+            self.app.notify("saved — close the form with escape")
 
     def action_cancel(self) -> None:
         if not self.saving:

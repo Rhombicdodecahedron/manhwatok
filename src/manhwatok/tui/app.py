@@ -200,8 +200,14 @@ class ManhwatokApp(App[None]):
             self.exit()
             return
         self._quitting = True
-        if self._open_question is not None:
-            self._open_question.dismiss(False)
+        question = self._open_question
+        if question is not None:
+            # Screen.dismiss() pops the TOP screen, so bring the question there first — a
+            # no-op when it already is. (is_current can't tell us this: our dialogs dim, not
+            # hide, the screen below, so a covered screen still counts as "current"/visible.)
+            while self.screen is not question:
+                self.pop_screen()
+            question.dismiss(False)
         self.notify("closing — waiting for the browser or the render to finish…")
 
     def on_worker_state_changed(self, event: Worker.StateChanged) -> None:

@@ -7,7 +7,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Checkbox, Input, Label, OptionList, Select, Static
 from textual.widgets.option_list import Option
-from textual.worker import get_current_worker
+from textual.worker import Worker, get_current_worker
 
 from manhwatok.app.build_post import prefill_items, save_new_post
 from manhwatok.app.suggest import suggest_for_account
@@ -245,14 +245,26 @@ class BuildPane(VerticalScroll):
                 self.app.fail(e)
                 return
             if not worker.is_cancelled:
-                self.app.call_from_thread(self._found, results, account, style)
+                self.app.call_from_thread(self._found, results, account, style, worker)
 
         self.run_worker(run, thread=True, group="build-search", exclusive=True)
 
-    def _found(self, results: list[Manhwa], account: Account | None, style: dict) -> None:
+    def _found(
+        self, results: list[Manhwa], account: Account | None, style: dict, worker: Worker
+    ) -> None:
+        if worker.is_cancelled:
+            return  # re-checked on the app thread: cancelled just before this callback ran
         status = self.query_one("#status", Static)
         if not results:
             status.update("no matches — try fewer tags or a lower min tag rank")
+            return
+        on_build = (
+            len(self.app.screen_stack) == 1 and self.app.query_one("#tabs").active == "build"
+        )
+        if not on_build:
+            text = f"{len(results)} candidates — press Search again to pick them"
+            status.update(text)
+            self.app.notify(text)
             return
         status.update(f"{len(results)} candidates")
         heading = f"New post for {account.display}" if account else "New post"

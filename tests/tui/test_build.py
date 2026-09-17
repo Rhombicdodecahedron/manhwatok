@@ -300,6 +300,45 @@ def test_cancelled_search_error_not_shown(tmp_path):
     run_app(ctx, scenario)
 
 
+def test_a_result_landing_on_another_tab_does_not_push_picks(tmp_path):
+    """A search that finishes while another tab is active must not push PicksScreen over it
+    (Screen.dismiss pops the TOP screen, so a later save would close the wrong screen)."""
+
+    class SlowMetadata(FakeMetadata):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.event = threading.Event()
+
+        def search(self, query: SearchQuery):
+            self.queries.append(query)
+            self.event.wait(5)
+            return list(self.results)
+
+    meta = SlowMetadata(CANDIDATES, tags=TAGS)
+    ctx = make_ctx(tmp_path, metadata=meta)
+    ctx.store.accounts.add(Account(handle="reads", hashtags="#reads", song="Acct Song"))
+    ctx.store.themes.add(REVENGE)
+
+    async def scenario(app, pilot):
+        try:
+            pane = await _open_build(app, pilot)
+            await _set(pilot, pane, tags="Revenge")
+            pane.search()
+            await wait_for(pilot, lambda: meta.queries != [])
+            await pilot.press("1")  # switch away from Build while the search is in flight
+            await pilot.pause()
+            meta.event.set()
+            text = f"{len(CANDIDATES)} candidates — press Search again to pick them"
+            await wait_for(pilot, lambda: text in notes(app))
+            assert not isinstance(app.screen, PicksScreen)
+            assert app.query_one("#tabs").active == "posts"
+            assert str(pane.query_one("#status").render()) == text
+        finally:
+            meta.event.set()
+
+    run_app(ctx, scenario)
+
+
 def test_tag_loading_called_once_during_typing(tmp_path):
     """list_tags is called only once even when typing several characters."""
 
