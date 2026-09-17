@@ -260,11 +260,13 @@ def test_login_opens_plain_chrome_on_the_accounts_profile_and_waits_for_it(tmp_p
     assert time.monotonic() - started >= 0.3
     profile = tmp_path / "browser" / "reads"
     assert profile.is_dir()
-    # Playwright starts Chrome with --use-mock-keychain; without it here too, Chrome would
-    # encrypt the login with a key the upload's Chrome can't read.
+    # Playwright starts Chrome with --use-mock-keychain and --password-store=basic; without them
+    # here too, Chrome would encrypt the login (Mac keychain, Linux keyring) with a key the
+    # upload's Chrome can't read.
     assert json.loads((tmp_path / "chrome-args.json").read_text()) == [
         f"--user-data-dir={profile}",
         "--use-mock-keychain",
+        "--password-store=basic",
         "--no-first-run",
         "--no-default-browser-check",
         "http://127.0.0.1/login",

@@ -105,8 +105,9 @@ class PlaywrightUploader:
 
     def login(self, handle: str) -> None:
         """Start Chrome on the account's profile at TikTok's login page; returns once the user
-        has quit it. Playwright starts Chrome with --use-mock-keychain, so this one gets it too:
-        otherwise Chrome would lock the saved login with a key the upload's Chrome can't use."""
+        has quit it. Playwright starts Chrome with --use-mock-keychain and --password-store=basic,
+        so this one gets them too: otherwise Chrome would lock the saved login (the Mac keychain,
+        or the desktop keyring on Linux) with a key the upload's Chrome can't use."""
         _load_playwright()  # a login is only good for uploads, which need the extra
         chrome = self._chrome
         if chrome is None:
@@ -118,6 +119,7 @@ class PlaywrightUploader:
         args = [
             f"--user-data-dir={profile}",
             "--use-mock-keychain",
+            "--password-store=basic",
             "--no-first-run",
             "--no-default-browser-check",
             self._page.login_url,
