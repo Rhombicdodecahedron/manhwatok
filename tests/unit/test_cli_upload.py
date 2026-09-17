@@ -4,6 +4,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
+from manhwatok.app.login_account import quit_shortcut
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app import container
 from manhwatok.app.render_post import render_post
@@ -150,7 +151,7 @@ def test_login_opens_the_accounts_browser(tmp_path, monkeypatch):
     result = runner.invoke(app, ["login", "@Reads"])
     assert result.exit_code == 0, result.output
     assert result.output.startswith(
-        "Log in to @reads in the Chrome window, then quit that Chrome (⌘Q).\n"
+        f"Log in to @reads in the Chrome window, then quit that Chrome ({quit_shortcut()}).\n"
     )
     assert "browser closed" in result.output
     assert browser.logins == ["reads"]

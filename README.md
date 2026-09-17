@@ -177,7 +177,7 @@ yourself.
 ```bash
 uv sync --extra upload                    # once: Playwright (uses your installed Google Chrome)
 
-uv run manhwatok login @manhwa.daily      # once per account: log in by hand, then quit Chrome (⌘Q)
+uv run manhwatok login @manhwa.daily      # once per account: log in by hand, then quit Chrome (⌘Q / Ctrl+Q)
 uv run manhwatok account set @manhwa.daily --emojis "🔥📚" \
   --sound "SOLO LEVELING RaijinLofi" --sound "Dark Aria SawanoHiroyuki"   # optional
 uv run manhwatok upload <id>              # an account's post with up-to-date slides

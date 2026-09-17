@@ -2,6 +2,7 @@ import pytest
 
 pytest.importorskip("textual")
 
+from manhwatok.app.login_account import quit_shortcut
 from manhwatok.domain.account import Account  # noqa: E402
 from manhwatok.domain.errors import ManhwatokError, MetadataError  # noqa: E402
 from manhwatok.domain.models import ArtStyle, TagInfo  # noqa: E402
@@ -237,7 +238,7 @@ def test_login_opens_the_accounts_browser(tmp_path):
         log = app.screen.query_one("Log")
         await wait_for(pilot, lambda: "done — press escape to go back" in log.lines)
         assert list(log.lines)[:2] == [
-            "Log in to @reads in the Chrome window, then quit that Chrome (⌘Q).",
+            f"Log in to @reads in the Chrome window, then quit that Chrome ({quit_shortcut()}).",
             "browser closed — once logged in, uploads post as @reads",
         ]
         (tmp_path / "browser" / "reads").mkdir(parents=True)  # what a real login leaves

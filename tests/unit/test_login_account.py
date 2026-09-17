@@ -1,7 +1,13 @@
 import pytest
 
 from manhwatok.adapters.sqlite_store import SqliteStore
-from manhwatok.app.login_account import forget_login, login_account, saved_login
+from manhwatok.app import login_account as login_account_module
+from manhwatok.app.login_account import (
+    forget_login,
+    login_account,
+    quit_shortcut,
+    saved_login,
+)
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import AccountNotFound, InvalidName, StorageError, UploadUnavailable
 from tests.unit.fakes import FakeUploader
@@ -14,7 +20,8 @@ def store(tmp_path):
         yield s
 
 
-def test_login_tells_the_user_then_opens_the_accounts_browser(store):
+def test_login_tells_the_user_then_opens_the_accounts_browser(store, monkeypatch):
+    monkeypatch.setattr(login_account_module.sys, "platform", "darwin")
     uploader = FakeUploader()
     messages = []
     account = login_account("@Reads", store.accounts, uploader, messages.append)
@@ -22,6 +29,20 @@ def test_login_tells_the_user_then_opens_the_accounts_browser(store):
     assert messages == ["Log in to @reads in the Chrome window, then quit that Chrome (⌘Q)."]
     assert uploader.logins == ["reads"]
     assert uploader.events == ["login", "close"]
+
+
+def test_login_off_a_mac_names_the_keys_that_quit_chrome_there(store, monkeypatch):
+    monkeypatch.setattr(login_account_module.sys, "platform", "linux")
+    messages = []
+    login_account("reads", store.accounts, FakeUploader(), messages.append)
+    assert messages == ["Log in to @reads in the Chrome window, then quit that Chrome (Ctrl+Q)."]
+
+
+def test_the_quit_shortcut_is_the_platforms(monkeypatch):
+    monkeypatch.setattr(login_account_module.sys, "platform", "darwin")
+    assert quit_shortcut() == "⌘Q"
+    monkeypatch.setattr(login_account_module.sys, "platform", "win32")
+    assert quit_shortcut() == "Ctrl+Q"
 
 
 def test_login_unknown_account_opens_nothing(store):

@@ -4,6 +4,7 @@ the password); find or delete that saved login."""
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 
 from manhwatok.app.post_tools import ProgressFn
@@ -13,12 +14,21 @@ from manhwatok.ports.store import AccountRepository
 from manhwatok.ports.uploader import Uploader
 
 
+def quit_shortcut() -> str:
+    """The keys that quit Chrome on this platform; closing its last window isn't enough on a
+    Mac, where Chrome keeps running."""
+    return "⌘Q" if sys.platform == "darwin" else "Ctrl+Q"
+
+
 def login_account(
     handle: str, accounts: AccountRepository, uploader: Uploader, progress: ProgressFn
 ) -> Account:
     """Returns once the user has quit the browser."""
     account = accounts.get(normalize_handle(handle))
-    progress(f"Log in to {account.display} in the Chrome window, then quit that Chrome (⌘Q).")
+    progress(
+        f"Log in to {account.display} in the Chrome window, "
+        f"then quit that Chrome ({quit_shortcut()})."
+    )
     try:
         uploader.login(account.handle)
     finally:

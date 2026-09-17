@@ -10,7 +10,7 @@ scripts/setup-accounts.sh
 ```
 
 It's safe to run again: an existing account gets these settings, an existing theme is kept.
-Then log each account in once (quit Chrome with ⌘Q when TikTok shows you logged in):
+Then log each account in once (quit Chrome with ⌘Q, or Ctrl+Q off a Mac, when TikTok shows you logged in):
 
 ```bash
 uv run manhwatok login @firstaccount
