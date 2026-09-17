@@ -179,8 +179,7 @@ class PicksScreen(Screen[Picks | None]):
         self.app.push_screen(TextModal(f"Hook for {item.manhwa.title}", item.hook), entered)
 
     def action_save(self) -> None:
-        if self.app.rendering:
-            self.app.notify("still rendering — try again when it's done", severity="warning")
+        if self.app.refuse_while_rendering():
             return
         title = self.title_text.strip()
         try:

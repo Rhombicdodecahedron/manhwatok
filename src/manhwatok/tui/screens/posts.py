@@ -186,8 +186,7 @@ class PostsPane(Vertical):
         post = self._selected()
         if post is None:
             return
-        if self.app.rendering:
-            self.app.notify("still rendering — try again when it's done", severity="warning")
+        if self.app.refuse_while_rendering():
             return
         pid = post.id
 
@@ -221,6 +220,8 @@ class PostsPane(Vertical):
         post = self._selected()
         if post is None:
             return
+        if self.app.refuse_while_rendering():
+            return
         ctx = self.app.ctx
         try:
             dest = export_post(
@@ -239,6 +240,8 @@ class PostsPane(Vertical):
     def action_upload(self, debug: bool = False) -> None:
         post = self._selected()
         if post is None:
+            return
+        if self.app.refuse_while_rendering():
             return
         if self.app.browser_open:
             self.app.notify("a browser is already open — finish there first", severity="warning")
@@ -291,6 +294,8 @@ class PostsPane(Vertical):
     def action_delete(self) -> None:
         post = self._selected()
         if post is None:
+            return
+        if self.app.refuse_while_rendering():
             return
         pid = post.id
         size = "draft" if post.is_unfinished else f"{post.slide_count} slides"

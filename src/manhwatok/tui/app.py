@@ -118,14 +118,21 @@ class ManhwatokApp(App[None]):
     def rendering(self) -> bool:
         return self._busy(RENDER)
 
+    def refuse_while_rendering(self) -> bool:
+        """True (and shows a warning) while a render is running; the caller should do nothing
+        else — export/upload/delete would act on stale files or race the renderer."""
+        if self.rendering:
+            self.notify("still rendering — try again when it's done", severity="warning")
+            return True
+        return False
+
     def start_render(
         self, job: Callable[[PostTools], object], done: Callable[[object], None]
     ) -> bool:
         """Run `job(tools)` in the render worker (render progress becomes notifications), then
         `done(result)` on the app thread. A ManhwatokError is shown and `done` isn't called.
         Returns False (and does nothing) while another render is running."""
-        if self.rendering:
-            self.notify("still rendering — try again when it's done", severity="warning")
+        if self.refuse_while_rendering():
             return False
         self._render(job, done)
         return True

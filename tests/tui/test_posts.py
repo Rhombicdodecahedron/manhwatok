@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -201,6 +202,40 @@ def test_delete_asks_first(tmp_path, answer, kept):
 
     run_app(ctx, scenario)
     assert ctx.tools.posts.folder(NEW).exists() is kept
+
+
+def test_export_upload_delete_refuse_while_a_render_is_running(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+    release = threading.Event()
+
+    def slow(tools):
+        release.wait(5)
+        return "slow"
+
+    async def scenario(app, pilot):
+        try:
+            assert app.start_render(slow, lambda _: None)
+            await wait_for(pilot, lambda: app.rendering)
+
+            await pilot.press("x")
+            assert notes(app).count("still rendering — try again when it's done") == 1
+            assert not (ctx.settings.export_dir / NEW).exists()
+
+            await pilot.press("u")
+            assert notes(app).count("still rendering — try again when it's done") == 2
+            assert app.screen_stack == [app.screen_stack[0]]  # no BrowserScreen pushed
+            assert not app.browser_open
+
+            await pilot.press("d")
+            assert notes(app).count("still rendering — try again when it's done") == 3
+            assert app.screen_stack == [app.screen_stack[0]]  # no ConfirmModal pushed
+            assert ctx.tools.posts.folder(NEW).exists()
+        finally:
+            release.set()
+        await wait_for(pilot, lambda: not app.rendering)
+
+    run_app(ctx, scenario)
 
 
 def test_actions_without_a_post_warn(tmp_path):
