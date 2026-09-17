@@ -17,7 +17,7 @@ def readable_image(path: Path) -> bool:
         with PILImage.open(path) as img:
             img.verify()
         return True
-    except (OSError, SyntaxError, ValueError):
+    except (OSError, SyntaxError, ValueError, PILImage.DecompressionBombError):
         return False
 
 

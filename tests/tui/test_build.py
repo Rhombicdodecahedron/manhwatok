@@ -248,30 +248,34 @@ def test_matching_tags():
 
 
 class BlockingMetadata(FakeMetadata):
-    """FakeMetadata whose search() has per-call events; first call raises."""
+    """FakeMetadata whose search() has per-call events, created up front (no KeyError if the
+    first worker is slow); the first call raises. `finished` is set (from the fake's own
+    thread) right after each call raises or returns, so a test can wait for it to be over."""
 
     def __init__(self, results=(), tags=(), genres=()):
         super().__init__(results, tags, genres)
-        self.events: dict[str, threading.Event] = {}
+        self._lock = threading.Lock()
+        self.events = {"call_1": threading.Event(), "call_2": threading.Event()}
+        self.finished = {"call_1": threading.Event(), "call_2": threading.Event()}
 
     def search(self, query: SearchQuery):
-        self.queries.append(query)
-        call_num = len(self.queries)
+        with self._lock:
+            self.queries.append(query)
+            call_num = len(self.queries)
         event_key = f"call_{call_num}"
-        if event_key not in self.events:
-            self.events[event_key] = threading.Event()
         self.events[event_key].wait()
-        if call_num == 1:
-            raise ManhwatokError("first search failed")
-        return list(self.results)
+        try:
+            if call_num == 1:
+                raise ManhwatokError("first search failed")
+            return list(self.results)
+        finally:
+            self.finished[event_key].set()
 
 
 def test_cancelled_search_error_not_shown(tmp_path):
     """When a search is cancelled by a second search, the first's error doesn't appear."""
     meta = BlockingMetadata(CANDIDATES, tags=TAGS)
-    # Create a new context with the blocking metadata
-    from tests.tui.helpers import make_ctx as make_test_ctx
-    ctx = make_test_ctx(tmp_path, metadata=meta)
+    ctx = make_ctx(tmp_path, metadata=meta)
     ctx.store.accounts.add(Account(handle="reads", hashtags="#reads", song="Acct Song"))
     ctx.store.themes.add(REVENGE)
 
@@ -280,13 +284,13 @@ def test_cancelled_search_error_not_shown(tmp_path):
             pane = await _open_build(app, pilot)
             await _set(pilot, pane, tags="Revenge")
             pane.search()
-            await pilot.pause()
+            await wait_for(pilot, lambda: len(meta.queries) == 1)
             # Start a second search immediately (before first completes); this cancels the first
             pane.search()
-            await pilot.pause()
+            await wait_for(pilot, lambda: len(meta.queries) == 2)
             # Release the first search so it can fail (but it's already cancelled)
             meta.events["call_1"].set()
-            await pilot.pause()
+            await wait_for(pilot, lambda: meta.finished["call_1"].is_set())
             # Verify the first search's error never appeared in notifications
             assert not any("first search failed" in str(n) for n in notes(app))
             # Now release the second search which should succeed
@@ -410,11 +414,9 @@ def test_list_tags_error_shown_once(tmp_path):
         assert ctx.metadata.list_tags_calls == 1
         # Release the load, let it fail
         ctx.metadata.event.set()
-        await wait_for(pilot, lambda: "AniList unreachable" in str(notes(app)))
+        await wait_for(pilot, lambda: not pane._loading_tags)
         error_notes = [n for n in notes(app) if "AniList unreachable" in str(n)]
         assert len(error_notes) == 1
-        # Verify the loading flag was cleared so we can try again
-        assert not pane._loading_tags
         # Fix the fake and reset for next attempt
         ctx.metadata.should_fail = False
         ctx.metadata.event.clear()

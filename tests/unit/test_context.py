@@ -1,3 +1,5 @@
+import sqlite3
+
 import httpx
 import pytest
 
@@ -42,6 +44,15 @@ def test_cached_chapters_closes_the_inner_source_if_it_can(tmp_path):
 
 def test_store_uses_wal(tmp_path):
     with SqliteStore(tmp_path / "m.db") as store:
+        assert store.query(StorageError, "PRAGMA journal_mode") == [("wal",)]
+
+
+def test_a_rollback_journal_database_is_switched_to_wal(tmp_path):
+    path = tmp_path / "m.db"
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA journal_mode=DELETE")
+    conn.close()
+    with SqliteStore(path) as store:
         assert store.query(StorageError, "PRAGMA journal_mode") == [("wal",)]
 
 

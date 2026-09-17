@@ -89,6 +89,19 @@ def test_a_slide_that_isnt_an_image_gets_a_note(tmp_path):
     run_app(ctx, scenario)
 
 
+def test_readable_image_rejects_a_decompression_bomb(tmp_path, monkeypatch):
+    """A huge (or huge-claiming) image must be treated like any other unreadable slide, not
+    crash the preview with an uncaught PIL.Image.DecompressionBombError."""
+    from PIL import Image as PILImage
+
+    from manhwatok.tui.widgets.slide_preview import readable_image
+
+    path = tmp_path / "huge.png"
+    PILImage.new("RGB", (100, 100)).save(path)
+    monkeypatch.setattr(PILImage, "MAX_IMAGE_PIXELS", 1)
+    assert readable_image(path) is False
+
+
 def test_filter_by_account(tmp_path):
     ctx = make_ctx(tmp_path)
     _two_posts(ctx)
@@ -183,6 +196,28 @@ def test_song_sets_and_clears_the_posts_own_song(tmp_path):
         await pilot.press("x", "escape")
         await pilot.pause()
         assert ctx.tools.posts.get(NEW).song is None
+
+    run_app(ctx, scenario)
+
+
+def test_song_enter_without_editing_keeps_a_posts_explicit_no_song(tmp_path):
+    """A post whose own song is "" (explicitly no song) shows blank in the prompt too, just
+    like one that simply follows the account — pressing enter unedited must not turn that
+    explicit "no song" into "follow the account's song"."""
+    ctx = make_ctx(tmp_path)
+    ctx.store.accounts.add(Account(handle="reads", song="Acct Song"))
+    ctx.tools.posts.save(
+        post(id=NEW, account="reads", song="", created_at=datetime(2026, 9, 14, tzinfo=timezone.utc))
+    )
+
+    async def scenario(app, pilot):
+        await pilot.press("s")
+        await pilot.pause()
+        label = str(app.screen.query_one("Label").render())
+        assert label.startswith("this post has no song of its own — ")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert ctx.tools.posts.get(NEW).song == ""
 
     run_app(ctx, scenario)
 

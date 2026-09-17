@@ -40,7 +40,10 @@ class BrowserScreen(Screen[None]):
 
     def write(self, line: str) -> None:
         """Add a line to the log; safe from the worker thread."""
-        self.app.later(self.query_one(Log).write_line, line)
+        self.app.later(self._write_line, line)
+
+    def _write_line(self, line: str) -> None:
+        self.query_one(Log).write_line(line)
 
     def _run(self) -> None:
         try:

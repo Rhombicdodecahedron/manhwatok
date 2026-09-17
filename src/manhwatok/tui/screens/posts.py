@@ -277,10 +277,11 @@ class PostsPane(Vertical):
             self.app.fail(e)
             return
         default = f": {account_song}" if account_song else ", none"
-        prompt = f"Song for post {pid} — leave empty for the account's{default}"
+        prefix = "this post has no song of its own — " if post.song == "" else ""
+        prompt = f"{prefix}Song for post {pid} — leave empty for the account's{default}"
 
         def entered(value: str | None) -> None:
-            if value is None:
+            if value is None or value == (post.song or ""):
                 return
             try:
                 set_post_song(pid, value or None, ctx.tools.posts)
