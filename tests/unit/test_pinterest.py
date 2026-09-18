@@ -103,3 +103,28 @@ def test_a_missing_gallery_dl_says_how_to_get_it():
 
     with pytest.raises(ManhwatokError, match="gallery-dl"):
         PinterestSource(run=gallery).options(manhwa(title="Kubera"))
+
+
+def test_a_bare_search_asks_for_a_scene_by_default():
+    """'scene' is what moves Pinterest towards slide-shaped art; the bare title returns square
+    character portraits."""
+    gallery = Gallery([])
+    PinterestSource(run=gallery).options(manhwa(title="Kubera"))
+
+    assert "epic+fight+scene" in gallery.query
+
+
+def test_a_given_tag_replaces_the_default_rather_than_joining_it():
+    gallery = Gallery([])
+    PinterestSource(run=gallery).options(manhwa(title="Kubera"), tag="wallpaper")
+
+    assert "wallpaper" in gallery.query
+    assert "epic" not in gallery.query
+
+
+def test_an_empty_tag_searches_the_bare_title():
+    gallery = Gallery([])
+    PinterestSource(run=gallery).options(manhwa(title="Kubera"), tag="")
+
+    assert "epic" not in gallery.query
+    assert "Kubera" in gallery.query or "kubera" in gallery.query.lower()

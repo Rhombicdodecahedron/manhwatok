@@ -205,16 +205,23 @@ ordinary phrase collects whatever else shares it. Look at what you pick before y
 ### Asking for a kind of picture
 
 There is no "epic" to sort by — no source scores a picture on what is happening in it. What
-there is instead is the search itself, and Pinterest's ranking answers it:
+there is instead is the search itself, and Pinterest's ranking answers it. `--source pins`
+therefore searches for `epic fight scene` alongside the title unless told otherwise, because
+that is measurably the best generic phrase: over four titles and 120 pins apiece, the bare title
+returned square character portraits (68% near a slide's 9:16) and this returns scene art (75%,
+and 97% portrait at usable size).
+
+The word doing the work is "scene", not "epic". Phrases built on it all scored 62-78%, while
+`epic`, `epic moment` and `best moment` scored 50-53% — no better than no words at all.
+Judgement words describe quality; Pinterest indexes captions, where "scene" describes format.
 
 ```bash
-uv run manhwatok art <id> 72579 --list --source pins --tag "epic fight scene"
+uv run manhwatok art <id> 72579 --list --source pins                      # the default phrase
+uv run manhwatok art <id> 72579 --list --source pins --tag "fight scene wallpaper"
+uv run manhwatok art <id> 72579 --list --source pins --tag ""             # just the title
 ```
 
-`--tag` adds its words to the search, and the results come back in Pinterest's own order, which
-is the only thing here that knows what was meant. It moves them a long way: searching the title
-alone returns square character art (1489x1393, 1505x1378), while adding "epic fight scene"
-returns vertical, scene-shaped pictures (720x1445, 1080x1920).
+`--tag` replaces the default rather than adding to it, and `--tag ""` searches the bare title.
 
 `--order` then rearranges whatever came back:
 
