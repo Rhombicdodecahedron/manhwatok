@@ -55,12 +55,16 @@ def test_build_uploader_is_a_visible_playwright_browser(tmp_path):
     assert uploader._headless is False
 
 
-def test_build_art_source_is_mangadex_backed_by_the_given_cache(tmp_path):
+def test_build_art_sources_offers_covers_and_fanart(tmp_path):
+    from manhwatok.adapters.booru import BooruSource
     from manhwatok.adapters.mangadex import MangaDexSource
-    from manhwatok.app.container import build_art_source
+    from manhwatok.app.container import build_art_sources
+    from manhwatok.domain.models import ArtSourceName
 
     settings = Settings(data_dir=tmp_path)
     with build_store(settings) as store:
-        source = build_art_source(settings, store.cache)
-        assert isinstance(source, MangaDexSource)
-        source.close()
+        sources = build_art_sources(settings, store.cache)
+        assert isinstance(sources[ArtSourceName.COVERS], MangaDexSource)
+        assert isinstance(sources[ArtSourceName.FANART], BooruSource)
+        for source in sources.values():
+            source.close()

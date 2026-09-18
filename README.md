@@ -136,6 +136,33 @@ since it does not change once made. A title MangaDex doesn't carry simply lists 
 These are publisher volume covers, the same kind of art the tool already fetches — not
 scanlation pages, which carry the scanlator's watermark and the publisher's copyright.
 
+### Fan art from Danbooru
+
+`--source fanart` asks Danbooru instead, best-scored first:
+
+```bash
+uv run manhwatok art <id> 72579 --list --source fanart
+uv run manhwatok art <id> 72579 --list --source fanart --pick 1
+```
+
+Only art Danbooru rates general or sensitive is offered, never questionable or explicit — the
+highest-scored results for a title are routinely explicit, so this filter is not optional. It is
+applied here rather than in the search because Danbooru allows only two search terms, and both
+go on naming the title and ordering the results. Each
+option shows its score, size and artist, because this is art by individual people rather than a
+publisher: `★ 5  1260x1443  by nrynstr`.
+
+Coverage is thin and skewed to the best-known titles. Of twelve titles tried, five had a tag at
+all and only two had more than a couple of pictures; Solo Leveling alone has more than all of
+them together. Expect `no fanart found` for most of the long tail — which is exactly the part of
+the catalogue this tool exists to surface.
+
+A booru has no AniList id to pair on, only tag names, so a title is matched only when a
+*copyright* tag is named exactly after it. Matching loosely finds the wrong series outright —
+live, "The Return of the 8th Class Mage" matches a Gundam series and "I Am the Real One" matches
+a tag about clothing. Titles filed under another romanisation are missed as a result, which is
+the better way to be wrong: nothing beats the wrong series' art on a slide.
+
 The picture is copied into the post's folder, so it survives the original moving or being
 deleted, and every later `render` and `edit` keeps using it. It beats whatever the post's style
 would have fetched, and re-renders the post straight away. The rest of the slide is unchanged:
@@ -252,8 +279,9 @@ Everything the commands above do, in one window with four tabs (`1`–`4`, `q` q
   `--debug`), `d` delete, `f` show one account's posts.
 - **Art** (`a` on a post) — the post's titles on the left, with the picture each one is drawn
   with. `enter` on a title lists MangaDex's volume covers for it, `enter` on one of those
-  downloads it and re-renders; `u` takes a file path or URL you type, `c` goes back to the
-  style's own art, `o` opens the current picture in your image viewer, `esc` returns.
+  downloads it and re-renders; `s` swaps between those covers and Danbooru fan art, `u` takes a
+  file path or URL you type, `c` goes back to the style's own art, `o` opens the current picture
+  in your image viewer, `esc` returns.
 - **Build** — account, theme or tags/genres, and the post's style: hashtags, accent, emojis and
   art (blank = the account's, shown greyed out); **Search** opens the picks editor: `space`
   picks or drops a title, `shift+↑`/`shift+↓` reorder, `enter` edits a hook, `ctrl+s` saves and

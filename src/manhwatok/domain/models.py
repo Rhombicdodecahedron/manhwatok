@@ -25,6 +25,13 @@ class ArtStyle(StrEnum):
     CHARACTER = "character"  # the title's main character in place of the cover
 
 
+class ArtSourceName(StrEnum):
+    """Where a title's alternative art is looked for."""
+
+    COVERS = "covers"  # MangaDex volume covers: publisher art, paired on the AniList id
+    FANART = "fanart"  # Danbooru, best-scored and safe-rated only: art by individual artists
+
+
 class Manhwa(BaseModel):
     anilist_id: int
     title: str

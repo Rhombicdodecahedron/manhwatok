@@ -21,12 +21,14 @@ from manhwatok.app.art_options import list_art, use_art
 from manhwatok.app.item_art import clear_item_art, set_item_art
 from manhwatok.app.render_post import render_post
 from manhwatok.domain.errors import ManhwatokError
+from manhwatok.domain.models import ArtSourceName
 from manhwatok.ports.art import ArtOption
 from manhwatok.tui.text import clip
 from manhwatok.tui.widgets.dialogs import TextModal
 from manhwatok.tui.widgets.slide_preview import readable_image
 
 ART = "art"  # worker group: looking up what a source has, one title at a time
+LABEL_WIDTH = 44  # wide enough for "\u2605 99  1200x1800  by artist_name"
 
 
 class ArtScreen(Screen[None]):
@@ -34,7 +36,7 @@ class ArtScreen(Screen[None]):
     ArtScreen #heading { height: 1; padding: 0 1; text-style: bold; }
     ArtScreen #columns { height: 1fr; }
     ArtScreen #titles-box { width: 2fr; }
-    ArtScreen #covers-box { width: 1fr; }
+    ArtScreen #covers-box { width: 2fr; }
     ArtScreen #art-box { width: 1fr; align-horizontal: center; }
     ArtScreen Label { padding: 0 1; text-style: bold; }
     ArtScreen DataTable { height: 1fr; }
@@ -42,6 +44,7 @@ class ArtScreen(Screen[None]):
     ArtScreen #art-info { height: auto; }
     """
     BINDINGS = [
+        Binding("s", "switch_source", "Covers/fan art"),
         Binding("u", "from_hand", "File/URL"),
         Binding("c", "clear", "Clear art"),
         Binding("o", "open", "Open picture"),
@@ -58,6 +61,8 @@ class ArtScreen(Screen[None]):
         self.post_id = post_id
         self.options: list[ArtOption] = []
         self.looking_up = False
+        self.source_name = ArtSourceName.COVERS
+        self.looked_up: int | None = None  # the title the listed options belong to
 
     def compose(self) -> ComposeResult:
         yield Static(f"Art for post {self.post_id}", id="heading", markup=False)
@@ -66,7 +71,7 @@ class ArtScreen(Screen[None]):
                 yield Label("Titles  (enter: its covers)")
                 yield DataTable(id="titles", cursor_type="row")
             with Vertical(id="covers-box"):
-                yield Label("Covers  (enter: use)")
+                yield Label(_source_label(ArtSourceName.COVERS), id="covers-label")
                 yield DataTable(id="covers", cursor_type="row")
             with Vertical(id="art-box"):
                 yield Image(id="art-preview")
@@ -81,6 +86,11 @@ class ArtScreen(Screen[None]):
         titles.focus()
 
     # --- what is on screen ---------------------------------------------------------------
+
+    @property
+    def source(self):
+        """The art source the screen is currently offering."""
+        return self.app.ctx.art_sources[self.source_name]
 
     @property
     def post(self):
@@ -148,11 +158,11 @@ class ArtScreen(Screen[None]):
         self.looking_up = True
         self.query_one("#covers", DataTable).clear()
         self.options = []
-        app, post_id = self.app, self.post_id
+        app, post_id, source = self.app, self.post_id, self.source
 
         def run() -> None:
             try:
-                found = list_art(post_id, anilist_id, app.ctx.tools, app.ctx.art)
+                found = list_art(post_id, anilist_id, app.ctx.tools, source)
             except ManhwatokError as e:
                 app.fail(e)
                 app.later(self._looked_up, [])
@@ -164,13 +174,16 @@ class ArtScreen(Screen[None]):
     def _looked_up(self, found: list[ArtOption]) -> None:
         self.looking_up = False
         self.options = list(found)
+        self.looked_up = self._selected_id()
         covers = self.query_one("#covers", DataTable)
         covers.clear()
         if not found:
-            self.app.notify("no covers found for that title", severity="warning")
+            self.app.notify(
+                f"no {self.source_name} found for that title", severity="warning"
+            )
             return
         for number, option in enumerate(found, 1):
-            covers.add_row(str(number), clip(option.label, 20))
+            covers.add_row(str(number), clip(option.label, LABEL_WIDTH))
         covers.move_cursor(row=0)
         covers.focus()
 
@@ -180,9 +193,9 @@ class ArtScreen(Screen[None]):
         anilist_id = self._selected_id()
         if anilist_id is None:
             return
-        option = self.options[index]
+        option, source = self.options[index], self.source
         self._apply(
-            lambda tools: use_art(self.post_id, anilist_id, option, tools, self.app.ctx.art),
+            lambda tools: use_art(self.post_id, anilist_id, option, tools, source),
             f"using {option.label} for {anilist_id}",
         )
 
@@ -206,6 +219,18 @@ class ArtScreen(Screen[None]):
 
     def action_noop(self) -> None:
         """Swallow the app's tab keys, so they don't switch tabs behind this screen."""
+
+    def action_switch_source(self) -> None:
+        """Swap publisher covers for fan art and back. Only re-asks once something was listed,
+        so switching before a lookup costs no request."""
+        self.source_name = (
+            ArtSourceName.FANART
+            if self.source_name is ArtSourceName.COVERS
+            else ArtSourceName.COVERS
+        )
+        self.query_one("#covers-label", Label).update(_source_label(self.source_name))
+        if self.looked_up is not None:
+            self._look_up()
 
     def action_clear(self) -> None:
         anilist_id = self._selected_id()
@@ -249,6 +274,11 @@ class ArtScreen(Screen[None]):
             self.app.notify("still rendering — try again when it's done", severity="warning")
             return
         self.dismiss(None)
+
+
+def _source_label(name: ArtSourceName) -> str:
+    what = "Covers" if name is ArtSourceName.COVERS else "Fan art"
+    return f"{what}  (enter: use, s: swap)"
 
 
 def _set_by_hand(post_id: str, anilist_id: int, given: str, tools) -> Path:

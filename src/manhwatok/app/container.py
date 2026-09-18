@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from manhwatok.app.post_tools import EditorFn, PostTools, ProgressFn
 from manhwatok.config import Settings
+from manhwatok.domain.models import ArtSourceName
 from manhwatok.ports.art import ArtSource
 from manhwatok.ports.cache import Cache
 from manhwatok.ports.metadata import ChapterSource, MetadataSource
@@ -42,16 +43,23 @@ def build_chapter_source(settings: Settings, cache: Cache) -> ChapterSource:
     )
 
 
-def build_art_source(settings: Settings, cache: Cache) -> ArtSource:
-    """Volume covers from MangaDex. The AniList-to-MangaDex pairing it has to work out first is
-    cached in the database, since that pairing does not change once made."""
+def build_art_sources(settings: Settings, cache: Cache) -> dict[ArtSourceName, ArtSource]:
+    """Every place a title's art can come from, by the name the CLI and TUI call it.
+
+    Both pair a title to their own catalogue first, and that pairing is cached in the database,
+    since it does not change once made."""
+    from manhwatok.adapters.booru import BooruSource
     from manhwatok.adapters.mangadex import MangaDexSource
 
-    return MangaDexSource(
-        cache=cache,
-        max_age=settings.art_cache_days * 24 * 3600,
-        timeout=settings.http_timeout,
-    )
+    max_age = settings.art_cache_days * 24 * 3600
+    return {
+        ArtSourceName.COVERS: MangaDexSource(
+            cache=cache, max_age=max_age, timeout=settings.http_timeout
+        ),
+        ArtSourceName.FANART: BooruSource(
+            cache=cache, max_age=max_age, timeout=settings.http_timeout
+        ),
+    }
 
 
 def build_posts(settings: Settings) -> PostRepository:

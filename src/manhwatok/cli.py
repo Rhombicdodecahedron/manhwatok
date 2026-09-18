@@ -8,7 +8,7 @@ import typer
 
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import ArtStyle, SearchQuery, Sort
+from manhwatok.domain.models import ArtSourceName, ArtStyle, SearchQuery, Sort
 
 app = typer.Typer(
     help="Themed manhwa recommendation slideshows for TikTok.", no_args_is_help=True
@@ -365,13 +365,19 @@ def art(
         False, "--list", help="List the volume covers MangaDex has for this title."
     ),
     pick: Optional[int] = typer.Option(
-        None, "--pick", metavar="N", help="Use the Nth cover from --list."
+        None, "--pick", metavar="N", help="Use the Nth picture from --list."
+    ),
+    source: ArtSourceName = typer.Option(
+        ArtSourceName.COVERS,
+        "--source",
+        help="Where --list looks: 'covers' (MangaDex volume covers) or 'fanart' (Danbooru, "
+        "best-scored and safe-rated only).",
     ),
 ) -> None:
     """Use a picture of your own for one title, instead of the art its style would fetch.
 
-    With --list, offers the title's volume covers from MangaDex instead: AniList has one cover
-    per title, MangaDex usually has the whole run.
+    With --list, offers what another catalogue has for the title instead: MangaDex's volume
+    covers by default, or fan art from Danbooru with --source fanart.
     """
     import tempfile
 
@@ -400,17 +406,20 @@ def art(
         tools = _tools(settings)
         if show or pick is not None:
             with container.build_store(settings) as store:
-                source = container.build_art_source(settings, store.cache)
+                sources = container.build_art_sources(settings, store.cache)
+                art_source = sources[source]
+                where = "" if source is ArtSourceName.COVERS else f" --source {source.value}"
                 try:
-                    options = list_art(post_id, anilist_id, tools, source)
+                    options = list_art(post_id, anilist_id, tools, art_source)
                     if show:
                         if not options:
-                            typer.echo(f"no covers found for {anilist_id}")
+                            typer.echo(f"no {source.value} found for {anilist_id}")
                             return
                         for number, option in enumerate(options, 1):
                             typer.echo(f"  {number}  {option.label}")
                         typer.echo(
-                            f"use one with: manhwatok art {post_id} {anilist_id} --pick N"
+                            f"use one with: manhwatok art {post_id} {anilist_id}"
+                            f"{where} --pick N"
                         )
                         return
                     if not 1 <= pick <= len(options):
@@ -418,10 +427,11 @@ def art(
                         raise ManhwatokError(f"no cover {pick} for {anilist_id} — it has {many}")
                     chosen = options[pick - 1]
                     typer.echo(f"downloading {chosen.label}")
-                    kept = use_art(post_id, anilist_id, chosen, tools, source)
+                    kept = use_art(post_id, anilist_id, chosen, tools, art_source)
                     typer.echo(f"using {kept.name} ({chosen.label}) for {anilist_id}")
                 finally:
-                    getattr(source, "close", lambda: None)()
+                    for built in sources.values():
+                        getattr(built, "close", lambda: None)()
         elif clear:
             clear_item_art(post_id, anilist_id, tools)
             typer.echo(f"dropped the picked art for {anilist_id}")

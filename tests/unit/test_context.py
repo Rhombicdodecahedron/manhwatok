@@ -12,7 +12,9 @@ from manhwatok.adapters.playwright_uploader import PlaywrightUploader
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app.context import open_context
 from manhwatok.config import Settings
+from manhwatok.adapters.booru import BooruSource
 from manhwatok.domain.errors import StorageError
+from manhwatok.domain.models import ArtSourceName
 from tests.unit.fakes import FakeChapters
 
 
@@ -23,8 +25,9 @@ from tests.unit.fakes import FakeChapters
         lambda client, folder: MangaUpdatesSource(client=client),
         lambda client, folder: CoverCache(folder, client=client),
         lambda client, folder: MangaDexSource(client=client),
+        lambda client, folder: BooruSource(client=client),
     ],
-    ids=["anilist", "mangaupdates", "covers", "mangadex"],
+    ids=["anilist", "mangaupdates", "covers", "mangadex", "booru"],
 )
 def test_sources_close_only_the_client_they_created(make, tmp_path):
     given = httpx.Client()
@@ -64,7 +67,8 @@ def test_open_context_wires_real_adapters_and_closes_them_once(tmp_path):
     assert isinstance(ctx.metadata, AniListSource)
     assert isinstance(ctx.chapters, CachedChapterSource)
     assert isinstance(ctx.tools.covers, CoverCache)
-    assert isinstance(ctx.art, MangaDexSource)
+    assert isinstance(ctx.art_sources[ArtSourceName.COVERS], MangaDexSource)
+    assert isinstance(ctx.art_sources[ArtSourceName.FANART], BooruSource)
     assert ctx.tools.editor("x") is None
     assert ctx.tools.posts.folder("20260914-a3f9") == tmp_path / "posts" / "20260914-a3f9"
     assert isinstance(ctx.uploader(), PlaywrightUploader)
@@ -73,7 +77,7 @@ def test_open_context_wires_real_adapters_and_closes_them_once(tmp_path):
     assert ctx.metadata._client.is_closed
     assert ctx.tools.covers._client.is_closed
     assert ctx.chapters._inner._client.is_closed
-    assert ctx.art._client.is_closed
+    assert all(s._client.is_closed for s in ctx.art_sources.values())
     with pytest.raises(StorageError):
         ctx.store.accounts.list()
     ctx.close()  # second close does nothing

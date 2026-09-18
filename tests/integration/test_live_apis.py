@@ -78,3 +78,37 @@ def test_mangadex_has_nothing_for_an_anilist_id_it_does_not_carry():
     finally:
         source.close()
     assert options == []
+
+
+def test_booru_offers_safe_scored_fan_art_for_a_title_it_carries():
+    from manhwatok.adapters.booru import BooruSource
+
+    source = BooruSource()
+    try:
+        options = source.options(
+            Manhwa(anilist_id=72579, title="Kubera", romaji="Kubera", status=Status.RELEASING)
+        )
+    finally:
+        source.close()
+    assert options, "Danbooru had no safe-rated art for a title it is known to tag"
+    assert all(o.url.startswith("https://") for o in options)
+    assert all(o.label.startswith("★") for o in options)
+
+
+def test_booru_does_not_match_a_title_to_an_unrelated_series():
+    """Live, a loose name match pairs this title with a Gundam series; an exact one must not."""
+    from manhwatok.adapters.booru import BooruSource
+
+    source = BooruSource()
+    try:
+        options = source.options(
+            Manhwa(
+                anilist_id=136331,
+                title="The Return of the 8th Class Mage",
+                romaji="8 Class Mabeopsaui Hoegwi",
+                status=Status.RELEASING,
+            )
+        )
+    finally:
+        source.close()
+    assert options == []

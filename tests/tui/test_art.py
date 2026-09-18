@@ -13,8 +13,8 @@ VOL1 = ArtOption("vol. 1", "https://x.test/1.jpg")
 VOL2 = ArtOption("vol. 2", "https://x.test/2.jpg")
 
 
-def _ready(tmp_path, art=None):
-    ctx = make_ctx(tmp_path, art=art)
+def _ready(tmp_path, art=None, fanart=None):
+    ctx = make_ctx(tmp_path, art=art, fanart=fanart)
     ctx.tools.posts.save(post(id=PID))
     render_post(PID, ctx.tools)
     return ctx
@@ -144,3 +144,49 @@ def test_o_opens_the_picked_art_and_warns_when_there_is_none(tmp_path):
         assert opened == [ctx.tools.posts.folder(PID) / "art-1.jpg"]
 
     run_app(ctx, scenario, opener=opened)
+
+
+FAN1 = ArtOption("★ 99  900x1400  by someone", "https://x.test/fan.jpg")
+
+
+def test_s_switches_between_covers_and_fan_art(tmp_path):
+    ctx = _ready(
+        tmp_path,
+        art=FakeArtSource({1: [VOL1, VOL2]}),
+        fanart=FakeArtSource({1: [FAN1]}),
+    )
+
+    async def scenario(app, pilot):
+        await pilot.press("a")
+        await pilot.pause()
+        await pilot.press("enter")
+        await wait_for(pilot, lambda: _table_rows(app, "covers"))
+        assert [r[1] for r in _table_rows(app, "covers")] == ["vol. 1", "vol. 2"]
+
+        await pilot.press("s")
+        await wait_for(pilot, lambda: len(_table_rows(app, "covers")) == 1)
+        assert [r[1] for r in _table_rows(app, "covers")] == [FAN1.label]
+
+        await pilot.press("s")
+        await wait_for(pilot, lambda: len(_table_rows(app, "covers")) == 2)
+
+    run_app(ctx, scenario)
+
+
+def test_fan_art_is_used_from_the_fan_art_source(tmp_path):
+    fanart = FakeArtSource({1: [FAN1]})
+    ctx = _ready(tmp_path, art=FakeArtSource({1: [VOL1]}), fanart=fanart)
+
+    async def scenario(app, pilot):
+        await pilot.press("a")
+        await pilot.pause()
+        await pilot.press("s")
+        await pilot.pause()
+        await pilot.press("enter")
+        await wait_for(pilot, lambda: _table_rows(app, "covers"))
+        await pilot.press("enter")
+        await wait_for(pilot, lambda: ctx.tools.posts.get(PID).items[0].custom_art)
+
+        assert fanart.fetched == [FAN1.url]
+
+    run_app(ctx, scenario)

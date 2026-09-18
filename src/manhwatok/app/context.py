@@ -11,6 +11,7 @@ from manhwatok.app import container
 from manhwatok.app.names import AniListNames
 from manhwatok.app.post_tools import PostTools
 from manhwatok.config import Settings
+from manhwatok.domain.models import ArtSourceName
 from manhwatok.ports.art import ArtSource
 from manhwatok.ports.metadata import ChapterSource, MetadataSource
 from manhwatok.ports.uploader import Uploader
@@ -31,7 +32,7 @@ class AppContext:
     metadata: MetadataSource
     chapters: ChapterSource
     tools: PostTools
-    art: ArtSource
+    art_sources: dict[ArtSourceName, ArtSource]
     uploader_factory: Callable[[], Uploader]
     closers: list[Any] = field(default_factory=list)  # objects with close(), closed in order
     _closed: bool = False
@@ -59,14 +60,14 @@ def open_context(settings: Settings) -> AppContext:
     metadata = container.build_metadata(settings)
     chapters = container.build_chapter_source(settings, store.cache)
     tools = container.build_post_tools(settings, _no_editor, lambda _: None)
-    art = container.build_art_source(settings, store.cache)
+    art_sources = container.build_art_sources(settings, store.cache)
     return AppContext(
         settings=settings,
         store=store,
         metadata=metadata,
         chapters=chapters,
         tools=tools,
-        art=art,
+        art_sources=art_sources,
         uploader_factory=lambda: container.build_uploader(settings),
-        closers=[tools.covers, art, chapters, metadata, store],
+        closers=[tools.covers, *art_sources.values(), chapters, metadata, store],
     )
