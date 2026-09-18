@@ -29,6 +29,13 @@ from manhwatok.tui.widgets.slide_preview import readable_image
 
 ART = "art"  # worker group: looking up what a source has, one title at a time
 LABEL_WIDTH = 44  # wide enough for "\u2605 99  1200x1800  by artist_name"
+# The order `s` walks through, and what to call each one on screen.
+SOURCES = (ArtSourceName.COVERS, ArtSourceName.FANART, ArtSourceName.PINS)
+SOURCE_NAMES = {
+    ArtSourceName.COVERS: "Covers",
+    ArtSourceName.FANART: "Fan art",
+    ArtSourceName.PINS: "Pins",
+}
 
 
 class ArtScreen(Screen[None]):
@@ -44,7 +51,7 @@ class ArtScreen(Screen[None]):
     ArtScreen #art-info { height: auto; }
     """
     BINDINGS = [
-        Binding("s", "switch_source", "Covers/fan art"),
+        Binding("s", "switch_source", "Source"),
         Binding("u", "from_hand", "File/URL"),
         Binding("c", "clear", "Clear art"),
         Binding("o", "open", "Open picture"),
@@ -221,13 +228,9 @@ class ArtScreen(Screen[None]):
         """Swallow the app's tab keys, so they don't switch tabs behind this screen."""
 
     def action_switch_source(self) -> None:
-        """Swap publisher covers for fan art and back. Only re-asks once something was listed,
-        so switching before a lookup costs no request."""
-        self.source_name = (
-            ArtSourceName.FANART
-            if self.source_name is ArtSourceName.COVERS
-            else ArtSourceName.COVERS
-        )
+        """Step to the next source. Only re-asks once something was listed, so switching before
+        a lookup costs no request."""
+        self.source_name = SOURCES[(SOURCES.index(self.source_name) + 1) % len(SOURCES)]
         self.query_one("#covers-label", Label).update(_source_label(self.source_name))
         if self.looked_up is not None:
             self._look_up()
@@ -277,8 +280,7 @@ class ArtScreen(Screen[None]):
 
 
 def _source_label(name: ArtSourceName) -> str:
-    what = "Covers" if name is ArtSourceName.COVERS else "Fan art"
-    return f"{what}  (enter: use, s: swap)"
+    return f"{SOURCE_NAMES[name]}  (enter: use, s: next source)"
 
 
 def _set_by_hand(post_id: str, anilist_id: int, given: str, tools) -> Path:

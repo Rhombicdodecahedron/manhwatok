@@ -179,6 +179,32 @@ live, "The Return of the 8th Class Mage" matches a Gundam series and "I Am the R
 a tag about clothing. Titles filed under another romanisation are missed as a result, which is
 the better way to be wrong: nothing beats the wrong series' art on a slide.
 
+### A Pinterest search
+
+`--source pins` searches Pinterest, biggest picture first:
+
+```bash
+uv sync --extra pinterest                                   # once: installs gallery-dl
+uv run manhwatok art <id> 72579 --list --source pins
+uv run manhwatok art <id> 72579 --list --source pins --tag fanart
+```
+
+This finds far more than the other two. Long-tail titles with no MangaDex covers and no booru
+tag usually have something here, often already at slide proportions — 1080x1920 and 1440x1920
+both come back for Kubera.
+
+What it cannot give you is a name. Pinterest records no origin for a pin: the source link is
+empty and the domain reads "Uploaded by user" on essentially everything, so no artist is shown
+because there is none to show. Most pins are re-uploads of someone's work with the credit
+already stripped. On an account that grows, that is the thing to weigh — `--source covers` is
+publisher art and carries none of it.
+
+There is also no id to pair a title on, only the words searched, so a title whose name is an
+ordinary phrase collects whatever else shares it. Look at what you pick before you post it.
+
+Pinterest has no public search API, so this shells out to `gallery-dl` rather than keeping
+scraping code here. Without the extra installed it says so and does nothing.
+
 The picture is copied into the post's folder, so it survives the original moving or being
 deleted, and every later `render` and `edit` keeps using it. It beats whatever the post's style
 would have fetched, and re-renders the post straight away. The rest of the slide is unchanged:
@@ -295,8 +321,8 @@ Everything the commands above do, in one window with four tabs (`1`–`4`, `q` q
   `--debug`), `d` delete, `f` show one account's posts.
 - **Art** (`a` on a post) — the post's titles on the left, with the picture each one is drawn
   with. `enter` on a title lists MangaDex's volume covers for it, `enter` on one of those
-  downloads it and re-renders; `s` swaps between those covers and Danbooru fan art, `u` takes a
-  file path or URL you type, `c` goes back to the style's own art, `o` opens the current picture
+  downloads it and re-renders; `s` steps through the sources (covers, fan art, pins), `u` takes
+  a file path or URL you type, `c` goes back to the style's own art, `o` opens the current picture
   in your image viewer, `esc` returns.
 - **Build** — account, theme or tags/genres, and the post's style: hashtags, accent, emojis and
   art (blank = the account's, shown greyed out); **Search** opens the picks editor: `space`

@@ -370,14 +370,14 @@ def art(
     source: ArtSourceName = typer.Option(
         ArtSourceName.COVERS,
         "--source",
-        help="Where --list looks: 'covers' (MangaDex volume covers) or 'fanart' (Danbooru, "
-        "best-scored and safe-rated only).",
+        help="Where --list looks: 'covers' (MangaDex volume covers), 'fanart' (Danbooru, "
+        "best-scored and safe-rated only) or 'pins' (a Pinterest search, needs gallery-dl).",
     ),
     tag: Optional[str] = typer.Option(
         None,
         "--tag",
-        help="Narrow --source fanart to art also tagged this, e.g. 'full_body'. Costs the "
-        "score ordering in the search, so results are ranked afterwards instead.",
+        help="Extra words for --source fanart or pins, e.g. 'full_body'. On fanart it costs "
+        "the score ordering, so results are ranked afterwards instead.",
     ),
 ) -> None:
     """Use a picture of your own for one title, instead of the art its style would fetch.
@@ -406,10 +406,10 @@ def art(
     if len(asked) != 1:
         got = f" (got {', '.join(asked)})" if asked else ""
         _fail(ManhwatokError(f"give exactly one of: a picture, --clear, --list or --pick N{got}"))
-    if tag and source is not ArtSourceName.FANART:
+    if tag and source is ArtSourceName.COVERS:
         _fail(
             ManhwatokError(
-                f"--tag only narrows --source fanart; {source.value} has no such vocabulary"
+                "--tag narrows --source fanart or pins; covers has no such vocabulary"
             )
         )
 

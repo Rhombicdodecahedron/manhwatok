@@ -578,22 +578,24 @@ def test_art_expands_a_tilde_path(wire, tmp_path, monkeypatch):
     assert repo.get(post_id).items[0].custom_art == "art-11.png"
 
 
-def _wire_art(monkeypatch, options=None, error=None, fanart=None):
-    """Point the CLI's art sources at scripted ones; returns (covers, fanart)."""
+def _wire_art(monkeypatch, options=None, error=None, fanart=None, pins=None):
+    """Point the CLI's art sources at scripted ones; returns (covers, fanart, pins)."""
     from manhwatok.domain.models import ArtSourceName
     from tests.unit.fakes import FakeArtSource
 
     covers = FakeArtSource(options, error)
     fan = FakeArtSource(fanart or {})
+    pinned = FakeArtSource(pins or {})
     monkeypatch.setattr(
         container,
         "build_art_sources",
         lambda settings, cache: {
             ArtSourceName.COVERS: covers,
             ArtSourceName.FANART: fan,
+            ArtSourceName.PINS: pinned,
         },
     )
-    return covers, fan
+    return covers, fan, pinned
 
 
 def test_art_list_shows_the_numbered_covers_the_source_has(wire, monkeypatch):
@@ -624,7 +626,7 @@ def test_art_pick_downloads_that_cover_and_uses_it(wire, monkeypatch):
     from manhwatok.ports.art import ArtOption
 
     repo, _ = wire()
-    source, _ = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg"),
+    source, _, _ = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg"),
                                              ArtOption("vol. 2", "https://x.test/2.jpg")]})
     built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
     post_id = _post_id(built.output)
@@ -640,7 +642,7 @@ def test_art_pick_out_of_range_says_the_range_instead_of_crashing(wire, monkeypa
     from manhwatok.ports.art import ArtOption
 
     wire()
-    source, _ = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
+    source, _, _ = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
     built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
     out = runner.invoke(app, ["art", _post_id(built.output), "11", "--pick", "7"])
 
@@ -655,7 +657,7 @@ def test_art_rejects_pick_together_with_a_file(wire, monkeypatch, tmp_path):
 
     wire()
     # A cover that --pick 1 would happily use, so only the conflict itself can fail this.
-    source, _ = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
+    source, _, _ = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
     built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
     out = runner.invoke(
         app, ["art", _post_id(built.output), "11", str(_pick_file(tmp_path)), "--pick", "1"]
@@ -688,7 +690,7 @@ def test_art_pick_source_fanart_downloads_from_the_fan_art_source(wire, monkeypa
     from manhwatok.ports.art import ArtOption
 
     wire()
-    covers, fan = _wire_art(
+    covers, fan, _ = _wire_art(
         monkeypatch,
         {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]},
         fanart={11: [ArtOption("\u2605 99  900x1400  by someone", "https://x.test/fan.jpg")]},
@@ -707,7 +709,7 @@ def test_art_defaults_to_covers_when_no_source_is_given(wire, monkeypatch):
     from manhwatok.ports.art import ArtOption
 
     wire()
-    covers, fan = _wire_art(
+    covers, fan, _ = _wire_art(
         monkeypatch,
         {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]},
         fanart={11: [ArtOption("fan", "https://x.test/fan.jpg")]},
@@ -724,7 +726,7 @@ def test_art_tag_narrows_the_fan_art_search(wire, monkeypatch):
     from manhwatok.ports.art import ArtOption
 
     wire()
-    _, fan = _wire_art(
+    _, fan, _ = _wire_art(
         monkeypatch,
         {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]},
         fanart={11: [ArtOption("★ 9  900x1400  by someone", "https://x.test/fan.jpg")]},
@@ -743,7 +745,7 @@ def test_art_without_a_tag_narrows_nothing(wire, monkeypatch):
     from manhwatok.ports.art import ArtOption
 
     wire()
-    _, fan = _wire_art(
+    _, fan, _ = _wire_art(
         monkeypatch,
         {},
         fanart={11: [ArtOption("★ 9  900x1400  by someone", "https://x.test/fan.jpg")]},
@@ -758,12 +760,32 @@ def test_art_tag_with_the_covers_source_is_an_error(wire, monkeypatch):
     from manhwatok.ports.art import ArtOption
 
     wire()
-    covers, _ = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
+    covers, _, _ = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
     built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
     out = runner.invoke(
         app, ["art", _post_id(built.output), "11", "--list", "--tag", "full_body"]
     )
 
     assert out.exit_code == 1, out.output
-    assert "--tag" in out.output and "fanart" in out.output
+    assert "--tag" in out.output and "covers has no such vocabulary" in out.output
     assert covers.tags == []
+
+
+def test_art_pins_source_uses_pinterest_and_accepts_a_tag(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    wire()
+    _, _, pinned = _wire_art(
+        monkeypatch,
+        {},
+        pins={11: [ArtOption("1489x1393  (no artist recorded)", "https://i.test/a.jpg")]},
+    )
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(
+        app,
+        ["art", _post_id(built.output), "11", "--list", "--source", "pins", "--tag", "fanart"],
+    )
+
+    assert out.exit_code == 0, out.output
+    assert pinned.tags == ["fanart"]
+    assert "no artist recorded" in out.output

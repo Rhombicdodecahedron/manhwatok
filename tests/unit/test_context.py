@@ -8,6 +8,7 @@ from manhwatok.adapters.cached_chapters import CachedChapterSource
 from manhwatok.adapters.cover_cache import CoverCache
 from manhwatok.adapters.mangadex import MangaDexSource
 from manhwatok.adapters.mangaupdates import MangaUpdatesSource
+from manhwatok.adapters.pinterest import PinterestSource
 from manhwatok.adapters.playwright_uploader import PlaywrightUploader
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app.context import open_context
@@ -69,6 +70,7 @@ def test_open_context_wires_real_adapters_and_closes_them_once(tmp_path):
     assert isinstance(ctx.tools.covers, CoverCache)
     assert isinstance(ctx.art_sources[ArtSourceName.COVERS], MangaDexSource)
     assert isinstance(ctx.art_sources[ArtSourceName.FANART], BooruSource)
+    assert isinstance(ctx.art_sources[ArtSourceName.PINS], PinterestSource)
     assert ctx.tools.editor("x") is None
     assert ctx.tools.posts.folder("20260914-a3f9") == tmp_path / "posts" / "20260914-a3f9"
     assert isinstance(ctx.uploader(), PlaywrightUploader)
@@ -77,7 +79,13 @@ def test_open_context_wires_real_adapters_and_closes_them_once(tmp_path):
     assert ctx.metadata._client.is_closed
     assert ctx.tools.covers._client.is_closed
     assert ctx.chapters._inner._client.is_closed
-    assert all(s._client.is_closed for s in ctx.art_sources.values())
+    # Pinterest runs a process per search and holds no client, so only the HTTP-backed ones
+    # have something to close.
+    assert all(
+        s._client.is_closed for s in ctx.art_sources.values() if hasattr(s, "_client")
+    )
+    assert ctx.art_sources[ArtSourceName.COVERS]._client.is_closed
+    assert ctx.art_sources[ArtSourceName.FANART]._client.is_closed
     with pytest.raises(StorageError):
         ctx.store.accounts.list()
     ctx.close()  # second close does nothing

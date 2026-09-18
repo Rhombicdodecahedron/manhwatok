@@ -30,6 +30,9 @@ tui = [
     "textual>=1.0",
     "textual-image>=0.8",
 ]
+pinterest = [
+    "gallery-dl>=1.27",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

@@ -37,7 +37,13 @@ class PngRenderer(FakeRenderer):
 
 
 def make_ctx(
-    tmp_path: Path, metadata=None, uploader=None, covers=None, art=None, fanart=None
+    tmp_path: Path,
+    metadata=None,
+    uploader=None,
+    covers=None,
+    art=None,
+    fanart=None,
+    pins=None,
 ) -> AppContext:
     """A context on a real database and real post folders under tmp_path, fakes elsewhere.
     Every `uploader()` call returns the same `uploader` (a FakeUploader by default)."""
@@ -52,6 +58,7 @@ def make_ctx(
         art_sources={
             ArtSourceName.COVERS: art or FakeArtSource(),
             ArtSourceName.FANART: fanart or FakeArtSource(),
+            ArtSourceName.PINS: pins or FakeArtSource(),
         },
         uploader_factory=lambda: browser,
         closers=[store],

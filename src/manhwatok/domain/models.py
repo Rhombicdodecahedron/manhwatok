@@ -30,6 +30,7 @@ class ArtSourceName(StrEnum):
 
     COVERS = "covers"  # MangaDex volume covers: publisher art, paired on the AniList id
     FANART = "fanart"  # Danbooru, best-scored and safe-rated only: art by individual artists
+    PINS = "pins"  # a Pinterest search: most pictures, no artist recorded for any of them
 
 
 class Manhwa(BaseModel):

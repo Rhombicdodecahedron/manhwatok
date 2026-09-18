@@ -50,6 +50,7 @@ def build_art_sources(settings: Settings, cache: Cache) -> dict[ArtSourceName, A
     since it does not change once made."""
     from manhwatok.adapters.booru import BooruSource
     from manhwatok.adapters.mangadex import MangaDexSource
+    from manhwatok.adapters.pinterest import PinterestSource
 
     max_age = settings.art_cache_days * 24 * 3600
     return {
@@ -59,6 +60,7 @@ def build_art_sources(settings: Settings, cache: Cache) -> dict[ArtSourceName, A
         ArtSourceName.FANART: BooruSource(
             cache=cache, max_age=max_age, timeout=settings.http_timeout
         ),
+        ArtSourceName.PINS: PinterestSource(),
     }
 
 

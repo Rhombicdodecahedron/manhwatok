@@ -13,8 +13,8 @@ VOL1 = ArtOption("vol. 1", "https://x.test/1.jpg")
 VOL2 = ArtOption("vol. 2", "https://x.test/2.jpg")
 
 
-def _ready(tmp_path, art=None, fanart=None):
-    ctx = make_ctx(tmp_path, art=art, fanart=fanart)
+def _ready(tmp_path, art=None, fanart=None, pins=None):
+    ctx = make_ctx(tmp_path, art=art, fanart=fanart, pins=pins)
     ctx.tools.posts.save(post(id=PID))
     render_post(PID, ctx.tools)
     return ctx
@@ -149,30 +149,6 @@ def test_o_opens_the_picked_art_and_warns_when_there_is_none(tmp_path):
 FAN1 = ArtOption("★ 99  900x1400  by someone", "https://x.test/fan.jpg")
 
 
-def test_s_switches_between_covers_and_fan_art(tmp_path):
-    ctx = _ready(
-        tmp_path,
-        art=FakeArtSource({1: [VOL1, VOL2]}),
-        fanart=FakeArtSource({1: [FAN1]}),
-    )
-
-    async def scenario(app, pilot):
-        await pilot.press("a")
-        await pilot.pause()
-        await pilot.press("enter")
-        await wait_for(pilot, lambda: _table_rows(app, "covers"))
-        assert [r[1] for r in _table_rows(app, "covers")] == ["vol. 1", "vol. 2"]
-
-        await pilot.press("s")
-        await wait_for(pilot, lambda: len(_table_rows(app, "covers")) == 1)
-        assert [r[1] for r in _table_rows(app, "covers")] == [FAN1.label]
-
-        await pilot.press("s")
-        await wait_for(pilot, lambda: len(_table_rows(app, "covers")) == 2)
-
-    run_app(ctx, scenario)
-
-
 def test_fan_art_is_used_from_the_fan_art_source(tmp_path):
     fanart = FakeArtSource({1: [FAN1]})
     ctx = _ready(tmp_path, art=FakeArtSource({1: [VOL1]}), fanart=fanart)
@@ -188,5 +164,38 @@ def test_fan_art_is_used_from_the_fan_art_source(tmp_path):
         await wait_for(pilot, lambda: ctx.tools.posts.get(PID).items[0].custom_art)
 
         assert fanart.fetched == [FAN1.url]
+
+    run_app(ctx, scenario)
+
+
+PIN1 = ArtOption("1489x1393  (no artist recorded)", "https://x.test/pin.jpg")
+
+
+def test_s_cycles_covers_then_fan_art_then_pins(tmp_path):
+    ctx = _ready(
+        tmp_path,
+        art=FakeArtSource({1: [VOL1, VOL2]}),
+        fanart=FakeArtSource({1: [FAN1]}),
+        pins=FakeArtSource({1: [PIN1, PIN1._replace(url="https://x.test/pin2.jpg")]}),
+    )
+
+    async def scenario(app, pilot):
+        await pilot.press("a")
+        await pilot.pause()
+        await pilot.press("enter")
+        await wait_for(pilot, lambda: len(_table_rows(app, "covers")) == 2)
+
+        await pilot.press("s")  # fan art
+        await wait_for(pilot, lambda: len(_table_rows(app, "covers")) == 1)
+        assert [r[1] for r in _table_rows(app, "covers")] == [FAN1.label]
+
+        await pilot.press("s")  # pins
+        await wait_for(pilot, lambda: len(_table_rows(app, "covers")) == 2)
+        assert _table_rows(app, "covers")[0][1] == PIN1.label
+
+        await pilot.press("s")  # back to covers
+        await wait_for(
+            pilot, lambda: [r[1] for r in _table_rows(app, "covers")] == ["vol. 1", "vol. 2"]
+        )
 
     run_app(ctx, scenario)
