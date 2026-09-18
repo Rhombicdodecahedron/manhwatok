@@ -789,3 +789,59 @@ def test_art_pins_source_uses_pinterest_and_accepts_a_tag(wire, monkeypatch):
     assert out.exit_code == 0, out.output
     assert pinned.tags == ["fanart"]
     assert "no artist recorded" in out.output
+
+
+def _sized(label, url, w, h):
+    from manhwatok.ports.art import ArtOption
+
+    return ArtOption(label, url, width=w, height=h)
+
+
+def test_art_list_keeps_the_sources_order_by_default(wire, monkeypatch):
+    wire()
+    _wire_art(
+        monkeypatch,
+        pins={11: [_sized("wide", "https://x.test/w.jpg", 1600, 900),
+                   _sized("tall", "https://x.test/t.jpg", 1080, 1920)]},
+    )
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["art", _post_id(built.output), "11", "--list", "--source", "pins"])
+
+    assert out.exit_code == 0, out.output
+    assert out.output.index("wide") < out.output.index("tall")
+
+
+def test_art_order_portrait_puts_the_slide_shaped_one_first(wire, monkeypatch):
+    wire()
+    _wire_art(
+        monkeypatch,
+        pins={11: [_sized("wide", "https://x.test/w.jpg", 1600, 900),
+                   _sized("tall", "https://x.test/t.jpg", 1080, 1920)]},
+    )
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(
+        app,
+        ["art", _post_id(built.output), "11", "--list", "--source", "pins",
+         "--order", "portrait"],
+    )
+
+    assert out.exit_code == 0, out.output
+    assert out.output.index("tall") < out.output.index("wide")
+
+
+def test_art_order_applies_to_pick_so_the_numbers_match_the_list(wire, monkeypatch):
+    wire()
+    _, _, pinned = _wire_art(
+        monkeypatch,
+        pins={11: [_sized("wide", "https://x.test/w.jpg", 1600, 900),
+                   _sized("tall", "https://x.test/t.jpg", 1080, 1920)]},
+    )
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(
+        app,
+        ["art", _post_id(built.output), "11", "--pick", "1", "--source", "pins",
+         "--order", "portrait"],
+    )
+
+    assert out.exit_code == 0, out.output
+    assert pinned.fetched == ["https://x.test/t.jpg"]

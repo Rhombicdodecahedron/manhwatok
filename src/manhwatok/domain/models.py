@@ -33,6 +33,14 @@ class ArtSourceName(StrEnum):
     PINS = "pins"  # a Pinterest search: most pictures, no artist recorded for any of them
 
 
+class ArtOrder(StrEnum):
+    """How a list of art options is arranged before you pick from it."""
+
+    RELEVANCE = "relevance"  # the source's own order: Pinterest's ranking, a booru's score
+    SIZE = "size"  # biggest picture first
+    PORTRAIT = "portrait"  # closest to a slide's 9:16 first
+
+
 class Manhwa(BaseModel):
     anilist_id: int
     title: str

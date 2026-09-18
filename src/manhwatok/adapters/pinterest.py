@@ -1,5 +1,9 @@
 """Pictures from a Pinterest search, by way of gallery-dl.
 
+Results keep Pinterest's own ranking, which is what responds to the words searched for — asking
+for "epic fight scene" rather than just the title returns a genuinely different, more
+slide-shaped set. Sorting them any other way discards that.
+
 Pinterest has no public search API — the v5 one reaches only your own boards — so this shells
 out to gallery-dl rather than putting scraping code in manhwatok. When Pinterest changes its
 internals, that is gallery-dl's to patch.
@@ -73,10 +77,11 @@ class PinterestSource:
             if min(width, height) < self._min_side:
                 continue
             found.setdefault(link, (width, height))
-        biggest = sorted(found.items(), key=lambda pair: -(pair[1][0] * pair[1][1]))
+        # Left in Pinterest's own order: that ranking is the only thing here that knows what
+        # the search meant. Re-arranging is the caller's choice (ArtOrder).
         return [
-            ArtOption(label=f"{w}x{h}  (no artist recorded)", url=link)
-            for link, (w, h) in biggest
+            ArtOption(label=f"{w}x{h}  (no artist recorded)", url=link, width=w, height=h)
+            for link, (w, h) in found.items()
         ]
 
     def fetch(self, option: ArtOption, into: Path) -> Path:

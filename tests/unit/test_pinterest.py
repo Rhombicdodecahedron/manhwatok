@@ -30,7 +30,9 @@ class Gallery:
         return next(a for a in self.argv[-1] if a.startswith("https://"))
 
 
-def test_offers_the_pins_for_the_title_biggest_first():
+def test_keeps_pinterests_own_ranking():
+    """Pinterest's order is its relevance ranking, which is the only thing here that knows what
+    the search meant; re-sorting it throws that away."""
     gallery = Gallery([
         _pin("https://i.test/small.jpg", 800, 900),
         _pin("https://i.test/big.jpg", 1500, 1600),
@@ -39,10 +41,17 @@ def test_offers_the_pins_for_the_title_biggest_first():
     options = PinterestSource(run=gallery).options(manhwa(title="Kubera"))
 
     assert [o.url for o in options] == [
+        "https://i.test/small.jpg",
         "https://i.test/big.jpg",
         "https://i.test/mid.jpg",
-        "https://i.test/small.jpg",
     ]
+
+
+def test_each_option_carries_the_pins_size_so_it_can_be_reordered():
+    gallery = Gallery([_pin("https://i.test/a.jpg", 1080, 1920)])
+    options = PinterestSource(run=gallery).options(manhwa(title="Kubera"))
+
+    assert (options[0].width, options[0].height) == (1080, 1920)
 
 
 def test_the_same_pin_twice_is_offered_once():

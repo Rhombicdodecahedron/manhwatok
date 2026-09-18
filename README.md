@@ -202,6 +202,35 @@ publisher art and carries none of it.
 There is also no id to pair a title on, only the words searched, so a title whose name is an
 ordinary phrase collects whatever else shares it. Look at what you pick before you post it.
 
+### Asking for a kind of picture
+
+There is no "epic" to sort by — no source scores a picture on what is happening in it. What
+there is instead is the search itself, and Pinterest's ranking answers it:
+
+```bash
+uv run manhwatok art <id> 72579 --list --source pins --tag "epic fight scene"
+```
+
+`--tag` adds its words to the search, and the results come back in Pinterest's own order, which
+is the only thing here that knows what was meant. It moves them a long way: searching the title
+alone returns square character art (1489x1393, 1505x1378), while adding "epic fight scene"
+returns vertical, scene-shaped pictures (720x1445, 1080x1920).
+
+`--order` then rearranges whatever came back:
+
+```bash
+uv run manhwatok art <id> 72579 --list --source pins --tag "epic fight scene" --order portrait
+```
+
+- `relevance` (the default) — the source's own order: Pinterest's ranking, a booru's score,
+  MangaDex's volume numbers. Leave it alone when the words did the work.
+- `portrait` — closest to a slide's 9:16 first. On the search above this brings every 1080x1920
+  and 720x1280 to the top.
+- `size` — biggest first, when you only care about resolution.
+
+Ordering happens after the search, so `--pick N` always counts down the list `--list` printed.
+MangaDex reports no dimensions without downloading, so `--order` leaves its covers alone.
+
 Pinterest has no public search API, so this shells out to `gallery-dl` rather than keeping
 scraping code here. Without the extra installed it says so and does nothing.
 

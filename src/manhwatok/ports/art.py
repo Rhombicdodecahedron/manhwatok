@@ -9,6 +9,10 @@ class ArtOption(NamedTuple):
 
     label: str  # what to show in a list, e.g. "vol. 3"
     url: str
+    # Pixel size where the source reports it; 0 when it does not (MangaDex names no dimensions
+    # without downloading the file). Only used to re-order a list.
+    width: int = 0
+    height: int = 0
 
 
 class ArtSource(Protocol):

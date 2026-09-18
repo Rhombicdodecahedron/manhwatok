@@ -8,7 +8,7 @@ import typer
 
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import ArtSourceName, ArtStyle, SearchQuery, Sort
+from manhwatok.domain.models import ArtOrder, ArtSourceName, ArtStyle, SearchQuery, Sort
 
 app = typer.Typer(
     help="Themed manhwa recommendation slideshows for TikTok.", no_args_is_help=True
@@ -379,6 +379,12 @@ def art(
         help="Extra words for --source fanart or pins, e.g. 'full_body'. On fanart it costs "
         "the score ordering, so results are ranked afterwards instead.",
     ),
+    order: ArtOrder = typer.Option(
+        ArtOrder.RELEVANCE,
+        "--order",
+        help="How to arrange --list: 'relevance' (the source's own order), 'size' (biggest "
+        "first) or 'portrait' (closest to a slide's 9:16 first).",
+    ),
 ) -> None:
     """Use a picture of your own for one title, instead of the art its style would fetch.
 
@@ -422,7 +428,7 @@ def art(
                 art_source = sources[source]
                 where = "" if source is ArtSourceName.COVERS else f" --source {source.value}"
                 try:
-                    options = list_art(post_id, anilist_id, tools, art_source, tag)
+                    options = list_art(post_id, anilist_id, tools, art_source, tag, order)
                     if show:
                         if not options:
                             typer.echo(f"no {source.value} found for {anilist_id}")

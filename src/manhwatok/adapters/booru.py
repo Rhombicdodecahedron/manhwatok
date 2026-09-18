@@ -70,7 +70,15 @@ class BooruSource:
         # `order:score` is asked for, but the ranking is redone here so that "best first" holds
         # whatever the search returns — the rating filter above already reshapes the list.
         usable.sort(key=lambda post: _score(post), reverse=True)
-        return [ArtOption(label=_label(post), url=post["file_url"]) for post in usable]
+        return [
+            ArtOption(
+                label=_label(post),
+                url=post["file_url"],
+                width=int(post.get("image_width") or 0),
+                height=int(post.get("image_height") or 0),
+            )
+            for post in usable
+        ]
 
     def fetch(self, option: ArtOption, into: Path) -> Path:
         return download_picture(option.url, into)
