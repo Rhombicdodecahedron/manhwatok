@@ -39,3 +39,42 @@ def test_mangaupdates_finds_doom_breaker():
 
 def test_anilist_genre_list_has_action():
     assert "Action" in AniListSource().list_genres()
+
+
+def test_mangadex_finds_volume_covers_by_the_anilist_link():
+    from manhwatok.adapters.mangadex import MangaDexSource
+
+    source = MangaDexSource()
+    try:
+        # Doom Breaker: matched live by links.al, with volume covers on offer.
+        options = source.options(
+            Manhwa(
+                anilist_id=136220,
+                title="Doom Breaker",
+                romaji="Doom Breaker",
+                status=Status.RELEASING,
+            )
+        )
+    finally:
+        source.close()
+    assert options, "MangaDex had no covers for a title it is known to carry"
+    assert all(o.url.startswith("https://uploads.mangadex.org/covers/") for o in options)
+    assert all(o.label for o in options)
+
+
+def test_mangadex_has_nothing_for_an_anilist_id_it_does_not_carry():
+    from manhwatok.adapters.mangadex import MangaDexSource
+
+    source = MangaDexSource()
+    try:
+        options = source.options(
+            Manhwa(
+                anilist_id=999999999,
+                title="Zzzz Not A Real Manhwa Qqqq",
+                romaji="Zzzz Not A Real Manhwa Qqqq",
+                status=Status.UNKNOWN,
+            )
+        )
+    finally:
+        source.close()
+    assert options == []

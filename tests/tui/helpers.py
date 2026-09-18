@@ -10,7 +10,14 @@ from typing import Awaitable, Callable
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app.context import AppContext
 from manhwatok.config import Settings
-from tests.unit.fakes import FakeChapters, FakeMetadata, FakeRenderer, FakeUploader, make_tools
+from tests.unit.fakes import (
+    FakeArtSource,
+    FakeChapters,
+    FakeMetadata,
+    FakeRenderer,
+    FakeUploader,
+    make_tools,
+)
 
 NOW = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
 OPEN_CONTEXTS: list[AppContext] = []  # closed after each test (conftest)
@@ -28,7 +35,7 @@ class PngRenderer(FakeRenderer):
         return paths
 
 
-def make_ctx(tmp_path: Path, metadata=None, uploader=None, covers=None) -> AppContext:
+def make_ctx(tmp_path: Path, metadata=None, uploader=None, covers=None, art=None) -> AppContext:
     """A context on a real database and real post folders under tmp_path, fakes elsewhere.
     Every `uploader()` call returns the same `uploader` (a FakeUploader by default)."""
     store = SqliteStore(tmp_path / "manhwatok.db")
@@ -39,6 +46,7 @@ def make_ctx(tmp_path: Path, metadata=None, uploader=None, covers=None) -> AppCo
         metadata=metadata or FakeMetadata(),
         chapters=FakeChapters(),
         tools=make_tools(tmp_path, covers=covers, renderer=PngRenderer()),
+        art=art or FakeArtSource(),
         uploader_factory=lambda: browser,
         closers=[store],
     )

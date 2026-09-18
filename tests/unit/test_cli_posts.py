@@ -576,3 +576,83 @@ def test_art_expands_a_tilde_path(wire, tmp_path, monkeypatch):
     out = runner.invoke(app, ["art", post_id, "11", "~/pick.png"])
     assert out.exit_code == 0, out.output
     assert repo.get(post_id).items[0].custom_art == "art-11.png"
+
+
+def _wire_art(monkeypatch, options=None, error=None):
+    """Point the CLI's art source at a scripted one; returns it."""
+    from tests.unit.fakes import FakeArtSource
+
+    source = FakeArtSource(options, error)
+    monkeypatch.setattr(container, "build_art_source", lambda settings, cache: source)
+    return source
+
+
+def test_art_list_shows_the_numbered_covers_the_source_has(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    wire()
+    _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg"),
+                                 ArtOption("vol. 2", "https://x.test/2.jpg")]})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["art", _post_id(built.output), "11", "--list"])
+
+    assert out.exit_code == 0, out.output
+    assert "1  vol. 1" in out.output
+    assert "2  vol. 2" in out.output
+
+
+def test_art_list_says_so_when_the_source_has_nothing(wire, monkeypatch):
+    wire()
+    _wire_art(monkeypatch, {})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["art", _post_id(built.output), "11", "--list"])
+
+    assert out.exit_code == 0, out.output
+    assert "no covers" in out.output.lower()
+
+
+def test_art_pick_downloads_that_cover_and_uses_it(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    repo, _ = wire()
+    source = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg"),
+                                          ArtOption("vol. 2", "https://x.test/2.jpg")]})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(app, ["art", post_id, "11", "--pick", "2"])
+
+    assert out.exit_code == 0, out.output
+    assert source.fetched == ["https://x.test/2.jpg"]
+    item = next(i for i in repo.get(post_id).items if i.manhwa.anilist_id == 11)
+    assert item.custom_art == "art-11.jpg"
+
+
+def test_art_pick_out_of_range_says_the_range_instead_of_crashing(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    wire()
+    source = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["art", _post_id(built.output), "11", "--pick", "7"])
+
+    assert out.exit_code == 1, out.output
+    assert out.exception is None or isinstance(out.exception, SystemExit)
+    assert "no cover 7" in out.output and "1-1" in out.output
+    assert source.fetched == []
+
+
+def test_art_rejects_pick_together_with_a_file(wire, monkeypatch, tmp_path):
+    from manhwatok.ports.art import ArtOption
+
+    wire()
+    # A cover that --pick 1 would happily use, so only the conflict itself can fail this.
+    source = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(
+        app, ["art", _post_id(built.output), "11", str(_pick_file(tmp_path)), "--pick", "1"]
+    )
+
+    assert out.exit_code == 1, out.output
+    assert "exactly one of" in out.output
+    assert "a picture, --pick" in out.output
+    assert source.fetched == []

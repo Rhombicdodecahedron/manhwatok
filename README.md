@@ -119,6 +119,23 @@ uv run manhwatok art <id> 128067 --clear                       # back to the sty
 at the image itself, not the page it sits on — right-click the picture and copy the image
 address. Linking a page gets you "it served text/html" rather than a broken slide.
 
+### Volume covers from MangaDex
+
+AniList keeps one cover per title, and it is usually the first volume's. MangaDex normally has
+the whole run, so `--list` offers those instead of sending you looking:
+
+```bash
+uv run manhwatok art <id> 136220 --list       # what MangaDex has for that title
+uv run manhwatok art <id> 136220 --pick 4     # download the 4th and use it
+```
+
+The title is matched on the AniList id MangaDex stores against its own records, not on its name,
+so it is the right series or none at all. That pairing is cached in the database for 30 days,
+since it does not change once made. A title MangaDex doesn't carry simply lists nothing.
+
+These are publisher volume covers, the same kind of art the tool already fetches — not
+scanlation pages, which carry the scanlator's watermark and the publisher's copyright.
+
 The picture is copied into the post's folder, so it survives the original moving or being
 deleted, and every later `render` and `edit` keeps using it. It beats whatever the post's style
 would have fetched, and re-renders the post straight away. The rest of the slide is unchanged:
@@ -231,8 +248,12 @@ Everything the commands above do, in one window with four tabs (`1`–`4`, `q` q
 
 - **Posts** — the list, and a preview of the highlighted post: its slides (`←`/`→` flip, `o`
   opens the slide in your image viewer), its account's sounds, its art style and emojis (when
-  set), caption and picks. `e` edit picks, `r` render, `x` export, `u` upload (`U` with
+  set), caption and picks. `e` edit picks, `r` render, `a` art, `x` export, `u` upload (`U` with
   `--debug`), `d` delete, `f` show one account's posts.
+- **Art** (`a` on a post) — the post's titles on the left, with the picture each one is drawn
+  with. `enter` on a title lists MangaDex's volume covers for it, `enter` on one of those
+  downloads it and re-renders; `u` takes a file path or URL you type, `c` goes back to the
+  style's own art, `o` opens the current picture in your image viewer, `esc` returns.
 - **Build** — account, theme or tags/genres, and the post's style: hashtags, accent, emojis and
   art (blank = the account's, shown greyed out); **Search** opens the picks editor: `space`
   picks or drops a title, `shift+↑`/`shift+↓` reorder, `enter` edits a hook, `ctrl+s` saves and

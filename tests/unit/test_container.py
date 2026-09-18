@@ -53,3 +53,14 @@ def test_build_uploader_is_a_visible_playwright_browser(tmp_path):
     assert uploader._profiles_dir == tmp_path / "browser"
     assert uploader._debug_dir == tmp_path / "debug"
     assert uploader._headless is False
+
+
+def test_build_art_source_is_mangadex_backed_by_the_given_cache(tmp_path):
+    from manhwatok.adapters.mangadex import MangaDexSource
+    from manhwatok.app.container import build_art_source
+
+    settings = Settings(data_dir=tmp_path)
+    with build_store(settings) as store:
+        source = build_art_source(settings, store.cache)
+        assert isinstance(source, MangaDexSource)
+        source.close()

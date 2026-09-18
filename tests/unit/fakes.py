@@ -240,3 +240,28 @@ class FakeUploader:
 
     def close(self) -> None:
         self.events.append("close")
+
+
+class FakeArtSource:
+    """Scripted ArtSource: options per anilist id, and a fetch that writes a real tiny JPEG."""
+
+    def __init__(self, options=None, error: Exception | None = None):
+        from manhwatok.ports.art import ArtOption
+
+        self.options_by_id: dict[int, list[ArtOption]] = dict(options or {})
+        self.error = error
+        self.fetched: list[str] = []
+
+    def options(self, manhwa: Manhwa):
+        if self.error is not None:
+            raise self.error
+        return list(self.options_by_id.get(manhwa.anilist_id, []))
+
+    def fetch(self, option, into: Path) -> Path:
+        from PIL import Image
+
+        self.fetched.append(option.url)
+        into.mkdir(parents=True, exist_ok=True)
+        path = into / "picture.jpg"
+        Image.new("RGB", (460, 650), (10, 20, 30)).save(path)
+        return path

@@ -6,6 +6,7 @@ import pytest
 from manhwatok.adapters.anilist import AniListSource
 from manhwatok.adapters.cached_chapters import CachedChapterSource
 from manhwatok.adapters.cover_cache import CoverCache
+from manhwatok.adapters.mangadex import MangaDexSource
 from manhwatok.adapters.mangaupdates import MangaUpdatesSource
 from manhwatok.adapters.playwright_uploader import PlaywrightUploader
 from manhwatok.adapters.sqlite_store import SqliteStore
@@ -21,8 +22,9 @@ from tests.unit.fakes import FakeChapters
         lambda client, folder: AniListSource(client=client),
         lambda client, folder: MangaUpdatesSource(client=client),
         lambda client, folder: CoverCache(folder, client=client),
+        lambda client, folder: MangaDexSource(client=client),
     ],
-    ids=["anilist", "mangaupdates", "covers"],
+    ids=["anilist", "mangaupdates", "covers", "mangadex"],
 )
 def test_sources_close_only_the_client_they_created(make, tmp_path):
     given = httpx.Client()
@@ -62,6 +64,7 @@ def test_open_context_wires_real_adapters_and_closes_them_once(tmp_path):
     assert isinstance(ctx.metadata, AniListSource)
     assert isinstance(ctx.chapters, CachedChapterSource)
     assert isinstance(ctx.tools.covers, CoverCache)
+    assert isinstance(ctx.art, MangaDexSource)
     assert ctx.tools.editor("x") is None
     assert ctx.tools.posts.folder("20260914-a3f9") == tmp_path / "posts" / "20260914-a3f9"
     assert isinstance(ctx.uploader(), PlaywrightUploader)
@@ -70,6 +73,7 @@ def test_open_context_wires_real_adapters_and_closes_them_once(tmp_path):
     assert ctx.metadata._client.is_closed
     assert ctx.tools.covers._client.is_closed
     assert ctx.chapters._inner._client.is_closed
+    assert ctx.art._client.is_closed
     with pytest.raises(StorageError):
         ctx.store.accounts.list()
     ctx.close()  # second close does nothing

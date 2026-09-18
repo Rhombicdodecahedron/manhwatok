@@ -361,23 +361,68 @@ def art(
     clear: bool = typer.Option(
         False, "--clear", help="Drop this title's picked art and go back to its style's own."
     ),
+    show: bool = typer.Option(
+        False, "--list", help="List the volume covers MangaDex has for this title."
+    ),
+    pick: Optional[int] = typer.Option(
+        None, "--pick", metavar="N", help="Use the Nth cover from --list."
+    ),
 ) -> None:
-    """Use a picture of your own for one title, instead of the art its style would fetch."""
+    """Use a picture of your own for one title, instead of the art its style would fetch.
+
+    With --list, offers the title's volume covers from MangaDex instead: AniList has one cover
+    per title, MangaDex usually has the whole run.
+    """
     import tempfile
 
     from manhwatok.adapters.picture_download import download_picture, looks_like_url
+    from manhwatok.app import container
+    from manhwatok.app.art_options import list_art, use_art
     from manhwatok.app.item_art import clear_item_art, set_item_art
     from manhwatok.app.render_post import render_post
 
-    if clear and picture is not None:
-        _fail(ManhwatokError("give a file or --clear, not both"))
-    if not clear and picture is None:
-        _fail(ManhwatokError("give a picture to use, or --clear to drop the one it has"))
+    asked = [
+        name
+        for name, given in (
+            ("a picture", picture is not None),
+            ("--clear", clear),
+            ("--list", show),
+            ("--pick", pick is not None),
+        )
+        if given
+    ]
+    if len(asked) != 1:
+        got = f" (got {', '.join(asked)})" if asked else ""
+        _fail(ManhwatokError(f"give exactly one of: a picture, --clear, --list or --pick N{got}"))
 
     settings = Settings()
     try:
         tools = _tools(settings)
-        if clear:
+        if show or pick is not None:
+            with container.build_store(settings) as store:
+                source = container.build_art_source(settings, store.cache)
+                try:
+                    options = list_art(post_id, anilist_id, tools, source)
+                    if show:
+                        if not options:
+                            typer.echo(f"no covers found for {anilist_id}")
+                            return
+                        for number, option in enumerate(options, 1):
+                            typer.echo(f"  {number}  {option.label}")
+                        typer.echo(
+                            f"use one with: manhwatok art {post_id} {anilist_id} --pick N"
+                        )
+                        return
+                    if not 1 <= pick <= len(options):
+                        many = f"1-{len(options)}" if options else "none at all"
+                        raise ManhwatokError(f"no cover {pick} for {anilist_id} — it has {many}")
+                    chosen = options[pick - 1]
+                    typer.echo(f"downloading {chosen.label}")
+                    kept = use_art(post_id, anilist_id, chosen, tools, source)
+                    typer.echo(f"using {kept.name} ({chosen.label}) for {anilist_id}")
+                finally:
+                    getattr(source, "close", lambda: None)()
+        elif clear:
             clear_item_art(post_id, anilist_id, tools)
             typer.echo(f"dropped the picked art for {anilist_id}")
         elif looks_like_url(picture):

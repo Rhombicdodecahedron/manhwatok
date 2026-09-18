@@ -24,6 +24,8 @@ class Settings:
     data_dir: Path = field(default_factory=_default_data_dir)
     http_timeout: float = 20.0
     chapter_cache_hours: float = 24.0
+    # An AniList-to-MangaDex pairing does not change once made, so it is kept far longer.
+    art_cache_days: float = 30.0
     export_dir: Path = field(default_factory=_default_export_dir)
 
     @property

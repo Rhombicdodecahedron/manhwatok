@@ -16,6 +16,7 @@ from manhwatok.app.upload_post import upload_post
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
+from manhwatok.tui.screens.art import ArtScreen
 from manhwatok.tui.screens.browser import BrowserScreen
 from manhwatok.tui.screens.picks import PicksScreen
 from manhwatok.tui.text import clip, post_details, post_status
@@ -49,6 +50,7 @@ class PostsPane(Vertical):
         Binding("e", "edit", "Edit picks"),
         Binding("r", "render", "Render"),
         Binding("x", "export", "Export"),
+        Binding("a", "art", "Art"),
         Binding("u", "upload", "Upload"),
         Binding("U", "upload(True)", "Upload (debug)", show=False),
         Binding("d", "delete", "Delete"),
@@ -240,6 +242,18 @@ class PostsPane(Vertical):
             return
         self.app.notify(f"exported → {dest}")
         self.reload()
+
+    def action_art(self) -> None:
+        post = self._selected()
+        if post is None:
+            return
+        if post.is_unfinished:
+            self.app.notify("that post has no titles yet", severity="warning")
+            return
+        if self.app.refuse_while_rendering():
+            return
+        pid = post.id
+        self.app.push_screen(ArtScreen(pid), lambda _: self.reload(select=pid))
 
     def action_upload(self, debug: bool = False) -> None:
         post = self._selected()

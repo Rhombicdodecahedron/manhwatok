@@ -23,7 +23,7 @@ PREFIX = "art-"
 def set_item_art(post_id: str, anilist_id: int, source: Path, tools: PostTools) -> Path:
     """Copy `source` in as this title's art. Returns where it was kept."""
     post = tools.posts.get(post_id)
-    index = _index_of(post, anilist_id)
+    index = find_index(post, anilist_id)
     if not source.is_file():
         raise ManhwatokError(f"no such file: {source}")
     suffix = source.suffix.lower()
@@ -47,13 +47,14 @@ def set_item_art(post_id: str, anilist_id: int, source: Path, tools: PostTools) 
 def clear_item_art(post_id: str, anilist_id: int, tools: PostTools) -> None:
     """Drop this title's hand-picked art, so its style's own art comes back."""
     post = tools.posts.get(post_id)
-    index = _index_of(post, anilist_id)
+    index = find_index(post, anilist_id)
     _remove_art(tools.posts.folder(post_id), anilist_id)
     if post.items[index].custom_art:
         tools.posts.save(_with_art(post, index, ""))
 
 
-def _index_of(post: ListPost, anilist_id: int) -> int:
+def find_index(post: ListPost, anilist_id: int) -> int:
+    """Where this title sits in the post. Raises ManhwatokError when it isn't in it at all."""
     for index, item in enumerate(post.items):
         if item.manhwa.anilist_id == anilist_id:
             return index
