@@ -27,6 +27,7 @@ class Api:
         self.tags = tags or {}
         self.posts = posts or {}
         self.calls = []
+        self.searched = []  # the full `tags` term of each post search
 
     def __call__(self, request):
         self.calls.append(request.url.path)
@@ -35,6 +36,7 @@ class Api:
             return httpx.Response(200, json=self.tags.get(wanted, []))
         if request.url.path == "/posts.json":
             tags = request.url.params.get("tags", "")
+            self.searched.append(tags)
             key = tags.split(" ")[0]
             return httpx.Response(200, json=self.posts.get(key, []))
         raise AssertionError(f"unexpected path {request.url.path}")
@@ -109,3 +111,48 @@ def test_only_copyright_tags_count_as_the_title():
     )
 
     assert _source(api).options(manhwa(anilist_id=124783, title="I Am the Real One")) == []
+
+
+def test_without_a_tag_the_search_spends_its_second_term_on_the_ordering():
+    api = Api(tags={"kubera": [_tag("kubera")]}, posts={"kubera": [_post(1, 5)]})
+
+    _source(api).options(manhwa(anilist_id=72579, title="Kubera"))
+
+    assert api.searched == ["kubera order:score"]
+
+
+def test_a_tag_narrows_the_search_and_gives_up_the_ordering_slot():
+    """Danbooru allows two terms, so a descriptor costs the `order:score` one; the ranking is
+    done on the results instead."""
+    api = Api(
+        tags={"kubera": [_tag("kubera")]},
+        posts={"kubera": [_post(1, 5), _post(2, 9), _post(3, 7)]},
+    )
+
+    options = _source(api).options(manhwa(anilist_id=72579, title="Kubera"), tag="full_body")
+
+    assert api.searched == ["kubera full_body"]
+    assert [o.url for o in options] == [
+        "https://cdn.test/2.jpg",
+        "https://cdn.test/3.jpg",
+        "https://cdn.test/1.jpg",
+    ]
+
+
+def test_a_tag_typed_with_spaces_and_capitals_is_slugified():
+    api = Api(tags={"kubera": [_tag("kubera")]}, posts={"kubera": [_post(1, 5)]})
+
+    _source(api).options(manhwa(anilist_id=72579, title="Kubera"), tag="Fighting Stance")
+
+    assert api.searched == ["kubera fighting_stance"]
+
+
+def test_a_tag_does_not_get_past_the_rating_filter():
+    api = Api(
+        tags={"kubera": [_tag("kubera")]},
+        posts={"kubera": [_post(1, 99, rating="e"), _post(2, 1)]},
+    )
+
+    options = _source(api).options(manhwa(anilist_id=72579, title="Kubera"), tag="full_body")
+
+    assert [o.url for o in options] == ["https://cdn.test/2.jpg"]

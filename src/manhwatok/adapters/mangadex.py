@@ -45,7 +45,8 @@ class MangaDexSource:
         if self._owns_client:
             self._client.close()
 
-    def options(self, manhwa: Manhwa) -> list[ArtOption]:
+    def options(self, manhwa: Manhwa, tag: str | None = None) -> list[ArtOption]:
+        """`tag` is ignored: a volume cover is described by its volume, not by what is on it."""
         manga_id = self._manga_id(manhwa)
         if not manga_id:
             return []

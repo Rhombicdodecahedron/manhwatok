@@ -152,6 +152,22 @@ go on naming the title and ordering the results. Each
 option shows its score, size and artist, because this is art by individual people rather than a
 publisher: `★ 5  1260x1443  by nrynstr`.
 
+`--tag` narrows the search to art also described that way:
+
+```bash
+uv run manhwatok art <id> 72579 --list --source fanart --tag solo
+```
+
+Danbooru allows two search terms, so a tag costs the score ordering one; the results are ranked
+afterwards instead, which comes to the same thing at these list sizes. The vocabulary is
+Danbooru's own — `solo`, `full_body`, `upper_body`, `simple_background` and so on, underscored.
+
+Do not expect it to find action shots. What is tagged on this art is overwhelmingly portrait
+description — `1girl`, `upper_body`, `solo`, hair and eye colour, jewellery — because that is
+what fan artists draw. Live, `--tag solo` narrows Kubera from nine pictures to seven, while
+`--tag full_body` and `--tag fighting_stance` both find nothing at all. A panel of the story
+happening is not something a booru indexes.
+
 Coverage is thin and skewed to the best-known titles. Of twelve titles tried, five had a tag at
 all and only two had more than a couple of pictures; Solo Leveling alone has more than all of
 them together. Expect `no fanart found` for most of the long tail — which is exactly the part of

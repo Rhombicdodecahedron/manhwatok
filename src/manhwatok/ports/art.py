@@ -12,8 +12,11 @@ class ArtOption(NamedTuple):
 
 
 class ArtSource(Protocol):
-    def options(self, manhwa: Manhwa) -> list[ArtOption]:
-        """Pictures this source has for the title, best order first. Empty when it has none."""
+    def options(self, manhwa: Manhwa, tag: str | None = None) -> list[ArtOption]:
+        """Pictures this source has for the title, best order first. Empty when it has none.
+
+        `tag` narrows the search to pictures also described that way, where the source has such
+        a vocabulary; one that does not simply ignores it."""
         ...
 
     def fetch(self, option: ArtOption, into: Path) -> Path:

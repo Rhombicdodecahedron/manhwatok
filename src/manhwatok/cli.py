@@ -373,6 +373,12 @@ def art(
         help="Where --list looks: 'covers' (MangaDex volume covers) or 'fanart' (Danbooru, "
         "best-scored and safe-rated only).",
     ),
+    tag: Optional[str] = typer.Option(
+        None,
+        "--tag",
+        help="Narrow --source fanart to art also tagged this, e.g. 'full_body'. Costs the "
+        "score ordering in the search, so results are ranked afterwards instead.",
+    ),
 ) -> None:
     """Use a picture of your own for one title, instead of the art its style would fetch.
 
@@ -400,6 +406,12 @@ def art(
     if len(asked) != 1:
         got = f" (got {', '.join(asked)})" if asked else ""
         _fail(ManhwatokError(f"give exactly one of: a picture, --clear, --list or --pick N{got}"))
+    if tag and source is not ArtSourceName.FANART:
+        _fail(
+            ManhwatokError(
+                f"--tag only narrows --source fanart; {source.value} has no such vocabulary"
+            )
+        )
 
     settings = Settings()
     try:
@@ -410,7 +422,7 @@ def art(
                 art_source = sources[source]
                 where = "" if source is ArtSourceName.COVERS else f" --source {source.value}"
                 try:
-                    options = list_art(post_id, anilist_id, tools, art_source)
+                    options = list_art(post_id, anilist_id, tools, art_source, tag)
                     if show:
                         if not options:
                             typer.echo(f"no {source.value} found for {anilist_id}")

@@ -52,13 +52,16 @@ class BooruSource:
         if self._owns_client:
             self._client.close()
 
-    def options(self, manhwa: Manhwa) -> list[ArtOption]:
-        tag = self._tag(manhwa)
-        if not tag:
+    def options(self, manhwa: Manhwa, tag: str | None = None) -> list[ArtOption]:
+        title_tag = self._tag(manhwa)
+        if not title_tag:
             return []
-        # Danbooru allows two search terms; `rating:` is free but `order:` is not, so the two
-        # spent here are the title's tag and the ordering, and the rating is filtered below.
-        posts = self._get("/posts.json", {"tags": f"{tag} order:score", "limit": self._limit})
+        # Danbooru allows two search terms; `rating:` is free but `order:` is not. Without a
+        # descriptor the second term asks for the ordering; with one it is spent on that
+        # instead, which costs nothing because the ranking is redone below either way.
+        narrow = _slug(tag)
+        terms = f"{title_tag} {narrow}" if narrow else f"{title_tag} order:score"
+        posts = self._get("/posts.json", {"tags": terms, "limit": self._limit})
         usable = [
             post
             for post in posts

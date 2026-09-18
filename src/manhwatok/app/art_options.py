@@ -16,10 +16,17 @@ from manhwatok.app.post_tools import PostTools
 from manhwatok.ports.art import ArtOption, ArtSource
 
 
-def list_art(post_id: str, anilist_id: int, tools: PostTools, source: ArtSource) -> list[ArtOption]:
-    """What `source` has for this title of the post, best order first."""
+def list_art(
+    post_id: str,
+    anilist_id: int,
+    tools: PostTools,
+    source: ArtSource,
+    tag: str | None = None,
+) -> list[ArtOption]:
+    """What `source` has for this title of the post, best order first. `tag` narrows it where
+    the source understands such a thing."""
     post = tools.posts.get(post_id)
-    return source.options(post.items[find_index(post, anilist_id)].manhwa)
+    return source.options(post.items[find_index(post, anilist_id)].manhwa, tag)
 
 
 def use_art(

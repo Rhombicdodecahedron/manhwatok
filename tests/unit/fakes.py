@@ -251,8 +251,10 @@ class FakeArtSource:
         self.options_by_id: dict[int, list[ArtOption]] = dict(options or {})
         self.error = error
         self.fetched: list[str] = []
+        self.tags: list[str | None] = []  # the narrowing tag of each options() call
 
-    def options(self, manhwa: Manhwa):
+    def options(self, manhwa: Manhwa, tag: str | None = None):
+        self.tags.append(tag)
         if self.error is not None:
             raise self.error
         return list(self.options_by_id.get(manhwa.anilist_id, []))

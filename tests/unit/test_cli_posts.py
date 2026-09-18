@@ -718,3 +718,52 @@ def test_art_defaults_to_covers_when_no_source_is_given(wire, monkeypatch):
     assert out.exit_code == 0, out.output
     assert covers.fetched == ["https://x.test/1.jpg"]
     assert fan.fetched == []
+
+
+def test_art_tag_narrows_the_fan_art_search(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    wire()
+    _, fan = _wire_art(
+        monkeypatch,
+        {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]},
+        fanart={11: [ArtOption("★ 9  900x1400  by someone", "https://x.test/fan.jpg")]},
+    )
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(
+        app,
+        ["art", _post_id(built.output), "11", "--list", "--source", "fanart", "--tag", "full_body"],
+    )
+
+    assert out.exit_code == 0, out.output
+    assert fan.tags == ["full_body"]
+
+
+def test_art_without_a_tag_narrows_nothing(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    wire()
+    _, fan = _wire_art(
+        monkeypatch,
+        {},
+        fanart={11: [ArtOption("★ 9  900x1400  by someone", "https://x.test/fan.jpg")]},
+    )
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    runner.invoke(app, ["art", _post_id(built.output), "11", "--list", "--source", "fanart"])
+
+    assert fan.tags == [None]
+
+
+def test_art_tag_with_the_covers_source_is_an_error(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    wire()
+    covers, _ = _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(
+        app, ["art", _post_id(built.output), "11", "--list", "--tag", "full_body"]
+    )
+
+    assert out.exit_code == 1, out.output
+    assert "--tag" in out.output and "fanart" in out.output
+    assert covers.tags == []
