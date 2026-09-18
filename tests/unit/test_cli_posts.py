@@ -845,3 +845,39 @@ def test_art_order_applies_to_pick_so_the_numbers_match_the_list(wire, monkeypat
 
     assert out.exit_code == 0, out.output
     assert pinned.fetched == ["https://x.test/t.jpg"]
+
+
+def test_art_list_hint_repeats_every_flag_that_shaped_the_list(wire, monkeypatch):
+    """--pick re-runs the search, so a hint that drops --tag or --order points at a different
+    list than the one just printed."""
+    wire()
+    _wire_art(
+        monkeypatch,
+        pins={11: [_sized("tall", "https://x.test/t.jpg", 1080, 1920)]},
+    )
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(
+        app,
+        ["art", post_id, "11", "--list", "--source", "pins",
+         "--tag", "epic fight scene", "--order", "portrait"],
+    )
+
+    assert out.exit_code == 0, out.output
+    hint = next(line for line in out.output.splitlines() if line.startswith("use one with:"))
+    assert "--source pins" in hint
+    assert "--tag 'epic fight scene'" in hint or '--tag "epic fight scene"' in hint
+    assert "--order portrait" in hint
+
+
+def test_art_list_hint_stays_short_when_nothing_shaped_the_list(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    wire()
+    _wire_art(monkeypatch, {11: [ArtOption("vol. 1", "https://x.test/1.jpg")]})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(app, ["art", post_id, "11", "--list"])
+
+    hint = next(line for line in out.output.splitlines() if line.startswith("use one with:"))
+    assert hint == f"use one with: manhwatok art {post_id} 11 --pick N"

@@ -391,6 +391,7 @@ def art(
     With --list, offers what another catalogue has for the title instead: MangaDex's volume
     covers by default, or fan art from Danbooru with --source fanart.
     """
+    import shlex
     import tempfile
 
     from manhwatok.adapters.picture_download import download_picture, looks_like_url
@@ -426,7 +427,15 @@ def art(
             with container.build_store(settings) as store:
                 sources = container.build_art_sources(settings, store.cache)
                 art_source = sources[source]
-                where = "" if source is ArtSourceName.COVERS else f" --source {source.value}"
+                # --pick re-runs the search, so the hint has to carry everything that shaped
+                # the list; dropping one points the user at a different list than they just saw.
+                shaped = "".join(
+                    (
+                        "" if source is ArtSourceName.COVERS else f" --source {source.value}",
+                        f" --tag {shlex.quote(tag)}" if tag else "",
+                        "" if order is ArtOrder.RELEVANCE else f" --order {order.value}",
+                    )
+                )
                 try:
                     options = list_art(post_id, anilist_id, tools, art_source, tag, order)
                     if show:
@@ -437,7 +446,7 @@ def art(
                             typer.echo(f"  {number}  {option.label}")
                         typer.echo(
                             f"use one with: manhwatok art {post_id} {anilist_id}"
-                            f"{where} --pick N"
+                            f"{shaped} --pick N"
                         )
                         return
                     if not 1 <= pick <= len(options):
