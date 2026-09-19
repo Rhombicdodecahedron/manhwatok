@@ -16,6 +16,9 @@ class Status(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+QUAD_PICTURES = 4  # pictures on a quad slide or cover
+
+
 class ArtStyle(StrEnum):
     """What art a manhwa slide is built around."""
 
@@ -23,6 +26,17 @@ class ArtStyle(StrEnum):
     BACKGROUND = "background"  # AniList's banner behind the cover card, cover blur as fallback
     PANEL = "panel"  # a wide crop of the banner (or the cover) in place of the card
     CHARACTER = "character"  # the title's main character in place of the cover
+    SCENE = "scene"  # one picture filling the whole slide, text over it
+    QUAD = "quad"  # four of the title's own pictures, 2×2 over the whole slide, text over them
+
+
+class CoverStyle(StrEnum):
+    """What the cover slide is built around. Every render draws all of them; the post's choice
+    becomes 01.png and the rest wait beside it as cover-<style>.png."""
+
+    FAN = "fan"  # the first three covers fanned out — the original look
+    QUAD = "quad"  # four characters, one per quadrant of the slide
+    HERO = "hero"  # the first pick's art filling the whole slide
 
 
 class ArtSourceName(StrEnum):
@@ -31,6 +45,7 @@ class ArtSourceName(StrEnum):
     COVERS = "covers"  # MangaDex volume covers: publisher art, paired on the AniList id
     FANART = "fanart"  # Danbooru, best-scored and safe-rated only: art by individual artists
     PINS = "pins"  # a Pinterest search: most pictures, no artist recorded for any of them
+    REDDIT = "reddit"  # image posts naming the title, most-upvoted first
 
 
 class ArtOrder(StrEnum):
@@ -39,6 +54,7 @@ class ArtOrder(StrEnum):
     RELEVANCE = "relevance"  # the source's own order: Pinterest's ranking, a booru's score
     SIZE = "size"  # biggest picture first
     PORTRAIT = "portrait"  # closest to a slide's 9:16 first
+    POPULAR = "popular"  # most liked first, where the source counts likes (Pinterest)
 
 
 class Manhwa(BaseModel):
@@ -57,8 +73,21 @@ class Manhwa(BaseModel):
     cover_color: str | None = None
     banner_url: str = ""  # AniList bannerImage; about half of manhwa have none
     character_url: str = ""  # the title's most-favourited character, when AniList has a picture
+    # Up to QUAD_PICTURES pictured characters, most favourited first (character_url is the
+    # first). Empty on titles saved before it existed: `characters` falls back then.
+    character_urls: list[str] = Field(default_factory=list)
+    # AniList's other names for the title ("Murim Login" for Log-in Murim), which fan art is
+    # often filed under. None on titles saved before it existed: not looked up yet.
+    synonyms: list[str] | None = None
     description: str = ""
     site_url: str = ""
+
+    @property
+    def characters(self) -> list[str]:
+        """Pictured characters' image URLs, most favourited first."""
+        if self.character_urls:
+            return list(self.character_urls)
+        return [self.character_url] if self.character_url else []
 
     @property
     def chapter_count(self) -> int | None:

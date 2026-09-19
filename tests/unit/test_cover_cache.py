@@ -141,3 +141,26 @@ def test_character_http_error_raises(tmp_path):
         _cache(tmp_path, Cdn(status=503)).get_character(
             manhwa(title="Doom Breaker", character_url=CHARACTER)
         )
+
+
+def test_further_characters_are_kept_numbered(tmp_path):
+    cdn = Cdn()
+    cache = _cache(tmp_path, cdn)
+    urls = [CHARACTER, CHARACTER.replace("abc", "def"), CHARACTER.replace("abc", "ghi")]
+    m = manhwa(anilist_id=136220, character_url=urls[0], character_urls=urls)
+    assert cache.get_character(m, 0) == tmp_path / "covers" / "136220-char.png"
+    assert cache.get_character(m, 2) == tmp_path / "covers" / "136220-char3.png"
+    assert cache.cached_character(m, 2) == tmp_path / "covers" / "136220-char3.png"
+    assert cache.cached_character(m, 1) is None
+
+
+def test_a_character_past_the_last_one_is_missing(tmp_path):
+    m = manhwa(character_url=CHARACTER, character_urls=[CHARACTER])
+    with pytest.raises(MetadataError, match="no character image"):
+        _cache(tmp_path, Cdn()).get_character(m, 1)
+    assert _cache(tmp_path, Cdn()).cached_character(m, 1) is None
+
+
+def test_an_old_title_with_one_character_still_has_it(tmp_path):
+    m = manhwa(anilist_id=5, character_url=CHARACTER)  # saved before character_urls existed
+    assert _cache(tmp_path, Cdn()).get_character(m, 0).name == "5-char.png"

@@ -30,9 +30,18 @@ class PngRenderer(FakeRenderer):
     def render(self, post, art, out_dir):
         from PIL import Image
 
+        from manhwatok.domain.models import CoverStyle
+
         paths = super().render(post, art, out_dir)
         for n, path in enumerate(paths):
             Image.new("RGB", (27, 48), (40 * n % 255, 80, 120)).save(path)
+        for old in out_dir.glob("cover-*.png"):
+            old.unlink()
+        for k, style in enumerate(CoverStyle):
+            version = out_dir / f"cover-{style.value}.png"
+            Image.new("RGB", (27, 48), (200, 60 * k, 10)).save(version)
+            if style is post.cover:
+                paths[0].write_bytes(version.read_bytes())
         return paths
 
 
@@ -44,6 +53,7 @@ def make_ctx(
     art=None,
     fanart=None,
     pins=None,
+    reddit=None,
 ) -> AppContext:
     """A context on a real database and real post folders under tmp_path, fakes elsewhere.
     Every `uploader()` call returns the same `uploader` (a FakeUploader by default)."""
@@ -59,6 +69,7 @@ def make_ctx(
             ArtSourceName.COVERS: art or FakeArtSource(),
             ArtSourceName.FANART: fanart or FakeArtSource(),
             ArtSourceName.PINS: pins or FakeArtSource(),
+            ArtSourceName.REDDIT: reddit or FakeArtSource(),
         },
         uploader_factory=lambda: browser,
         closers=[store],

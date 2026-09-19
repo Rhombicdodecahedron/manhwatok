@@ -3,6 +3,8 @@ import pytest
 from manhwatok.adapters.fonts import body, display
 from manhwatok.adapters.layout import (
     SAFE,
+    SLIDE_H,
+    SLIDE_W,
     Box,
     fit_inside,
     fit_words,
@@ -206,6 +208,21 @@ def test_cover_kicker_is_singular_for_one_pick():
     assert layout_cover("T", 5).kicker.text.line_text(0) == "5 PICKS"
 
 
+def test_cover_layout_has_no_byline_without_an_account():
+    assert layout_cover("T", 5).byline is None
+
+
+@pytest.mark.parametrize("count", [1, 12, 33])
+def test_cover_byline_sits_under_the_bar_inside_the_safe_area(count):
+    layout = layout_cover("*" + LONG_NAME + "* and " + LONG_NAME, count, "by @" + "x" * 24)
+    assert layout.byline is not None
+    assert layout.byline.box.y > layout.bar[0].bottom
+    assert layout.byline.box.bottom == SAFE.bottom
+    assert len(layout.byline.text.lines) == 1
+    assert all(SAFE.contains(b) for b in layout.text_boxes())
+    assert layout.byline.box in layout.text_boxes()
+
+
 # --- panel art (Phase 5) ---------------------------------------------------------------------
 
 
@@ -276,3 +293,37 @@ def test_character_image_box_stays_clear_of_the_text(name, hook):
     assert SAFE.contains(layout.cover_area)
     assert layout.cover_area.bottom <= layout.rank.box.y - 40
     assert all(SAFE.contains(b) for b in layout.text_boxes())
+
+
+# --- scene art -------------------------------------------------------------------------------
+
+
+def test_scene_image_box_is_the_whole_slide():
+    layout = layout_item(1, "Kubera", "ongoing", "A hook.", art=ArtStyle.SCENE)
+    assert layout.cover_area == Box(0, 0, SLIDE_W, SLIDE_H)
+
+
+@pytest.mark.parametrize(
+    ("name", "hook"),
+    [("Kubera", ""), ("Doom Breaker", "Sent back ten years."), (LONG_NAME, LONG_HOOK)],
+)
+def test_scene_image_box_does_not_shrink_when_the_title_and_hook_are_long(name, hook):
+    """The other styles give the image whatever the text leaves; this one is the slide itself."""
+    layout = layout_item(33, name, "ongoing · ch. 1234", hook, art=ArtStyle.SCENE)
+    assert layout.cover_area == Box(0, 0, SLIDE_W, SLIDE_H)
+
+
+@pytest.mark.parametrize(
+    ("name", "hook"),
+    [("Kubera", ""), ("Doom Breaker", "Sent back ten years."), (LONG_NAME, LONG_HOOK)],
+)
+def test_scene_layout_keeps_text_where_it_was(name, hook):
+    upright = layout_item(33, name, "ongoing · ch. 1234", hook)
+    scene = layout_item(33, name, "ongoing · ch. 1234", hook, art=ArtStyle.SCENE)
+    assert scene.text_boxes() == upright.text_boxes()
+    assert all(SAFE.contains(b) for b in scene.text_boxes())
+
+
+def test_quad_image_box_is_the_whole_slide():
+    layout = layout_item(1, LONG_NAME, "ongoing", LONG_HOOK, art=ArtStyle.QUAD)
+    assert layout.cover_area == Box(0, 0, SLIDE_W, SLIDE_H)

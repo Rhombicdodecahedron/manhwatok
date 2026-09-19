@@ -50,6 +50,7 @@ class Box:
 
 
 SAFE = Box(90, 250, 900, 1420)  # x 90–990, y 250–1670
+FULL_SLIDE = Box(0, 0, SLIDE_W, SLIDE_H)  # the scene style's box: the slide itself
 
 
 def words_of(spans: list[tuple[str, bool]]) -> list[Word]:
@@ -331,7 +332,12 @@ def layout_item(
 
 def _image_area(art: ArtStyle, free_h: int) -> Box:
     """The box a manhwa slide's image gets, for each style. The renderer fits the cover inside
-    this box, and crops the panel and character art to fill it."""
+    this box, crops the panel and character art to fill it, and crops the scene art to fill the
+    slide itself."""
+    if art in (ArtStyle.SCENE, ArtStyle.QUAD):
+        # The whole slide, text over it. `free_h` is ignored on purpose: the picture is the slide,
+        # so a long title and hook darken more of it rather than shrinking it.
+        return FULL_SLIDE
     if art is ArtStyle.PANEL:
         # Landscape, the full safe width, centred in the space above the text. Shrinks when a
         # long title and hook leave less room than the ratio wants.
@@ -356,22 +362,31 @@ class CoverLayout:
     kicker: Pill
     title: Placed
     bar: list[Box]
+    byline: Placed | None = None  # "by @handle" under the bar, for an account's post
 
     def text_boxes(self) -> list[Box]:
-        return [self.kicker.box, self.title.box, *self.bar]
+        boxes = [self.kicker.box, self.title.box, *self.bar]
+        return boxes + ([self.byline.box] if self.byline else [])
 
 
-def layout_cover(title: str, count: int) -> CoverLayout:
+def layout_cover(title: str, count: int, byline: str = "") -> CoverLayout:
     x, w = SAFE.x, SAFE.w
     kicker = make_pill(f"{count} PICK" if count == 1 else f"{count} PICKS", bold, 32, w, x)
     title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 92, 56, 1.06)
-    tops = stack_up([kicker.box.h, title_t.height, BAR_H], SAFE.bottom)
+    by_t = fit_words(plain_words(byline), body, w, 1, 34, 26) if byline.strip() else None
+    heights = [kicker.box.h, title_t.height, BAR_H] + ([by_t.height] if by_t else [])
+    tops = stack_up(heights, SAFE.bottom)
     seg_w = (w - BAR_GAP * (count - 1)) / max(count, 1)
     bar = [
         Box(round(x + i * (seg_w + BAR_GAP)), tops[2], max(1, round(seg_w)), BAR_H)
         for i in range(count)
     ]
-    return CoverLayout(_at(kicker, tops[0]), Placed(title_t, x, tops[1], w), bar)
+    return CoverLayout(
+        _at(kicker, tops[0]),
+        Placed(title_t, x, tops[1], w),
+        bar,
+        Placed(by_t, x, tops[3], w) if by_t else None,
+    )
 
 
 # --- end slide ----------------------------------------------------------------------------

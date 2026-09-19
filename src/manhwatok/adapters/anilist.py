@@ -8,7 +8,8 @@ import re
 import httpx
 
 from manhwatok.domain.errors import MetadataError
-from manhwatok.domain.models import Manhwa, SearchQuery, Sort, Status, TagInfo
+from manhwatok.domain.models import QUAD_PICTURES, Manhwa, SearchQuery, Sort, Status, TagInfo
+from manhwatok.ports.metadata import TitleExtras
 
 ANILIST_URL = "https://graphql.anilist.co"
 USER_AGENT = "manhwatok/0.1"
@@ -33,9 +34,22 @@ query ($perPage: Int, $genres: [String], $tags: [String], $sort: [MediaSort], $m
       popularity
       coverImage { extraLarge color }
       bannerImage
-      characters(sort: FAVOURITES_DESC, perPage: 4) { nodes { image { large } } }
+      characters(sort: FAVOURITES_DESC, perPage: 8) { nodes { image { large } } }
+      synonyms
       description(asHtml: false)
       siteUrl
+    }
+  }
+}
+"""
+
+_EXTRAS = """
+query ($ids: [Int]) {
+  Page(page: 1, perPage: 50) {
+    media(id_in: $ids, type: MANGA) {
+      id
+      characters(sort: FAVOURITES_DESC, perPage: 8) { nodes { image { large } } }
+      synonyms
     }
   }
 }
@@ -53,14 +67,15 @@ _SORT = {
 _SOURCE_NOTE = re.compile(r"\(\s*source:[^)]*\)", re.IGNORECASE)
 
 
-def _character_image(media: dict) -> str:
-    """The first pictured character AniList lists for a title, most favourited first. A listed
-    character can have no picture at all, so this takes the first that does."""
+def _character_images(media: dict) -> list[str]:
+    """Up to QUAD_PICTURES pictured characters AniList lists for a title, most favourited
+    first. A listed character can have no picture at all, so those are skipped."""
+    urls: list[str] = []
     for node in (media.get("characters") or {}).get("nodes") or []:
         url = ((node or {}).get("image") or {}).get("large") or ""
         if url and "default" not in url:  # AniList's stand-in for a character with no picture
-            return url
-    return ""
+            urls.append(url)
+    return urls[:QUAD_PICTURES]
 
 
 def clean_description(raw: str) -> str:
@@ -98,6 +113,17 @@ class AniListSource:
             variables["excludeTags"] = query.exclude_tags
         data = self._post(_SEARCH, variables)
         return [_to_manhwa(m) for m in data["Page"]["media"]]
+
+    def extras(self, ids: list[int]) -> dict[int, TitleExtras]:
+        """Characters and alternative titles by AniList id, for titles saved before manhwatok
+        kept them."""
+        if not ids:
+            return {}
+        data = self._post(_EXTRAS, {"ids": list(ids)})
+        return {
+            m["id"]: TitleExtras(_character_images(m), [s for s in m.get("synonyms") or [] if s])
+            for m in data["Page"]["media"]
+        }
 
     def list_tags(self) -> list[TagInfo]:
         data = self._post(_TAGS, {})
@@ -157,7 +183,9 @@ def _to_manhwa(m: dict) -> Manhwa:
         cover_url=(m.get("coverImage") or {}).get("extraLarge") or "",
         cover_color=(m.get("coverImage") or {}).get("color"),
         banner_url=m.get("bannerImage") or "",
-        character_url=_character_image(m),
+        character_url=next(iter(_character_images(m)), ""),
+        character_urls=_character_images(m),
+        synonyms=[s for s in m.get("synonyms") or [] if s],
         description=clean_description(m.get("description") or ""),
         site_url=m.get("siteUrl") or "",
     )

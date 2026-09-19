@@ -51,6 +51,7 @@ def build_art_sources(settings: Settings, cache: Cache) -> dict[ArtSourceName, A
     from manhwatok.adapters.booru import BooruSource
     from manhwatok.adapters.mangadex import MangaDexSource
     from manhwatok.adapters.pinterest import PinterestSource
+    from manhwatok.adapters.reddit import RedditSource
 
     max_age = settings.art_cache_days * 24 * 3600
     return {
@@ -61,6 +62,12 @@ def build_art_sources(settings: Settings, cache: Cache) -> dict[ArtSourceName, A
             cache=cache, max_age=max_age, timeout=settings.http_timeout
         ),
         ArtSourceName.PINS: PinterestSource(),
+        ArtSourceName.REDDIT: RedditSource(
+            settings.reddit_client_id,
+            settings.reddit_client_secret,
+            settings.reddit_user,
+            timeout=settings.http_timeout,
+        ),
     }
 
 
@@ -71,9 +78,19 @@ def build_posts(settings: Settings) -> PostRepository:
     return FsPostRepository(settings.posts_dir)
 
 
-def build_post_tools(settings: Settings, editor: EditorFn, progress: ProgressFn) -> PostTools:
+def build_post_tools(
+    settings: Settings,
+    editor: EditorFn,
+    progress: ProgressFn,
+    metadata: MetadataSource | None = None,
+    scenes: ArtSource | None = None,
+) -> PostTools:
+    """`metadata` and `scenes` default to new AniList and Pinterest sources (both cheap to make);
+    a front end that already holds them passes its own."""
     from manhwatok.adapters.cover_cache import CoverCache
     from manhwatok.adapters.pillow_renderer import PillowRenderer
+    from manhwatok.adapters.pinterest import PinterestSource
+    from manhwatok.adapters.text_check import build_text_check
 
     return PostTools(
         posts=build_posts(settings),
@@ -81,6 +98,9 @@ def build_post_tools(settings: Settings, editor: EditorFn, progress: ProgressFn)
         renderer=PillowRenderer(),
         editor=editor,
         progress=progress,
+        metadata=metadata or build_metadata(settings),
+        scenes=scenes or PinterestSource(),
+        has_text=build_text_check(),
     )
 
 

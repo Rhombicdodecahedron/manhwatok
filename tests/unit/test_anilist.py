@@ -6,6 +6,7 @@ import pytest
 from manhwatok.adapters.anilist import AniListSource, clean_description
 from manhwatok.domain.errors import MetadataError
 from manhwatok.domain.models import SearchQuery, Sort, Status
+from manhwatok.ports.metadata import TitleExtras
 
 # Shape copied from a live AniList response (2026-09-14); values trimmed.
 DOOM_BREAKER = {
@@ -226,3 +227,60 @@ def test_search_takes_the_first_character_that_has_an_image():
     }
     [m] = _source(lambda r: httpx.Response(200, json=_page(media))).search(SearchQuery(tags=["x"]))
     assert m.character_url.endswith("b2.png")
+
+
+def _chars(*names):
+    base = "https://s4.anilist.co/file/anilistcdn/character/large/"
+    return {"nodes": [{"image": {"large": base + n} if n else None} for n in names]}
+
+
+def test_search_keeps_up_to_four_pictured_characters():
+    media = {**DOOM_BREAKER, "characters": _chars("a.png", "", "b.png", "c.png", "d.png", "e.png")}
+    [m] = _source(lambda r: httpx.Response(200, json=_page(media))).search(SearchQuery(tags=["x"]))
+    assert [u.rsplit("/", 1)[1] for u in m.character_urls] == ["a.png", "b.png", "c.png", "d.png"]
+    assert m.character_url == m.character_urls[0]
+
+
+def test_search_asks_for_enough_characters_to_skip_unpictured_ones():
+    seen = {}
+    _source(_capture(seen)).search(SearchQuery(tags=["x"]))
+    assert "characters(sort: FAVOURITES_DESC, perPage: 8)" in seen["query"]
+
+
+def test_extras_looks_titles_up_by_id():
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        media = [
+            {"id": 1, "characters": _chars("a.png", "b.png"), "synonyms": ["Murim Login"]},
+            {"id": 2, "characters": {"nodes": []}, "synonyms": None},
+        ]
+        return httpx.Response(200, json=_page(*media))
+
+    found = _source(handler).extras([1, 2])
+    assert seen["variables"] == {"ids": [1, 2]}
+    assert "synonyms" in seen["query"]
+    assert [u.rsplit("/", 1)[1] for u in found[1].character_urls] == ["a.png", "b.png"]
+    assert found[1].synonyms == ["Murim Login"]
+    assert found[2] == TitleExtras([], [])
+
+
+def test_extras_of_nothing_asks_nothing():
+    def handler(request):
+        raise AssertionError("no request expected")
+
+    assert _source(handler).extras([]) == {}
+
+
+def test_search_keeps_the_alternative_titles():
+    media = {**DOOM_BREAKER, "synonyms": ["Pamyeol", "破滅の剣士"]}
+    [m] = _source(lambda r: httpx.Response(200, json=_page(media))).search(SearchQuery(tags=["x"]))
+    assert m.synonyms == ["Pamyeol", "破滅の剣士"]
+
+
+def test_search_without_alternative_titles_records_none_found():
+    [m] = _source(lambda r: httpx.Response(200, json=_page(NO_ENGLISH))).search(
+        SearchQuery(tags=["x"])
+    )
+    assert m.synonyms == []  # looked up and empty, not "never looked up"

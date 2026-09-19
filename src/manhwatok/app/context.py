@@ -59,8 +59,10 @@ def open_context(settings: Settings) -> AppContext:
     store = container.build_store(settings)
     metadata = container.build_metadata(settings)
     chapters = container.build_chapter_source(settings, store.cache)
-    tools = container.build_post_tools(settings, _no_editor, lambda _: None)
     art_sources = container.build_art_sources(settings, store.cache)
+    tools = container.build_post_tools(
+        settings, _no_editor, lambda _: None, metadata, art_sources[ArtSourceName.PINS]
+    )
     return AppContext(
         settings=settings,
         store=store,

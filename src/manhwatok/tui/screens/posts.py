@@ -11,9 +11,10 @@ from textual.widgets import DataTable, Static
 from manhwatok.app.delete_post import delete_post
 from manhwatok.app.edit_post import update_picks
 from manhwatok.app.export_post import export_post
-from manhwatok.app.render_post import render_post, rendered_files
+from manhwatok.app.render_post import choose_cover, render_post, rendered_files
 from manhwatok.app.upload_post import upload_post
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered
+from manhwatok.domain.models import CoverStyle
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 from manhwatok.tui.screens.art import ArtScreen
@@ -51,6 +52,7 @@ class PostsPane(Vertical):
         Binding("r", "render", "Render"),
         Binding("x", "export", "Export"),
         Binding("a", "art", "Art"),
+        Binding("c", "cover", "Cover"),
         Binding("u", "upload", "Upload"),
         Binding("U", "upload(True)", "Upload (debug)", show=False),
         Binding("d", "delete", "Delete"),
@@ -254,6 +256,47 @@ class PostsPane(Vertical):
             return
         pid = post.id
         self.app.push_screen(ArtScreen(pid), lambda _: self.reload(select=pid))
+
+    def action_cover(self) -> None:
+        """Pick the cover version: swapped into 01.png at once when a render already drew it,
+        else rendered with it."""
+        post = self._selected()
+        if post is None:
+            return
+        if self.app.refuse_while_rendering():
+            return
+        pid = post.id
+        about = {
+            CoverStyle.FAN: "three covers fanned out",
+            CoverStyle.QUAD: "four characters, one per quadrant",
+            CoverStyle.HERO: "the first pick's art, full screen",
+        }
+        choices = [
+            (f"{s.value} — {about[s]}" + (" (current)" if s is post.cover else ""), s.value)
+            for s in CoverStyle
+        ]
+
+        def rendered(slides) -> None:
+            self.app.notify(f"post {pid} · {len(slides)} slides")
+            self.reload(select=pid)
+
+        def chosen(value: str | None) -> None:
+            if value is None:
+                return
+            style = CoverStyle(value)
+            try:
+                choose_cover(pid, style, self.app.ctx.tools)
+            except NotRendered:
+                if self.app.start_render(lambda tools: render_post(pid, tools), rendered):
+                    self.app.notify(f"rendering {pid} with the {style.value} cover…")
+                return
+            except ManhwatokError as e:
+                self.app.fail(e)
+                return
+            self.app.notify(f"post {pid} · {style.value} cover")
+            self.reload(select=pid)
+
+        self.app.push_screen(ChoiceModal(f"Cover for post {pid}", choices), chosen)
 
     def action_upload(self, debug: bool = False) -> None:
         post = self._selected()

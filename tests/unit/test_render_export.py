@@ -7,10 +7,10 @@ from manhwatok.adapters.pillow_renderer import PillowRenderer
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app.delete_post import delete_post
 from manhwatok.app.export_post import export_post
-from manhwatok.app.render_post import CAPTION_FILE, render_post
+from manhwatok.app.render_post import CAPTION_FILE, choose_cover, render_post
 from manhwatok.domain.errors import DraftError, NotRendered, PostNotFound, StorageError
 from manhwatok.domain.post import PostItem
-from manhwatok.domain.models import ArtStyle
+from manhwatok.domain.models import ArtStyle, CoverStyle
 from manhwatok.ports.posts import SlideArt
 from tests.unit.fakes import (
     FakeCovers,
@@ -318,6 +318,22 @@ def test_render_downloads_no_banners_when_art_is_none(tmp_path):
     assert covers.banner_calls == []
 
 
+def test_render_downloads_no_banners_or_characters_for_scene_art(tmp_path):
+    """A scene draws the pin, or the cover cropped to fill — never a banner or a portrait."""
+    covers = FakeCovers(
+        {1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg"},
+        banners={1: tmp_path / "1-banner.jpg"},
+        characters={1: tmp_path / "1-char.jpg"},
+    )
+    tools = make_tools(tmp_path, covers=covers)
+    tools.posts.save(_art_post(art=ArtStyle.SCENE))
+    render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed[1] == SlideArt(tmp_path / "1.jpg", None)
+    assert covers.banner_calls == []
+    assert covers.character_calls == []
+
+
 def test_render_survives_a_banner_download_failure(tmp_path):
     messages = []
     covers = FakeCovers({1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg"}, fail_banners={1})
@@ -352,14 +368,34 @@ def test_render_fetches_character_images_for_character_art(tmp_path):
     assert covers.banner_calls == []  # this style needs no banner
 
 
-def test_render_downloads_no_character_images_for_other_styles(tmp_path):
+@pytest.mark.parametrize("art", [ArtStyle.NONE, ArtStyle.BACKGROUND, ArtStyle.SCENE])
+def test_render_fetches_characters_for_the_quad_cover_in_every_style(tmp_path, art):
     covers = FakeCovers(
         {1: tmp_path / "1.jpg", 2: tmp_path / "2.jpg"}, characters={1: tmp_path / "1-char.png"}
     )
     tools = make_tools(tmp_path, covers=covers)
-    tools.posts.save(_char_post(art=ArtStyle.BACKGROUND))
+    tools.posts.save(_char_post(art=art))
     render_post("20260914-a3f9", tools)
-    assert covers.character_calls == []
+    _, passed = tools.renderer.calls[0]
+    assert passed[1].character == tmp_path / "1-char.png"
+    assert covers.character_calls == [1]
+
+
+def test_render_fetches_characters_for_the_first_four_titles_only(tmp_path):
+    items = [
+        PostItem(manhwa=manhwa(anilist_id=i, character_url=f"https://x.test/{i}.png"), hook="h")
+        for i in range(1, 7)
+    ]
+    covers = FakeCovers(
+        {i: tmp_path / f"{i}.jpg" for i in range(1, 7)},
+        characters={i: tmp_path / f"{i}-char.png" for i in range(1, 7)},
+    )
+    tools = make_tools(tmp_path, covers=covers)
+    tools.posts.save(post(items=items))
+    render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert covers.character_calls == [1, 2, 3, 4]
+    assert passed[5].character is None
 
 
 def test_render_survives_a_character_download_failure(tmp_path):
@@ -413,3 +449,45 @@ def test_render_still_fetches_covers_for_a_title_with_picked_art(tmp_path):
     render_post("20260914-a3f9", tools)
     _, passed = tools.renderer.calls[0]
     assert passed[1].cover == tmp_path / "1.jpg"
+
+
+# --- choosing a cover version --------------------------------------------------------------------
+
+
+def _rendered_versions(tools):
+    folder = tools.posts.folder("20260914-a3f9")
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "01.png").write_bytes(b"fan")
+    for style in CoverStyle:
+        (folder / f"cover-{style.value}.png").write_bytes(style.value.encode())
+    return folder
+
+
+def test_choose_cover_saves_the_choice_and_swaps_the_first_slide(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post())
+    folder = _rendered_versions(tools)
+    path = choose_cover("20260914-a3f9", CoverStyle.QUAD, tools)
+    assert path == folder / "01.png"
+    assert path.read_bytes() == b"quad"
+    assert tools.posts.get("20260914-a3f9").cover is CoverStyle.QUAD
+
+
+def test_choose_cover_before_render_saves_the_choice_and_asks_for_a_render(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post())
+    with pytest.raises(NotRendered, match="run: manhwatok render 20260914-a3f9"):
+        choose_cover("20260914-a3f9", CoverStyle.HERO, tools)
+    assert tools.posts.get("20260914-a3f9").cover is CoverStyle.HERO
+
+
+def test_old_posts_load_with_the_fan_cover(tmp_path):
+    tools = make_tools(tmp_path)
+    tools.posts.save(post())
+    path = tools.posts.folder("20260914-a3f9") / "post.json"
+    import json
+
+    data = json.loads(path.read_text())
+    data.pop("cover", None)
+    path.write_text(json.dumps(data))
+    assert tools.posts.get("20260914-a3f9").cover is CoverStyle.FAN

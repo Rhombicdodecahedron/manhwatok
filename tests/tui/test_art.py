@@ -13,8 +13,8 @@ VOL1 = ArtOption("vol. 1", "https://x.test/1.jpg")
 VOL2 = ArtOption("vol. 2", "https://x.test/2.jpg")
 
 
-def _ready(tmp_path, art=None, fanart=None, pins=None):
-    ctx = make_ctx(tmp_path, art=art, fanart=fanart, pins=pins)
+def _ready(tmp_path, art=None, fanart=None, pins=None, reddit=None):
+    ctx = make_ctx(tmp_path, art=art, fanart=fanart, pins=pins, reddit=reddit)
     ctx.tools.posts.save(post(id=PID))
     render_post(PID, ctx.tools)
     return ctx
@@ -169,14 +169,16 @@ def test_fan_art_is_used_from_the_fan_art_source(tmp_path):
 
 
 PIN1 = ArtOption("1489x1393  (no artist recorded)", "https://x.test/pin.jpg")
+REDDIT1 = ArtOption("⬆ 5400  1080x1920  r/sololeveling", "https://i.redd.it/a.jpg")
 
 
-def test_s_cycles_covers_then_fan_art_then_pins(tmp_path):
+def test_s_cycles_covers_then_fan_art_then_pins_then_reddit(tmp_path):
     ctx = _ready(
         tmp_path,
         art=FakeArtSource({1: [VOL1, VOL2]}),
         fanart=FakeArtSource({1: [FAN1]}),
         pins=FakeArtSource({1: [PIN1, PIN1._replace(url="https://x.test/pin2.jpg")]}),
+        reddit=FakeArtSource({1: [REDDIT1]}),
     )
 
     async def scenario(app, pilot):
@@ -192,6 +194,9 @@ def test_s_cycles_covers_then_fan_art_then_pins(tmp_path):
         await pilot.press("s")  # pins
         await wait_for(pilot, lambda: len(_table_rows(app, "covers")) == 2)
         assert _table_rows(app, "covers")[0][1] == PIN1.label
+
+        await pilot.press("s")  # reddit
+        await wait_for(pilot, lambda: [r[1] for r in _table_rows(app, "covers")] == [REDDIT1.label])
 
         await pilot.press("s")  # back to covers
         await wait_for(
