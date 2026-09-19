@@ -26,10 +26,26 @@ class FakeMetadata:
         self.tags: list[TagInfo] = list(tags)
         self.genres: list[str] = list(genres)
         self.queries: list[SearchQuery] = []
+        # What extras() answers, by id.
+        self.character_urls: dict[int, list[str]] = {}
+        self.synonyms: dict[int, list[str]] = {}
+        self.extra_lookups: list[list[int]] = []
+        self.extra_error: Exception | None = None
 
     def search(self, query: SearchQuery) -> list[Manhwa]:
         self.queries.append(query)
         return list(self.results)
+
+    def extras(self, ids: list[int]):
+        from manhwatok.ports.metadata import TitleExtras
+
+        self.extra_lookups.append(list(ids))
+        if self.extra_error is not None:
+            raise self.extra_error
+        return {
+            i: TitleExtras(list(self.character_urls.get(i, [])), list(self.synonyms.get(i, [])))
+            for i in ids
+        }
 
     def list_tags(self) -> list[TagInfo]:
         return list(self.tags)
@@ -90,7 +106,7 @@ class FakeCovers:
         on_disk: set[int] | None = None,
         banners: dict[int, Path] | None = None,
         fail_banners: set[int] | None = None,
-        characters: dict[int, Path] | None = None,
+        characters: dict[int, Path | list[Path]] | None = None,
         fail_characters: set[int] | None = None,
     ):
         self.paths = dict(paths or {})
@@ -126,15 +142,22 @@ class FakeCovers:
             return self.banners[manhwa.anilist_id]
         return None
 
-    def get_character(self, manhwa: Manhwa) -> Path:
-        self.character_calls.append(manhwa.anilist_id)
-        if manhwa.anilist_id in self.fail_characters or manhwa.anilist_id not in self.characters:
-            raise MetadataError(f"character download failed for {manhwa.title}: HTTP 500")
-        return self.characters[manhwa.anilist_id]
+    def _character(self, manhwa: Manhwa, index: int) -> Path | None:
+        """`characters` maps an id to its one picture, or to a list of them in order."""
+        found = self.characters.get(manhwa.anilist_id)
+        found = found if isinstance(found, list) else [found] if found else []
+        return found[index] if index < len(found) else None
 
-    def cached_character(self, manhwa: Manhwa) -> Path | None:
-        if manhwa.anilist_id in self.on_disk and manhwa.anilist_id in self.characters:
-            return self.characters[manhwa.anilist_id]
+    def get_character(self, manhwa: Manhwa, index: int = 0) -> Path:
+        self.character_calls.append(manhwa.anilist_id)
+        path = self._character(manhwa, index)
+        if manhwa.anilist_id in self.fail_characters or path is None:
+            raise MetadataError(f"character download failed for {manhwa.title}: HTTP 500")
+        return path
+
+    def cached_character(self, manhwa: Manhwa, index: int = 0) -> Path | None:
+        if manhwa.anilist_id in self.on_disk:
+            return self._character(manhwa, index)
         return None
 
 
@@ -245,11 +268,14 @@ class FakeUploader:
 class FakeArtSource:
     """Scripted ArtSource: options per anilist id, and a fetch that writes a real tiny JPEG."""
 
-    def __init__(self, options=None, error: Exception | None = None):
+    def __init__(self, options=None, error: Exception | None = None, broken=(), twins=None):
         from manhwatok.ports.art import ArtOption
 
         self.options_by_id: dict[int, list[ArtOption]] = dict(options or {})
         self.error = error
+        self.broken: set[str] = set(broken)  # urls whose download fails
+        # url -> another url whose picture it really is (a repin under a different address)
+        self.twins: dict[str, str] = dict(twins or {})
         self.fetched: list[str] = []
         self.tags: list[str | None] = []  # the narrowing tag of each options() call
 
@@ -263,7 +289,16 @@ class FakeArtSource:
         from PIL import Image
 
         self.fetched.append(option.url)
+        if option.url in self.broken:
+            from manhwatok.domain.errors import ManhwatokError
+
+            raise ManhwatokError(f"could not download {option.url}")
         into.mkdir(parents=True, exist_ok=True)
         path = into / "picture.jpg"
-        Image.new("RGB", (460, 650), (10, 20, 30)).save(path)
+        # A different picture per address, so two options are only the same file when they are
+        # the same address or declared twins.
+        import hashlib
+
+        colour = hashlib.md5(self.twins.get(option.url, option.url).encode()).digest()[:3]
+        Image.new("RGB", (46, 65), tuple(colour)).save(path)
         return path

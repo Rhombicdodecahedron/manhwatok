@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import AwareDatetime, BaseModel, Field
 
-from manhwatok.domain.models import ArtStyle, Manhwa
+from manhwatok.domain.models import ArtStyle, CoverStyle, Manhwa
 
 DEFAULT_ACCENT = "#43c9e4"
 DEFAULT_HASHTAGS = "#manhwa #manhwarecommendation #webtoon #manhwatiktok"
@@ -19,6 +19,9 @@ class PostItem(BaseModel):
     # A file the user picked by hand, kept in the post's own folder and named relative to it.
     # It beats whatever the post's art style would have fetched.
     custom_art: str = ""
+    # Extra pictures for the quad style, where the title's characters leave gaps: files in the
+    # post's folder, in the order they fill the grid.
+    scenes: list[str] = Field(default_factory=list)
 
 
 class ListPost(BaseModel):
@@ -38,6 +41,7 @@ class ListPost(BaseModel):
     sent_at: AwareDatetime | None = None  # Phase 4: when the user confirmed it was posted
     # Phase 5: a post keeps the art style it was built with, as it keeps its CTA texts.
     art: ArtStyle = ArtStyle.NONE
+    cover: CoverStyle = CoverStyle.FAN  # which cover version render makes 01.png
 
     @property
     def slide_count(self) -> int:

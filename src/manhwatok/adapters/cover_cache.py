@@ -78,11 +78,21 @@ class CoverCache:
         failure. Only about half of manhwa have a banner at all — callers check banner_url."""
         return self._get(manhwa, manhwa.banner_url, "-banner", "banner")
 
-    def cached_character(self, manhwa: Manhwa) -> Path | None:
-        """Local path of an already-downloaded character image, or None. Never downloads."""
-        return self._cached(manhwa, manhwa.character_url, "-char")
+    @staticmethod
+    def _character(manhwa: Manhwa, index: int) -> tuple[str, str]:
+        """The `index`th character's URL ("" past the last) and its file suffix. The first
+        keeps the plain "-char" name, so pictures downloaded before there were four still count."""
+        urls = manhwa.characters
+        url = urls[index] if 0 <= index < len(urls) else ""
+        return url, "-char" if index == 0 else f"-char{index + 1}"
 
-    def get_character(self, manhwa: Manhwa) -> Path:
-        """Local path of the character image, downloading it on first use. Raises MetadataError
-        on failure. Callers check character_url first."""
-        return self._get(manhwa, manhwa.character_url, "-char", "character")
+    def cached_character(self, manhwa: Manhwa, index: int = 0) -> Path | None:
+        """Local path of an already-downloaded character image, or None. Never downloads."""
+        url, suffix = self._character(manhwa, index)
+        return self._cached(manhwa, url, suffix)
+
+    def get_character(self, manhwa: Manhwa, index: int = 0) -> Path:
+        """Local path of the `index`th character image (most favourited first), downloading it
+        on first use. Raises MetadataError on failure. Callers check `manhwa.characters` first."""
+        url, suffix = self._character(manhwa, index)
+        return self._get(manhwa, url, suffix, "character")

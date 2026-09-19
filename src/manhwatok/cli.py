@@ -8,7 +8,14 @@ import typer
 
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import ArtOrder, ArtSourceName, ArtStyle, SearchQuery, Sort
+from manhwatok.domain.models import (
+    ArtOrder,
+    ArtSourceName,
+    ArtStyle,
+    CoverStyle,
+    SearchQuery,
+    Sort,
+)
 
 app = typer.Typer(
     help="Themed manhwa recommendation slideshows for TikTok.", no_args_is_help=True
@@ -53,9 +60,12 @@ ART = typer.Option(
     None,
     "--art",
     help="Manhwa slide art: 'none' (the cover on its own blur), 'background' (the cover on "
-    "AniList's banner art), 'panel' (a wide crop of the banner in place of the cover) or "
-    "'character' (the title's main character in place of the cover). Default: the account's, "
-    "else none.",
+    "AniList's banner art), 'panel' (a wide crop of the banner in place of the cover), "
+    "'character' (the title's main character in place of the cover), 'scene' (one picture "
+    "filling the whole slide, text over it — for art you picked with `manhwatok art`) or "
+    "'quad' (four of the title's own pictures, 2×2: its characters, Pinterest scenes for the "
+    "rest, or all scenes with --source). "
+    "Default: the account's, else none.",
 )
 
 
@@ -276,19 +286,154 @@ def edit(
 def render(
     post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
     art: Optional[ArtStyle] = ART,
+    source: Optional[ArtSourceName] = typer.Option(
+        None,
+        "--source",
+        help="First give every title a picture from here, as `manhwatok art --pick` would: "
+        "'covers' (MangaDex volume covers), 'fanart' (Danbooru), 'pins' (a Pinterest "
+        "search, needs gallery-dl) or 'reddit' (most-upvoted image posts; slow, about one "
+        "title a minute). Titles you already picked art for keep it.",
+    ),
+    tag: Optional[str] = typer.Option(
+        None,
+        "--tag",
+        help="Extra words for --source fanart, pins or reddit, e.g. 'fight scene'.",
+    ),
+    order: Optional[ArtOrder] = typer.Option(
+        None,
+        "--order",
+        help="How --source ranks what it finds: 'relevance' (the source's own order, the "
+        "default; 'popular' for --art quad), 'size' (biggest first), 'portrait' (closest to a "
+        "slide's 9:16 first) or 'popular' (most liked on Pinterest first).",
+    ),
+    pick: Optional[int] = typer.Option(
+        None, "--pick", metavar="N", min=1, help="Use each title's Nth picture (default: 1)."
+    ),
+    replace: bool = typer.Option(
+        False, "--replace", help="Pick again for titles that already have picked art too."
+    ),
+    cover: Optional[CoverStyle] = typer.Option(
+        None,
+        "--cover",
+        help="Which cover version becomes 01.png: 'fan' (three covers fanned out), 'quad' "
+        "(four characters, one per quadrant) or 'hero' (the first pick's art, full screen). "
+        "All three are always written as cover-<version>.png; switch later with "
+        "`manhwatok cover`.",
+    ),
 ) -> None:
-    """Re-render a post's slides and caption."""
-    from manhwatok.app.render_post import render_post, restyle
+    """Re-render a post's slides and caption.
+
+    With --source, first gives every title a picture of its own.
+
+    Full-screen Pinterest scenes: --art scene --source pins --order portrait
+
+    With --art quad, --source fills each title's four squares with scenes from there
+    (characters stand in where it finds too few). Without it, Pinterest scenes only fill what
+    a title's characters leave.
+    """
+    from manhwatok.app import container
+    from manhwatok.app.art_options import fill_art
+    from manhwatok.app.quad_art import SceneSearch
+    from manhwatok.app.render_post import render_post, restyle, set_cover
+
+    if source is None:
+        given = [
+            flag
+            for flag, set_ in (
+                ("--tag", tag is not None),
+                ("--order", order is not None),
+                ("--pick", pick is not None),
+                ("--replace", replace),
+            )
+            if set_
+        ]
+        if given:
+            _fail(ManhwatokError(f"{', '.join(given)} only shapes a --source search"))
+    elif tag and source is ArtSourceName.COVERS:
+        _fail(
+            ManhwatokError(
+                "--tag narrows --source fanart, pins or reddit; covers has no such vocabulary"
+            )
+        )
 
     settings = Settings()
     try:
         tools = _tools(settings)
         if art is not None:
             restyle(post_id, art, tools)
-        slides = render_post(post_id, tools)
+        if cover is not None:
+            set_cover(post_id, cover, tools)
+        if source is None:
+            slides = render_post(post_id, tools)
+        else:
+            saved = tools.posts.get(post_id)
+            with container.build_store(settings) as store:
+                sources = container.build_art_sources(settings, store.cache)
+                try:
+                    if saved.art is ArtStyle.QUAD:
+                        # A quad slide keeps its picked art; the search fills its squares.
+                        search = SceneSearch(
+                            sources[source],
+                            tag,
+                            order or ArtOrder.POPULAR,
+                            pick or 1,
+                            replace,
+                            fill=True,
+                        )
+                        slides = render_post(post_id, tools, search)
+                    else:
+                        filled = fill_art(
+                            post_id,
+                            tools,
+                            sources[source],
+                            tag,
+                            order or ArtOrder.RELEVANCE,
+                            pick or 1,
+                            replace,
+                        )
+                        typer.echo(
+                            f"new {source.value} for {filled} of {len(saved.items)} titles"
+                        )
+                        slides = render_post(post_id, tools)
+                finally:
+                    for built in sources.values():
+                        getattr(built, "close", lambda: None)()
     except ManhwatokError as e:
         _fail(e)
     typer.echo(f"post {post_id} · {len(slides)} slides → {tools.posts.folder(post_id)}")
+
+
+@app.command("cover")
+def cover_cmd(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    style: Optional[CoverStyle] = typer.Argument(
+        None, help="fan, quad or hero. Leave out to list the versions render drew."
+    ),
+) -> None:
+    """Pick which cover version is the post's first slide.
+
+    Every render draws all three next to the slides as cover-fan.png, cover-quad.png and
+    cover-hero.png; this swaps the one you like into 01.png without rendering again.
+    """
+    from manhwatok.app.render_post import choose_cover, cover_version
+
+    settings = Settings()
+    try:
+        tools = _tools(settings)
+        if style is None:
+            current = tools.posts.get(post_id).cover
+            for one in CoverStyle:
+                path = cover_version(post_id, one, tools)
+                mark = " (current)" if one is current else ""
+                missing = f"not rendered — run: manhwatok render {post_id}"
+                where = path if path.is_file() else missing
+                typer.echo(f"{one.value}{mark}: {where}")
+            typer.echo(f"pick one with: manhwatok cover {post_id} <{'|'.join(CoverStyle)}>")
+            return
+        first = choose_cover(post_id, style, tools)
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo(f"post {post_id} · {style.value} cover → {first}")
 
 
 @app.command()
@@ -371,19 +516,21 @@ def art(
         ArtSourceName.COVERS,
         "--source",
         help="Where --list looks: 'covers' (MangaDex volume covers), 'fanart' (Danbooru, "
-        "best-scored and safe-rated only) or 'pins' (a Pinterest search, needs gallery-dl).",
+        "best-scored and safe-rated only), 'pins' (a Pinterest search, needs gallery-dl) or "
+        "'reddit' (most-upvoted image posts; slow, Reddit allows about one search a minute).",
     ),
     tag: Optional[str] = typer.Option(
         None,
         "--tag",
-        help="Extra words for --source fanart or pins, e.g. 'full_body'. On fanart it costs "
-        "the score ordering, so results are ranked afterwards instead.",
+        help="Extra words for --source fanart, pins or reddit, e.g. 'full_body'. On fanart it "
+        "costs the score ordering, so results are ranked afterwards instead.",
     ),
     order: ArtOrder = typer.Option(
         ArtOrder.RELEVANCE,
         "--order",
         help="How to arrange --list: 'relevance' (the source's own order), 'size' (biggest "
-        "first) or 'portrait' (closest to a slide's 9:16 first).",
+        "first), 'portrait' (closest to a slide's 9:16 first) or 'popular' (most liked on "
+        "Pinterest first).",
     ),
 ) -> None:
     """Use a picture of your own for one title, instead of the art its style would fetch.
@@ -416,7 +563,7 @@ def art(
     if tag and source is ArtSourceName.COVERS:
         _fail(
             ManhwatokError(
-                "--tag narrows --source fanart or pins; covers has no such vocabulary"
+                "--tag narrows --source fanart, pins or reddit; covers has no such vocabulary"
             )
         )
 

@@ -47,3 +47,19 @@ def test_export_dir_falls_back_to_cwd(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.chdir(tmp_path)
     assert Settings().export_dir == tmp_path / "manhwatok"
+
+
+def test_reddit_credentials_come_from_the_environment(monkeypatch):
+    monkeypatch.setenv("MANHWATOK_REDDIT_CLIENT_ID", "id")
+    monkeypatch.setenv("MANHWATOK_REDDIT_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("MANHWATOK_REDDIT_USER", "someone")
+    s = Settings()
+    assert (s.reddit_client_id, s.reddit_client_secret, s.reddit_user) == ("id", "secret", "someone")
+
+
+def test_reddit_credentials_default_to_none_set(monkeypatch):
+    for var in ("MANHWATOK_REDDIT_CLIENT_ID", "MANHWATOK_REDDIT_CLIENT_SECRET",
+                "MANHWATOK_REDDIT_USER"):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert (s.reddit_client_id, s.reddit_client_secret, s.reddit_user) == ("", "", "")

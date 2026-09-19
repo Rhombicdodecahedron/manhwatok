@@ -32,6 +32,7 @@ tui = [
 ]
 pinterest = [
     "gallery-dl>=1.27",
+    "rapidocr-onnxruntime>=1.4",
 ]
 
 [build-system]

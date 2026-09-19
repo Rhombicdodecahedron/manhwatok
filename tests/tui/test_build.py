@@ -217,6 +217,8 @@ def test_blank_emojis_and_art_take_the_accounts(tmp_path):
             "background",
             "panel",
             "character",
+            "scene",
+            "quad",
         ]
         await _set(pilot, pane, account="reads", theme="revenge")
         pane.search()

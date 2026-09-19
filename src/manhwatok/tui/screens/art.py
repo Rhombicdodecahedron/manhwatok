@@ -30,11 +30,12 @@ from manhwatok.tui.widgets.slide_preview import readable_image
 ART = "art"  # worker group: looking up what a source has, one title at a time
 LABEL_WIDTH = 44  # wide enough for "\u2605 99  1200x1800  by artist_name"
 # The order `s` walks through, and what to call each one on screen.
-SOURCES = (ArtSourceName.COVERS, ArtSourceName.FANART, ArtSourceName.PINS)
+SOURCES = (ArtSourceName.COVERS, ArtSourceName.FANART, ArtSourceName.PINS, ArtSourceName.REDDIT)
 SOURCE_NAMES = {
     ArtSourceName.COVERS: "Covers",
     ArtSourceName.FANART: "Fan art",
     ArtSourceName.PINS: "Pins",
+    ArtSourceName.REDDIT: "Reddit",
 }
 
 

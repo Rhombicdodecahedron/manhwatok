@@ -4,7 +4,7 @@ from PIL import Image
 from manhwatok.adapters.pillow_renderer import PillowRenderer
 from manhwatok.domain.color import hex_to_rgb, readable_accent
 from manhwatok.domain.errors import StorageError
-from manhwatok.domain.models import ArtStyle
+from manhwatok.domain.models import ArtStyle, CoverStyle
 from manhwatok.domain.post import PostItem
 from manhwatok.ports.posts import SlideArt
 from tests.unit.fakes import cover_file, manhwa, post
@@ -43,7 +43,7 @@ def test_rerender_removes_stale_slides(tmp_path):
     covers = {i: cover_file(tmp_path / "covers", i) for i in (1, 2, 3)}
     PillowRenderer().render(_post(3), _art(covers), out)
     PillowRenderer().render(_post(1), _art(covers), out)
-    assert sorted(x.name for x in out.glob("*.png")) == ["01.png", "02.png", "03.png"]
+    assert sorted(x.name for x in out.glob("[0-9][0-9].png")) == ["01.png", "02.png", "03.png"]
 
 
 def test_missing_or_broken_cover_still_renders(tmp_path):
@@ -420,3 +420,299 @@ def test_hand_picked_art_leaves_the_backdrop_to_the_style(tmp_path):
     PillowRenderer().render(_post(1), art, tmp_path / "out")
     r, g, b = _corner(tmp_path / "out")
     assert r > b  # still the blurred red cover
+
+
+# --- scene art -------------------------------------------------------------------------------
+
+
+def _scene_post():
+    return _post(1).model_copy(update={"art": ArtStyle.SCENE})
+
+
+def _wide_pick(tmp_path):
+    return cover_file(tmp_path / "pick", 1, color=(30, 30, 230), size=(1600, 900))
+
+
+def _white_pick(tmp_path):
+    return cover_file(tmp_path / "pick", 1, color=(255, 255, 255), size=(1080, 1920))
+
+
+LONG_TITLE = "The Reincarnated Assassin Who Became the Strongest Swordmaster"
+LONG_HOOK = "He wakes up again " * 25
+
+
+def _wordy_scene_post():
+    """The worst case for legibility: a 2-line title and a 3-line hook push the rank number
+    highest up the slide, onto the brightest part of the picture."""
+    item = PostItem(
+        manhwa=manhwa(anilist_id=1, title=LONG_TITLE, cover_color="#6b1a1a"), hook=LONG_HOOK
+    )
+    return post(items=[item]).model_copy(update={"art": ArtStyle.SCENE})
+
+
+def _wordy_rank_y():
+    from manhwatok.adapters.layout import layout_item
+
+    label = "ongoing"
+    return layout_item(1, LONG_TITLE, label, LONG_HOOK, art=ArtStyle.SCENE).rank.box.y
+
+
+def test_scene_art_fills_the_slide_edge_to_edge_instead_of_letterboxing(tmp_path):
+    """A 1600x900 pick fitted into the slide would leave the red backdrop showing at the edges.
+    Probes stay above y=1000: below that the scrim crushes both channels."""
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, _wide_pick(tmp_path))}
+    PillowRenderer().render(_scene_post(), art, tmp_path / "out")
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        edges = [img.getpixel(xy) for xy in ((4, 4), (540, 4), (1075, 4), (4, 1000), (1075, 1000))]
+    for r, g, b in edges:
+        assert b > r + 40
+
+
+def test_scene_art_has_square_corners(tmp_path):
+    """No card means no 24px rounding — the rounded corner would show the backdrop through it."""
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, _wide_pick(tmp_path))}
+    PillowRenderer().render(_scene_post(), art, tmp_path / "out")
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        corners = [img.getpixel((0, 0)), img.getpixel((1079, 0))]
+    for r, g, b in corners:
+        assert b > r
+
+
+def test_scene_art_uses_the_hand_picked_pin_over_the_cover(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, _wide_pick(tmp_path))}
+    PillowRenderer().render(_scene_post(), art, tmp_path / "out")
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        r, g, b = img.getpixel((540, 300))
+    assert b > r + 40
+
+
+def test_scene_art_keeps_the_text_readable_over_a_bright_picture(tmp_path):
+    """x=960 is clear of the left-aligned text, so these are backdrop pixels, not glyphs: the
+    picture must be dark under the topmost line and still bright well above it."""
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, _white_pick(tmp_path))}
+    PillowRenderer().render(_wordy_scene_post(), art, tmp_path / "out")
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        under_text = img.getpixel((960, _wordy_rank_y()))
+        up_top = img.getpixel((960, 200))
+        colors = {c for _, c in img.getcolors(maxcolors=1 << 20)}
+    assert all(channel < 90 for channel in under_text)
+    assert all(channel > 200 for channel in up_top)
+    assert hex_to_rgb(readable_accent("#6b1a1a")) in colors
+
+
+def test_scene_art_starts_its_scrim_higher_up_than_the_other_styles(tmp_path):
+    """The shared scrim only reaches y=1000, which leaves the topmost text on bare picture here.
+    Pin where the darkening begins rather than its exact height: y=900 must already be dimmed,
+    y=300 must not be touched at all."""
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, _white_pick(tmp_path))}
+    PillowRenderer().render(_scene_post(), art, tmp_path / "out")
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        assert all(channel < 200 for channel in img.getpixel((960, 900)))
+        assert all(channel > 250 for channel in img.getpixel((960, 300)))
+
+
+def test_scene_art_falls_back_to_the_cover_filling_the_slide(tmp_path):
+    """Sharp and full-brightness, unlike the `none` style's cover blurred to 0.42."""
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, None)}
+    PillowRenderer().render(_scene_post(), art, tmp_path / "out")
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        r, g, b = img.getpixel((4, 300))
+    assert r > 180 and r > b + 100
+
+
+def test_scene_art_ignores_a_banner_that_is_already_on_disk(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), _blue_banner(tmp_path))}
+    PillowRenderer().render(_scene_post(), art, tmp_path / "out")
+    with Image.open(tmp_path / "out" / "02.png") as img:
+        r, g, b = img.getpixel((4, 300))
+    assert r > b
+
+
+def test_scene_art_renders_with_no_images_at_all(tmp_path):
+    paths = PillowRenderer().render(_scene_post(), {1: SlideArt(None, None)}, tmp_path / "out")
+    assert len(paths) == 3
+    r, g, b = _corner(tmp_path / "out")
+    assert (r, g, b) != (0, 0, 0)
+
+
+# --- cover versions ----------------------------------------------------------------------------
+
+
+def _pixel(path, xy):
+    with Image.open(path) as img:
+        return img.getpixel(xy)
+
+
+def _same_image(a, b):
+    with Image.open(a) as x, Image.open(b) as y:
+        return x.tobytes() == y.tobytes()
+
+
+def test_render_writes_every_cover_version_next_to_the_slides(tmp_path):
+    covers = {i: cover_file(tmp_path / "covers", i) for i in (1, 2, 3)}
+    paths = PillowRenderer().render(_post(3), _art(covers), tmp_path / "out")
+    out = tmp_path / "out"
+    assert len(paths) == 5  # the versions are extras, never slides
+    for style in CoverStyle:
+        with Image.open(out / f"cover-{style.value}.png") as img:
+            assert img.size == (1080, 1920)
+    assert _same_image(out / "01.png", out / "cover-fan.png")
+
+
+@pytest.mark.parametrize("style", list(CoverStyle))
+def test_the_posts_cover_version_becomes_the_first_slide(tmp_path, style):
+    covers = {i: cover_file(tmp_path / "covers", i) for i in (1, 2, 3)}
+    p = _post(3).model_copy(update={"cover": style})
+    PillowRenderer().render(p, _art(covers), tmp_path / "out")
+    out = tmp_path / "out"
+    assert _same_image(out / "01.png", out / f"cover-{style.value}.png")
+
+
+def test_rerender_removes_stale_cover_versions(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "cover-old.png").write_bytes(b"png")
+    PillowRenderer().render(_post(1), _art({1: None}), out)
+    assert sorted(x.name for x in out.glob("cover-*.png")) == [
+        f"cover-{s.value}.png" for s in sorted(CoverStyle, key=lambda s: s.value)
+    ]
+
+
+QUADRANTS = [(270, 300), (810, 300), (270, 1020), (810, 1020)]  # the lower two under the scrim
+COLORS = [(230, 30, 30), (30, 210, 30), (30, 30, 230), (230, 210, 30)]
+
+
+def _dominant(rgb):
+    return max(range(3), key=lambda c: rgb[c]) if max(rgb) - min(rgb) > 60 else None
+
+
+def test_quad_cover_puts_one_character_in_each_quadrant(tmp_path):
+    art = {
+        i: SlideArt(
+            cover_file(tmp_path / "c", i, color=(128, 128, 128)),
+            None,
+            cover_file(tmp_path / "ch", i, color=COLORS[i - 1], size=(230, 345)),
+        )
+        for i in (1, 2, 3, 4)
+    }
+    PillowRenderer().render(_post(4), art, tmp_path / "out")
+    for xy, color in zip(QUADRANTS, COLORS):
+        px = _pixel(tmp_path / "out" / "cover-quad.png", xy)
+        for i in range(3):
+            for j in range(3):
+                if color[i] > color[j] + 100:  # same hue, whatever the scrim took off
+                    assert px[i] > px[j] + 30, (xy, px, color)
+
+
+def test_quad_cover_falls_back_to_picked_art_then_the_cover(tmp_path):
+    art = {
+        1: SlideArt(_red_cover(tmp_path), None, None, None),
+        2: SlideArt(
+            cover_file(tmp_path / "c", 2, color=(128, 128, 128)),
+            None,
+            None,
+            cover_file(tmp_path / "pick", 2, color=(30, 30, 230)),
+        ),
+    }
+    PillowRenderer().render(_post(2), art, tmp_path / "out")
+    quad = tmp_path / "out" / "cover-quad.png"
+    assert _dominant(_pixel(quad, QUADRANTS[0])) == 0  # red cover
+    assert _dominant(_pixel(quad, QUADRANTS[1])) == 2  # blue pick beats grey cover
+    assert _dominant(_pixel(quad, QUADRANTS[2])) == 0  # two picks repeat to fill four
+
+
+def test_quad_cover_renders_with_no_images_at_all(tmp_path):
+    PillowRenderer().render(_post(1), {1: SlideArt(None, None)}, tmp_path / "out")
+    assert _pixel(tmp_path / "out" / "cover-quad.png", (20, 20)) != (0, 0, 0)
+
+
+def test_hero_cover_fills_the_slide_with_the_first_picks_art(tmp_path):
+    art = {
+        1: SlideArt(_red_cover(tmp_path), None, None, cover_file(tmp_path / "pick", 1, color=(30, 30, 230))),
+        2: SlideArt(cover_file(tmp_path / "c", 2, color=(30, 210, 30)), None),
+    }
+    PillowRenderer().render(_post(2), art, tmp_path / "out")
+    r, g, b = _pixel(tmp_path / "out" / "cover-hero.png", (4, 300))
+    assert b > 180 and b > r + 100  # sharp, full brightness, the pick over the cover
+
+
+def test_hero_cover_uses_the_cover_without_picked_art(tmp_path):
+    PillowRenderer().render(_post(1), {1: SlideArt(_red_cover(tmp_path), None)}, tmp_path / "out")
+    r, g, b = _pixel(tmp_path / "out" / "cover-hero.png", (4, 300))
+    assert r > 180 and r > b + 100
+
+
+def _byline_row(path):
+    """Pixels across the byline line, just under the bar."""
+    from manhwatok.adapters.layout import layout_cover
+
+    box = layout_cover("Manhwa where the MC *regresses*", 3, "by @reads").byline.box
+    with Image.open(path) as img:
+        return [img.getpixel((x, box.y + box.h // 2)) for x in range(box.x, box.x + 200)]
+
+
+def test_cover_says_who_it_is_by_when_the_post_has_an_account(tmp_path):
+    covers = {i: cover_file(tmp_path / "covers", i) for i in (1, 2, 3)}
+    plain = PillowRenderer().render(_post(3), _art(covers), tmp_path / "a")[0]
+    signed = PillowRenderer().render(
+        _post(3).model_copy(update={"account": "reads"}), _art(covers), tmp_path / "b"
+    )[0]
+    assert not any(min(px) > 180 for px in _byline_row(plain))
+    assert any(min(px) > 180 for px in _byline_row(signed))  # white text
+
+
+# --- quad art: four of a title's own pictures ------------------------------------------------
+
+
+def _quad_post(n=1):
+    return _post(n).model_copy(update={"art": ArtStyle.QUAD})
+
+
+def _same_hue(px, color):
+    return all(
+        px[i] > px[j] + 30
+        for i in range(3)
+        for j in range(3)
+        if color[i] > color[j] + 100
+    )
+
+
+def test_quad_art_puts_four_of_the_titles_pictures_in_the_quadrants(tmp_path):
+    gallery = tuple(
+        cover_file(tmp_path / f"g{k}", 1, color=COLORS[k], size=(230, 345)) for k in range(4)
+    )
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, None, gallery)}
+    PillowRenderer().render(_quad_post(), art, tmp_path / "out")
+    for xy, color in zip(QUADRANTS, COLORS):
+        assert _same_hue(_pixel(tmp_path / "out" / "02.png", xy), color)
+
+
+def test_quad_art_tops_up_with_the_cover_and_repeats(tmp_path):
+    blue = cover_file(tmp_path / "g", 1, color=(30, 30, 230))
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, None, (blue,))}
+    PillowRenderer().render(_quad_post(), art, tmp_path / "out")
+    slide = tmp_path / "out" / "02.png"
+    assert _dominant(_pixel(slide, QUADRANTS[0])) == 2  # the picture
+    assert _dominant(_pixel(slide, QUADRANTS[1])) == 0  # then the cover
+    assert _dominant(_pixel(slide, QUADRANTS[2])) == 2  # then round again
+
+
+def test_quad_art_without_a_gallery_uses_the_cover(tmp_path):
+    art = {1: SlideArt(_red_cover(tmp_path), None)}
+    PillowRenderer().render(_quad_post(), art, tmp_path / "out")
+    assert _dominant(_pixel(tmp_path / "out" / "02.png", QUADRANTS[1])) == 0
+
+
+def test_quad_art_renders_with_no_images_at_all(tmp_path):
+    paths = PillowRenderer().render(_quad_post(), {1: SlideArt(None, None)}, tmp_path / "out")
+    assert len(paths) == 3
+    assert _pixel(tmp_path / "out" / "02.png", (20, 20)) != (0, 0, 0)
+
+
+def test_quad_art_skips_a_broken_picture(tmp_path):
+    broken = tmp_path / "broken.jpg"
+    broken.write_bytes(b"not an image")
+    blue = cover_file(tmp_path / "g", 1, color=(30, 30, 230))
+    art = {1: SlideArt(None, None, None, None, (broken, blue))}
+    PillowRenderer().render(_quad_post(), art, tmp_path / "out")
+    assert _dominant(_pixel(tmp_path / "out" / "02.png", QUADRANTS[0])) == 2

@@ -19,6 +19,10 @@ def _default_export_dir() -> Path:
     return (downloads if downloads.is_dir() else Path.cwd()) / "manhwatok"
 
 
+def _env(name: str) -> str:
+    return os.environ.get(name, "").strip()
+
+
 @dataclass
 class Settings:
     data_dir: Path = field(default_factory=_default_data_dir)
@@ -27,6 +31,12 @@ class Settings:
     # An AniList-to-MangaDex pairing does not change once made, so it is kept far longer.
     art_cache_days: float = 30.0
     export_dir: Path = field(default_factory=_default_export_dir)
+    # An app Reddit has approved for you; without one the reddit art source says how to get it.
+    reddit_client_id: str = field(default_factory=lambda: _env("MANHWATOK_REDDIT_CLIENT_ID"))
+    reddit_client_secret: str = field(
+        default_factory=lambda: _env("MANHWATOK_REDDIT_CLIENT_SECRET")
+    )
+    reddit_user: str = field(default_factory=lambda: _env("MANHWATOK_REDDIT_USER"))
 
     @property
     def db_path(self) -> Path:

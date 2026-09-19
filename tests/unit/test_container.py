@@ -58,6 +58,7 @@ def test_build_uploader_is_a_visible_playwright_browser(tmp_path):
 def test_build_art_sources_offers_covers_and_fanart(tmp_path):
     from manhwatok.adapters.booru import BooruSource
     from manhwatok.adapters.pinterest import PinterestSource
+    from manhwatok.adapters.reddit import RedditSource
     from manhwatok.adapters.mangadex import MangaDexSource
     from manhwatok.app.container import build_art_sources
     from manhwatok.domain.models import ArtSourceName
@@ -68,5 +69,6 @@ def test_build_art_sources_offers_covers_and_fanart(tmp_path):
         assert isinstance(sources[ArtSourceName.COVERS], MangaDexSource)
         assert isinstance(sources[ArtSourceName.FANART], BooruSource)
         assert isinstance(sources[ArtSourceName.PINS], PinterestSource)
+        assert isinstance(sources[ArtSourceName.REDDIT], RedditSource)
         for source in sources.values():
             source.close()

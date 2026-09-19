@@ -13,6 +13,7 @@ class ArtOption(NamedTuple):
     # without downloading the file). Only used to re-order a list.
     width: int = 0
     height: int = 0
+    likes: int = 0  # how many people liked or saved it, where the source says; 0 when not
 
 
 class ArtSource(Protocol):

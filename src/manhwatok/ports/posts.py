@@ -33,6 +33,9 @@ class SlideArt(NamedTuple):
     banner: Path | None
     character: Path | None = None
     custom: Path | None = None
+    # The quad style's pictures, in grid order: the title's characters, then its scenes. The
+    # renderer tops it up from `custom` and `cover` when it has fewer than four.
+    gallery: tuple[Path, ...] = ()
 
 
 class CoverSource(Protocol):
@@ -44,13 +47,13 @@ class CoverSource(Protocol):
 
     def get_banner(self, manhwa: Manhwa) -> Path: ...
 
-    def get_character(self, manhwa: Manhwa) -> Path: ...
+    def get_character(self, manhwa: Manhwa, index: int = 0) -> Path: ...
 
     def cached_banner(self, manhwa: Manhwa) -> Path | None:
         """Local path of an already-downloaded banner, or None. Never downloads."""
         ...
 
-    def cached_character(self, manhwa: Manhwa) -> Path | None:
+    def cached_character(self, manhwa: Manhwa, index: int = 0) -> Path | None:
         """Local path of an already-downloaded character image, or None. Never downloads."""
         ...
 

@@ -10,7 +10,7 @@ from manhwatok.app import container
 from manhwatok.app.post_tools import PostTools
 from manhwatok.cli import app
 from manhwatok.domain.account import Account
-from manhwatok.domain.models import ArtStyle, Sort
+from manhwatok.domain.models import ArtStyle, CoverStyle, Sort
 from manhwatok.domain.theme import Theme
 from tests.unit.fakes import (
     FakeChapters,
@@ -484,6 +484,104 @@ def test_render_without_the_flag_keeps_the_posts_art(wire):
     assert repo.get(post_id).art is ArtStyle.BACKGROUND
 
 
+def test_render_source_pins_fills_every_title_then_renders(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    repo, _ = wire()
+    pins = {i: [ArtOption("pin", f"https://i.test/{i}.jpg")] for i in (11, 22)}
+    _, _, pinned = _wire_art(monkeypatch, {}, pins=pins)
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(
+        app,
+        ["render", post_id, "--art", "scene", "--source", "pins", "--tag", "fight scene",
+         "--order", "portrait"],
+    )
+
+    assert out.exit_code == 0, out.output
+    saved = repo.get(post_id)
+    assert saved.art is ArtStyle.SCENE
+    assert pinned.tags == ["fight scene", "fight scene"]
+    assert [i.custom_art for i in saved.items] == ["art-11.jpg", "art-22.jpg"]
+    assert "2 of 2 titles" in out.output
+    assert "slides" in out.output
+
+
+def test_render_pick_and_replace_reach_the_fill(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    repo, _ = wire()
+    pins = {i: [ArtOption(f"{i}-{k}", f"https://i.test/{i}-{k}.jpg") for k in (1, 2)]
+            for i in (11, 22)}
+    _, _, pinned = _wire_art(monkeypatch, {}, pins=pins)
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    runner.invoke(app, ["render", post_id, "--source", "pins"])
+    out = runner.invoke(app, ["render", post_id, "--source", "pins", "--pick", "2", "--replace"])
+
+    assert out.exit_code == 0, out.output
+    assert pinned.fetched[-2:] == ["https://i.test/11-2.jpg", "https://i.test/22-2.jpg"]
+
+
+def test_render_search_flags_without_a_source_are_an_error(wire, monkeypatch):
+    wire()
+    _wire_art(monkeypatch, {})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    for flags in (["--tag", "x"], ["--order", "portrait"], ["--pick", "2"], ["--replace"]):
+        out = runner.invoke(app, ["render", _post_id(built.output), *flags])
+        assert out.exit_code == 1, flags
+        assert "--source" in out.output
+
+
+def test_render_tag_with_the_covers_source_is_an_error(wire, monkeypatch):
+    wire()
+    covers, _, _ = _wire_art(monkeypatch, {})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["render", _post_id(built.output), "--source", "covers", "--tag", "x"])
+
+    assert out.exit_code == 1
+    assert "covers has no such vocabulary" in out.output
+    assert covers.tags == []
+
+
+def test_render_without_a_source_searches_nothing(wire, monkeypatch):
+    wire()
+    covers, fan, pinned = _wire_art(monkeypatch, {})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    assert runner.invoke(app, ["render", _post_id(built.output)]).exit_code == 0
+    assert covers.tags == fan.tags == pinned.tags == []
+
+
+def test_render_source_reddit_fills_from_reddit_with_a_tag(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    repo, _ = wire()
+    _wire_art(monkeypatch, {}, reddit={i: [ArtOption("⬆ 9", f"https://i.redd.it/{i}.jpg")]
+                                       for i in (11, 22)})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(
+        app, ["render", post_id, "--art", "scene", "--source", "reddit", "--tag", "best panel"]
+    )
+
+    assert out.exit_code == 0, out.output
+    assert _wire_art.reddit.tags == ["best panel", "best panel"]
+    assert "new reddit for 2 of 2 titles" in out.output
+
+
+def test_art_list_source_reddit_lists_what_reddit_has(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    wire()
+    _wire_art(monkeypatch, {}, reddit={11: [ArtOption("⬆ 5400  r/x", "https://i.redd.it/a.jpg")]})
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    out = runner.invoke(app, ["art", _post_id(built.output), "11", "--list", "--source", "reddit"])
+
+    assert out.exit_code == 0, out.output
+    assert "⬆ 5400" in out.output
+    assert "--source reddit --pick N" in out.output
+
+
 def test_build_rejects_an_unknown_art_style(wire):
     wire()
     out = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters", "--art", "epic"])
@@ -578,14 +676,17 @@ def test_art_expands_a_tilde_path(wire, tmp_path, monkeypatch):
     assert repo.get(post_id).items[0].custom_art == "art-11.png"
 
 
-def _wire_art(monkeypatch, options=None, error=None, fanart=None, pins=None):
-    """Point the CLI's art sources at scripted ones; returns (covers, fanart, pins)."""
+def _wire_art(monkeypatch, options=None, error=None, fanart=None, pins=None, reddit=None):
+    """Point the CLI's art sources at scripted ones; returns (covers, fanart, pins), and the
+    reddit fake as `_wire_art.reddit`."""
     from manhwatok.domain.models import ArtSourceName
     from tests.unit.fakes import FakeArtSource
 
     covers = FakeArtSource(options, error)
     fan = FakeArtSource(fanart or {})
     pinned = FakeArtSource(pins or {})
+    voted = FakeArtSource(reddit or {})
+    _wire_art.reddit = voted
     monkeypatch.setattr(
         container,
         "build_art_sources",
@@ -593,6 +694,7 @@ def _wire_art(monkeypatch, options=None, error=None, fanart=None, pins=None):
             ArtSourceName.COVERS: covers,
             ArtSourceName.FANART: fan,
             ArtSourceName.PINS: pinned,
+            ArtSourceName.REDDIT: voted,
         },
     )
     return covers, fan, pinned
@@ -881,3 +983,77 @@ def test_art_list_hint_stays_short_when_nothing_shaped_the_list(wire, monkeypatc
 
     hint = next(line for line in out.output.splitlines() if line.startswith("use one with:"))
     assert hint == f"use one with: manhwatok art {post_id} 11 --pick N"
+
+
+# --- cover versions --------------------------------------------------------------------------
+
+
+def _built(wire):
+    repo, _ = wire()
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    return repo, _post_id(built.output)
+
+
+def test_render_cover_flag_saves_the_choice(wire):
+    repo, post_id = _built(wire)
+    out = runner.invoke(app, ["render", post_id, "--cover", "hero"])
+    assert out.exit_code == 0, out.output
+    assert repo.get(post_id).cover is CoverStyle.HERO
+
+
+def test_cover_command_swaps_in_a_rendered_version(wire):
+    repo, post_id = _built(wire)
+    folder = repo.folder(post_id)
+    for style in CoverStyle:
+        (folder / f"cover-{style.value}.png").write_bytes(style.value.encode())
+    out = runner.invoke(app, ["cover", post_id, "quad"])
+    assert out.exit_code == 0, out.output
+    assert (folder / "01.png").read_bytes() == b"quad"
+    assert repo.get(post_id).cover is CoverStyle.QUAD
+    assert "quad" in out.output
+
+
+def test_cover_command_without_a_style_lists_the_versions(wire):
+    repo, post_id = _built(wire)
+    folder = repo.folder(post_id)
+    for style in CoverStyle:
+        (folder / f"cover-{style.value}.png").write_bytes(b"png")
+    out = runner.invoke(app, ["cover", post_id])
+    assert out.exit_code == 0, out.output
+    for style in CoverStyle:
+        assert f"cover-{style.value}.png" in out.output
+    assert "fan (current)" in out.output
+
+
+def test_cover_command_before_render_asks_for_one(wire):
+    repo, post_id = _built(wire)
+    for old in repo.folder(post_id).glob("cover-*.png"):
+        old.unlink()
+    out = runner.invoke(app, ["cover", post_id, "hero"])
+    assert out.exit_code == 1
+    assert f"run: manhwatok render {post_id}" in out.output
+
+
+def test_cover_command_rejects_an_unknown_style(wire):
+    _, post_id = _built(wire)
+    assert runner.invoke(app, ["cover", post_id, "spiral"]).exit_code == 2
+
+
+def test_render_quad_source_fills_the_gaps_and_keeps_picked_art(wire, monkeypatch):
+    from manhwatok.ports.art import ArtOption
+
+    repo, _ = wire()
+    pins = {i: [ArtOption("pin", f"https://i.test/{i}-{k}.jpg") for k in range(5)] for i in (11, 22)}
+    _, _, pinned = _wire_art(monkeypatch, {}, pins=pins)
+    built = runner.invoke(app, ["build", "-t", "Revenge", "--title", "T", "--no-chapters"])
+    post_id = _post_id(built.output)
+    out = runner.invoke(
+        app, ["render", post_id, "--art", "quad", "--source", "pins", "--tag", "fight scene"]
+    )
+    assert out.exit_code == 0, out.output
+    saved = repo.get(post_id)
+    assert saved.art is ArtStyle.QUAD
+    assert pinned.tags == ["fight scene", "fight scene"]
+    assert [len(i.scenes) for i in saved.items] == [4, 4]  # asked for, so four scenes each
+    assert [i.custom_art for i in saved.items] == ["", ""]
+    assert "slides" in out.output

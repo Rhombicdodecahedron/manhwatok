@@ -7,7 +7,7 @@ from manhwatok.domain.caption import build_caption
 from manhwatok.domain.emoji import AUTO, post_emojis
 from manhwatok.domain.errors import NotRendered, StorageError
 from manhwatok.domain.labels import chapter_label
-from manhwatok.domain.models import ArtStyle
+from manhwatok.domain.models import ArtStyle, CoverStyle
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 from manhwatok.ports.posts import PostRepository
@@ -37,8 +37,8 @@ def caption_text(post: ListPost, posts: PostRepository) -> tuple[str, bool]:
 
 
 def post_details(post: ListPost, posts: PostRepository, sounds: list[str]) -> str:
-    """The text beside the slide preview: title, the account's sounds, art style, emojis,
-    caption, picks."""
+    """The text beside the slide preview: title, the account's sounds, art style, cover version,
+    emojis, caption, picks."""
     who = f"@{post.account}" if post.account else "no account"
     size = "no picks" if post.is_unfinished else f"{post.slide_count} slides"
     lines = [
@@ -49,6 +49,8 @@ def post_details(post: ListPost, posts: PostRepository, sounds: list[str]) -> st
     ]
     if post.art is not ArtStyle.NONE:
         lines.append(f"Art: {post.art.value}")
+    if post.cover is not CoverStyle.FAN:
+        lines.append(f"Cover: {post.cover.value}")
     emojis = post_emojis(post)
     if emojis:
         lines.append(f"Emojis: {emojis}{' (auto)' if post.emojis == AUTO else ''}")

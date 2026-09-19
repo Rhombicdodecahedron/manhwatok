@@ -65,7 +65,8 @@ uv run manhwatok export <id>           # copy slides + caption to ~/Downloads/ma
 ```
 
 Options: `--hashtags "..."` (caption hashtags), `--accent "#43c9e4"` (cover/end slide colour),
-`--art none|background` (see below); all three default to the account's (see below). Manhwa
+`--art none|background|panel|character|scene|quad` (see below); all three default to the account's
+(see below). Manhwa
 slides take their accent colour from each cover.
 Export folder: `--out DIR` or `MANHWATOK_EXPORT_DIR`. Upload the PNGs as a TikTok photo post and
 paste `caption.txt` — or let `manhwatok upload` fill them in for you (see below).
@@ -85,6 +86,19 @@ uv run manhwatok delete <id>           # asks first; --yes skips the question
   blurred banner behind it. The most cinematic of the four.
 - `character` — the title's most-favourited character in place of the cover, on the usual
   blurred cover. The only art AniList has that carries no title lettering.
+- `scene` — one picture filling the whole slide, edge to edge and square-cornered, with the text
+  over it on a taller scrim. Built for art you picked yourself (see below): a scene is chosen for
+  its scale, and every other style shrinks it to a card. Pair it with
+  `--source pins --order portrait`.
+- `quad` — four of the title's own pictures, 2×2 over the whole slide, text over them. On its
+  own, a title's most favourited characters fill the squares and Pinterest scenes fill whatever
+  they leave. Name a search and its scenes take all four squares instead, characters standing in
+  only where it finds too few:
+  `render <id> --art quad --source pins --tag "fight scene"`. Scenes are kept in the post's
+  folder as `scene-<id>-<n>` and lead the grid, so a later plain render keeps them and downloads
+  nothing; `--replace` searches again. Scenes are taken most-liked first, skipping wide pictures
+  and any with words on them (see below). Posts built before this style existed kept only one
+  character per title; the first quad render looks up the rest on AniList.
 
 ```bash
 uv run manhwatok build -t Revenge --title "..." --art panel
@@ -99,10 +113,32 @@ Every style falls back to the cover, so a post never renders half-finished:
 | `background` | banner | 37–61%, lower on niche tags | the blurred cover, as `none` |
 | `panel` | banner | as above | the cover, cropped to the same wide shape |
 | `character` | character image | 61–99%, lower on niche tags | the cover card, as `none` |
+| `scene` | your own art (`manhwatok art`) | — | the cover, cropped to fill the slide |
+| `quad` | characters, then scenes | characters as above; a title has 0–4 | the cover, then repeats |
 
 Character images are small (about 230×345 against a 460×650 cover), but manhwa art is flat and
 clean-lined, so it holds up scaled into a slide. Extra images are cached next to the covers in
 `$XDG_DATA_HOME/manhwatok/covers/` and downloaded only when a post's style asks for them.
+
+## Cover versions
+
+Every render draws the cover slide three ways and keeps all three next to the slides:
+
+- `cover-fan.png` (default) — the first three covers fanned out. The original look.
+- `cover-quad.png` — the first four titles' characters, one per quadrant, edge to edge. A title
+  without a character image gives its picked art or its cover; fewer than four titles repeat.
+- `cover-hero.png` — the first title's picked art (else its cover) filling the whole slide.
+
+The chosen one is also `01.png`, the slide that gets exported. An account's post says
+"by @handle" under the progress bar on every version.
+
+```bash
+uv run manhwatok cover <id>              # list the versions and which one is current
+uv run manhwatok cover <id> quad         # swap it into 01.png, no re-render needed
+uv run manhwatok render <id> --cover hero   # or choose while rendering
+```
+
+The characters for the quad cover are fetched for the first four titles whatever `--art` is.
 
 ## Your own art for one title
 
@@ -181,10 +217,10 @@ the better way to be wrong: nothing beats the wrong series' art on a slide.
 
 ### A Pinterest search
 
-`--source pins` searches Pinterest, biggest picture first:
+`--source pins` searches Pinterest, keeping only pins that name the title (see below):
 
 ```bash
-uv sync --extra pinterest                                   # once: installs gallery-dl
+uv sync --extra pinterest --extra upload --extra tui       # once: gallery-dl + RapidOCR
 uv run manhwatok art <id> 72579 --list --source pins
 uv run manhwatok art <id> 72579 --list --source pins --tag fanart
 ```
@@ -199,38 +235,111 @@ because there is none to show. Most pins are re-uploads of someone's work with t
 already stripped. On an account that grows, that is the thing to weigh — `--source covers` is
 publisher art and carries none of it.
 
-There is also no id to pair a title on, only the words searched, so a title whose name is an
-ordinary phrase collects whatever else shares it. Look at what you pick before you post it.
+There is also no id to pair a title on, only what pins say about themselves, so a title whose
+name is an ordinary phrase ("The Boxer") can still collect whatever else shares it. Look at what
+you pick before you post it.
+
+### Most-upvoted panels from Reddit
+
+Each manhwa's subreddit has "favourite panel" threads, and upvotes rank them — the closest thing
+there is to a community vote on a title's best picture. `--source reddit` searches every
+subreddit for posts naming the title (quoted) plus `panel`, most-upvoted of all time first, and
+offers the pictures among them.
+
+```bash
+uv run manhwatok art <id> 105398 --list --source reddit
+uv run manhwatok render <id> --art scene --source reddit --order portrait
+uv run manhwatok render <id> --source reddit --tag "best panel" --replace
+```
+
+It reads Reddit's public search feed (`search.rss`), the one door Reddit still leaves open to a
+plain request — its JSON answers anonymous clients with 403, and its pages answer an automated
+browser with a CAPTCHA, which manhwatok does not try to get past. What that costs:
+
+- **Slow.** Reddit allows about one search a minute, so filling a 12-title post takes ~12
+  minutes. It waits on its own; if Reddit still says too many requests, it stops and says so.
+- **No votes or sizes.** The feed gives the top-voted order but not the numbers, so options show
+  their rank (`top #1  r/sololeveling  ...`) and `--order portrait/size` can't re-rank them.
+- **Single pictures only.** Gallery posts link to a page rather than their pictures, and are
+  skipped.
+- **NSFW** is left out by the search itself (`include_over_18=off`); the feed doesn't mark posts.
+
+This is reading Reddit without its permission — against its terms, like the Pinterest search. At
+one search a minute it stays well within what Reddit tolerates, but it can stop working whenever
+Reddit changes the feed.
+
+If Reddit ever approves an API app for you ([Responsible Builder
+Policy](https://support.reddithelp.com/hc/en-us/articles/42728983564564-Responsible-Builder-Policy)),
+set `MANHWATOK_REDDIT_CLIENT_ID`, `MANHWATOK_REDDIT_CLIENT_SECRET` and `MANHWATOK_REDDIT_USER`
+and the same source uses the API instead: real vote counts, sizes, and gallery pictures.
 
 ### Asking for a kind of picture
 
-There is no "epic" to sort by — no source scores a picture on what is happening in it. What
-there is instead is the search itself, and Pinterest's ranking answers it. `--source pins`
-therefore searches for `epic fight scene` alongside the title unless told otherwise, because
-that is measurably the best generic phrase: over four titles and 120 pins apiece, the bare title
-returned square character portraits (68% near a slide's 9:16) and this returns scene art (75%,
-and 97% portrait at usable size).
+Pinterest's search is a loose text match, and extra words make it looser: for
+"Log-in Murim manhwa fight scene" its top pins were Lookism and Northern Blade art. So
+`--source pins` searches the title with `webtoon` alongside it, and keeps a pin only when the
+pin's own texts name the manhwa — its title, description, board, alt text, or the labels
+Pinterest's image recognition gave it — by the English title, the romanized one, or any of
+AniList's alternative titles. Pins that name something else, or nothing, are left out.
 
-The word doing the work is "scene", not "epic". Phrases built on it all scored 62-78%, while
-`epic`, `epic moment` and `best moment` scored 50-53% — no better than no words at all.
-Judgement words describe quality; Pinterest indexes captions, where "scene" describes format.
+Measured over six murim and action titles, 80 pins each, counting pins that name the title:
+`<title> webtoon` found the most (e.g. 62 for Return of the Mad Demon), `<title> manhwa` a
+little fewer, and `<title> manhwa fight scene` a third as many (11). A title better known under
+another name is searched again under that one when the first search names it too rarely:
+Log-in Murim is "Murim Login" on Pinterest, 0 pins under the one and 61 under the other.
+
+Posts built before this kept no alternative titles; the first search looks them up on AniList
+and saves them into the post.
+
+Pins that have **words on them** are passed over: speech bubbles, meme captions, tweet
+screenshots, posters, fake magazine covers. The picture itself is read with RapidOCR (in the
+`pinterest` extra, offline, ~0.1s a picture), and a word only counts when it is recognised with
+confidence, since text detection alone boxes hair and fabric on detailed art. Checked by hand
+against 80 of Pinterest's most-liked pins for four titles, it caught every bubble, caption,
+tweet, poster and collage and kept every clean picture, letting artists' @handles and small
+corner logos through. Two things it cannot catch: an **empty** bubble has no text to read, and
+Korean sound effects drawn into the art usually read as nothing. Without the extra installed,
+pictures are not read and the render says so once.
+
+Pins are also compared by what they look like, not only byte for byte, so the same picture
+repinned at another size is not used twice in a post.
 
 ```bash
-uv run manhwatok art <id> 72579 --list --source pins                      # the default phrase
-uv run manhwatok art <id> 72579 --list --source pins --tag "fight scene wallpaper"
-uv run manhwatok art <id> 72579 --list --source pins --tag ""             # just the title
+uv run manhwatok art <id> 72579 --list --source pins                   # "<title> webtoon"
+uv run manhwatok art <id> 72579 --list --source pins --tag "wallpaper"   # "<title> wallpaper"
+uv run manhwatok art <id> 72579 --list --source pins --tag ""            # just the title
 ```
+
+`--order portrait` puts the pins closest to a slide's 9:16 first, which is what `--art scene`
+wants: that style crops one picture to fill the whole slide, so a near-portrait pin loses least.
+
+To do it for every title at once, give `render` the same search. Each title gets its first
+picture (or `--pick N`'s), and titles you already picked art for keep it unless `--replace`:
+
+```bash
+uv run manhwatok render <id> --art scene --source pins --order portrait
+uv run manhwatok render <id> --source pins --tag "wallpaper" --pick 2 --replace
+```
+
+No two titles in a post get the same picture: fan art often names several titles at once, so
+two titles' first result can be the same pin. A title passes over any picture
+another title already has — same address, or same file under another address — and takes the
+next. A title with nothing found, or whose pictures won't download, keeps its style's own art. Fix it
+afterwards with `manhwatok art <id> <anilist-id> --list ...` — the next fill leaves it alone.
 
 `--tag` replaces the default rather than adding to it, and `--tag ""` searches the bare title.
 
 `--order` then rearranges whatever came back:
 
 ```bash
-uv run manhwatok art <id> 72579 --list --source pins --tag "epic fight scene" --order portrait
+uv run manhwatok art <id> 72579 --list --source pins --order portrait
 ```
 
 - `relevance` (the default) — the source's own order: Pinterest's ranking, a booru's score,
   MangaDex's volume numbers. Leave it alone when the words did the work.
+- `popular` — most liked on Pinterest first (the default for `--art quad`), which is as close as
+  Pinterest comes to saying which picture stands for the title. The other sources report no
+  likes, so there it changes nothing.
 - `portrait` — closest to a slide's 9:16 first. On the search above this brings every 1080x1920
   and 720x1280 to the top.
 - `size` — biggest first, when you only care about resolution.
@@ -353,8 +462,9 @@ Everything the commands above do, in one window with four tabs (`1`–`4`, `q` q
 
 - **Posts** — the list, and a preview of the highlighted post: its slides (`←`/`→` flip, `o`
   opens the slide in your image viewer), its account's sounds, its art style and emojis (when
-  set), caption and picks. `e` edit picks, `r` render, `a` art, `x` export, `u` upload (`U` with
-  `--debug`), `d` delete, `f` show one account's posts.
+  set), caption and picks. `e` edit picks, `r` render, `a` art, `c` cover version (fan, quad or
+  hero; swapped in at once when already rendered), `x` export, `u` upload (`U` with `--debug`),
+  `d` delete, `f` show one account's posts.
 - **Art** (`a` on a post) — the post's titles on the left, with the picture each one is drawn
   with. `enter` on a title lists MangaDex's volume covers for it, `enter` on one of those
   downloads it and re-renders; `s` steps through the sources (covers, fan art, pins), `u` takes
@@ -367,7 +477,7 @@ Everything the commands above do, in one window with four tabs (`1`–`4`, `q` q
 - **Accounts** / **Themes** — `a` add, `e` or `enter` edit, `d` remove; `l` logs an account in
   to TikTok. The account form also edits its emojis (`auto` = from each post's genres), its art
   style (`none`, `background`,
-  `panel` or `character`; blank = none) and its sounds, one line separated by ` | ` (e.g.
+  `panel`, `character` or `scene`; blank = none) and its sounds, one line separated by ` | ` (e.g.
   `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none).
 
 Slides show as real pictures in terminals with image support (kitty, WezTerm, Konsole, foot and

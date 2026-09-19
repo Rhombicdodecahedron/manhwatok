@@ -7,7 +7,7 @@ pytest.importorskip("textual")
 
 from manhwatok.app.render_post import render_post  # noqa: E402
 from manhwatok.domain.account import Account  # noqa: E402
-from manhwatok.domain.models import ArtStyle  # noqa: E402
+from manhwatok.domain.models import ArtStyle, CoverStyle  # noqa: E402
 from manhwatok.tui.screens.posts import PostsPane, PostTable  # noqa: E402
 from manhwatok.tui.widgets.slide_preview import SlidePreview  # noqa: E402
 from tests.tui.helpers import NOW, Opened, make_ctx, notes, run_app, wait_for  # noqa: E402
@@ -266,7 +266,62 @@ def test_export_upload_delete_refuse_while_a_render_is_running(tmp_path):
 
 def test_actions_without_a_post_warn(tmp_path):
     async def scenario(app, pilot):
-        await pilot.press("e", "r", "x", "u", "d")
-        assert notes(app).count("no post selected") == 5
+        await pilot.press("e", "r", "x", "u", "d", "c")
+        assert notes(app).count("no post selected") == 6
 
     run_app(make_ctx(tmp_path), scenario)
+
+
+def _first_slide_is(ctx, post_id, style):
+    folder = ctx.tools.posts.folder(post_id)
+    return (folder / "01.png").read_bytes() == (folder / f"cover-{style.value}.png").read_bytes()
+
+
+def test_cover_swaps_a_rendered_version_into_the_first_slide(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        assert _first_slide_is(ctx, NEW, CoverStyle.FAN)
+        await pilot.press("c")
+        await pilot.pause()
+        labels = [str(o.prompt) for o in app.screen.query_one("OptionList")._options]
+        assert labels[0].startswith("fan") and "current" in labels[0]
+        await pilot.press("down", "enter")  # quad
+        await pilot.pause()
+        assert ctx.tools.posts.get(NEW).cover is CoverStyle.QUAD
+        assert _first_slide_is(ctx, NEW, CoverStyle.QUAD)
+        assert f"post {NEW} · quad cover" in notes(app)
+        assert "Cover: quad" in _details(app)
+
+    run_app(ctx, scenario)
+
+
+def test_cover_of_an_unrendered_post_renders_it_with_that_cover(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        await pilot.press("down", "c")
+        await pilot.pause()
+        await pilot.press("down", "down", "enter")  # hero
+        await wait_for(pilot, lambda: _rows(app)[1][3] == "rendered")
+        assert ctx.tools.posts.get(OLD).cover is CoverStyle.HERO
+        assert _first_slide_is(ctx, OLD, CoverStyle.HERO)
+
+    run_app(ctx, scenario)
+
+
+def test_escaping_the_cover_choice_changes_nothing(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        await pilot.press("c")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        assert ctx.tools.posts.get(NEW).cover is CoverStyle.FAN
+        assert "Cover:" not in _details(app)
+
+    run_app(ctx, scenario)
