@@ -73,6 +73,7 @@ paste `caption.txt` — or let `manhwatok upload` fill them in for you (see belo
 
 ```bash
 uv run manhwatok delete <id>           # asks first; --yes skips the question
+uv run manhwatok chapter build "The Boxer"   # a chapter post, not a list (see below)
 ```
 
 ## Slide art
@@ -139,6 +140,48 @@ uv run manhwatok render <id> --cover hero   # or choose while rendering
 ```
 
 The characters for the quad cover are fetched for the first four titles whatever `--art` is.
+
+## Publishing chapters
+
+A different kind of post: the chapter itself, cut into slides, a part at a time.
+
+```bash
+uv run manhwatok chapter list "The Boxer"      # its chapters, and what you've built of them
+uv run manhwatok chapter next "The Boxer"      # what `build` would make next
+uv run manhwatok chapter build "The Boxer" -a @manhwa.daily
+uv run manhwatok chapter build "The Boxer" --number 13 --part 2
+```
+
+`build` downloads the chapter's pages from MangaDex, joins them into the one long strip a
+webtoon really is, and cuts it into 1080×1920 slides — cutting only in a gutter, so a speech
+bubble or a face is never sliced. A chapter is far more than TikTok's 35 images, so it becomes
+several posts: chapter 12 of The Boxer is 27 slides of part 1 and 27 of part 2. The cover names
+the chapter and the part, the end slide points at the next one, and every slide is signed like
+any other post's.
+
+From there it is an ordinary post: `render`, `export`, `upload`, `posts` and the terminal app
+all treat it the same. What it isn't is a list of picks, so `edit`, `art` and `cover` say so
+rather than opening.
+
+What is tracked per title, in the database: which chapters exist and how many pages each has,
+which were downloaded, which parts were built into which post, and when that post went out. So
+`build` with no `--number` continues where the last one stopped, and deleting a post frees its
+part to be built again.
+
+| | |
+| --- | --- |
+| Pages | `$XDG_DATA_HOME/manhwatok/pages/<chapter id>/`, with the cut panels beside them |
+| Size | 30–100 MB a chapter, and about as much again in panels |
+| Language | English only; a title MangaDex has with nothing in English says so |
+| Speed | about 20s a chapter, most of it downloading |
+
+**Whether you may repost a chapter is your call.** MangaDex hosts fan translations, most of them
+unauthorised copies of a licensed work; copyright holders do have TikTok accounts taken down.
+The tool says this once in `manhwatok chapter --help` and does what you ask.
+
+Of the titles in a typical themed post, expect roughly a quarter to have English chapters at
+all — several have one or two, a few (THE BREAKER - NEW WAVES, Raeliana, Out of Control) have
+dozens. `chapter list` tells you before you commit to a title.
 
 ## Your own art for one title
 
@@ -468,7 +511,8 @@ Everything the commands above do, in one window with four tabs (`1`–`4`, `q` q
 
 - **Posts** — the list, and a preview of the highlighted post: its slides (`←`/`→` flip, `o`
   opens the slide in your image viewer), the sounds it would be offered, its art style and emojis (when
-  set), caption and picks. `e` edit picks, `r` render, `a` art, `c` cover version (fan, quad or
+  set), caption and picks — or, for a chapter post, which chapter and part it is. `e` edit
+  picks, `r` render, `a` art, `c` cover version (fan, quad or
   hero; swapped in at once when already rendered), `x` export, `u` upload (`U` with `--debug`),
   `d` delete, `f` show one account's posts.
 - **Art** (`a` on a post) — the post's titles on the left, with the picture each one is drawn

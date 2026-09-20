@@ -72,3 +72,20 @@ def test_build_art_sources_offers_covers_and_fanart(tmp_path):
         assert isinstance(sources[ArtSourceName.REDDIT], RedditSource)
         for source in sources.values():
             source.close()
+
+
+def test_build_chapter_tools_wires_the_feed_the_cutter_and_the_store(tmp_path):
+    from manhwatok.adapters.mangadex import MangaDexChapters
+    from manhwatok.adapters.panel_cutter import PillowPanelCutter
+    from manhwatok.adapters.sqlite_store import SqliteStore
+    from manhwatok.app.container import build_chapter_tools
+    from manhwatok.config import Settings
+
+    settings = Settings(data_dir=tmp_path)
+    with SqliteStore(settings.db_path) as store:
+        ct = build_chapter_tools(settings, store)
+        assert isinstance(ct.pages, MangaDexChapters)
+        assert isinstance(ct.cutter, PillowPanelCutter)
+        assert ct.chapters is store.chapters
+        assert ct.pages_dir == tmp_path / "pages"
+        ct.pages.close()

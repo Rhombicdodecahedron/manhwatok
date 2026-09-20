@@ -8,7 +8,13 @@ from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app.delete_post import delete_post
 from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import CAPTION_FILE, choose_cover, render_post
-from manhwatok.domain.errors import DraftError, NotRendered, PostNotFound, StorageError
+from manhwatok.domain.errors import (
+    DraftError,
+    ManhwatokError,
+    NotRendered,
+    PostNotFound,
+    StorageError,
+)
 from manhwatok.domain.post import PostItem
 from manhwatok.domain.models import ArtStyle, CoverStyle
 from manhwatok.ports.posts import SlideArt
@@ -491,3 +497,97 @@ def test_old_posts_load_with_the_fan_cover(tmp_path):
     data.pop("cover", None)
     path.write_text(json.dumps(data))
     assert tools.posts.get("20260914-a3f9").cover is CoverStyle.FAN
+
+
+# --- chapter posts ------------------------------------------------------------------------------
+
+
+def _chapter_tools(tmp_path):
+    from tests.unit.fakes import make_chapter_tools
+
+    return make_chapter_tools(tmp_path)
+
+
+def _saved_chapter_post(tmp_path, tools, **fields):
+    from PIL import Image
+
+    from tests.unit.fakes import chapter_part, chapter_post
+
+    folder = tools.posts.folder("20260914-a3f9")
+    folder.mkdir(parents=True, exist_ok=True)
+    names = []
+    for n in (1, 2):
+        name = f"panel-{n:03d}.png"
+        Image.new("RGB", (1080, 1920), (30 * n, 60, 90)).save(folder / name)
+        names.append(name)
+    post = chapter_post(chapter=chapter_part(panels=names, to_panel=2), **fields)
+    tools.posts.save(post)
+    return post
+
+
+def test_rendering_a_chapter_post_writes_one_slide_per_panel_and_a_caption(tmp_path):
+    tools = make_tools(tmp_path, renderer=PillowRenderer())
+    post = _saved_chapter_post(tmp_path, tools)
+    slides = render_post("20260914-a3f9", tools)
+    assert [p.name for p in slides] == ["01.png", "02.png", "03.png", "04.png"]
+    caption = (tools.posts.folder(post.id) / CAPTION_FILE).read_text(encoding="utf-8")
+    assert "chapter 12" in caption
+
+
+def test_exporting_a_chapter_post_marks_its_part_published(tmp_path):
+    from manhwatok.domain.chapter import PartRecord
+
+    tools = make_tools(tmp_path, renderer=PillowRenderer())
+    _saved_chapter_post(tmp_path, tools, account="reads")
+    render_post("20260914-a3f9", tools)
+    ct = _chapter_tools(tmp_path)
+    ct.chapters.record_part(
+        PartRecord(
+            anilist_id=1,
+            number="12",
+            language="en",
+            part=1,
+            parts=2,
+            post_id="20260914-a3f9",
+            built_at=NOW,
+        )
+    )
+    export_post(
+        "20260914-a3f9", tools.posts, FakeHistory(), tmp_path / "out", now=NOW,
+        chapters=ct.chapters,
+    )
+    assert ct.chapters.parts(1)[0].published_at == NOW
+
+
+def test_exporting_a_chapter_post_records_no_recommendation_history(tmp_path):
+    tools = make_tools(tmp_path, renderer=PillowRenderer())
+    _saved_chapter_post(tmp_path, tools, account="reads")
+    render_post("20260914-a3f9", tools)
+    history = FakeHistory()
+    export_post("20260914-a3f9", tools.posts, history, tmp_path / "out", now=NOW)
+    assert history.records == [] or history.records[0][2] == []
+
+
+def test_deleting_a_chapter_post_frees_its_part_to_be_built_again(tmp_path):
+    from manhwatok.domain.chapter import PartRecord
+
+    tools = make_tools(tmp_path)
+    _saved_chapter_post(tmp_path, tools)
+    ct = _chapter_tools(tmp_path)
+    ct.chapters.record_part(
+        PartRecord(
+            anilist_id=1, number="12", language="en", part=1, parts=2,
+            post_id="20260914-a3f9", built_at=NOW,
+        )
+    )
+    delete_post("20260914-a3f9", tools.posts, chapters=ct.chapters)
+    assert ct.chapters.parts(1) == []
+
+
+def test_choosing_another_cover_for_a_chapter_post_is_refused(tmp_path):
+    from manhwatok.domain.models import CoverStyle
+
+    tools = make_tools(tmp_path, renderer=PillowRenderer())
+    _saved_chapter_post(tmp_path, tools)
+    with pytest.raises(ManhwatokError, match="chapter post"):
+        choose_cover("20260914-a3f9", CoverStyle.QUAD, tools)

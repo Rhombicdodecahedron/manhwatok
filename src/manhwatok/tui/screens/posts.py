@@ -229,6 +229,13 @@ class PostsPane(Vertical):
 
     # --- actions on the highlighted post ------------------------------------------------
 
+    def _refuse_chapter(self, post: ListPost, why: str) -> bool:
+        """True when this action makes no sense for a chapter post, having said so."""
+        if post.chapter is None:
+            return False
+        self.app.notify(f"post {post.id} is a chapter post — it {why}", severity="warning")
+        return True
+
     def _selected(self) -> ListPost | None:
         post = self.current
         if post is None:
@@ -238,6 +245,8 @@ class PostsPane(Vertical):
     def action_edit(self) -> None:
         post = self._selected()
         if post is None:
+            return
+        if self._refuse_chapter(post, "has no picks to edit"):
             return
         if self.app.refuse_while_rendering():
             return
@@ -283,6 +292,7 @@ class PostsPane(Vertical):
                 ctx.store.history,
                 ctx.settings.export_dir,
                 now=self.app.clock(),
+                chapters=ctx.store.chapters,
             )
         except ManhwatokError as e:
             self.app.fail(e)
@@ -293,6 +303,8 @@ class PostsPane(Vertical):
     def action_art(self) -> None:
         post = self._selected()
         if post is None:
+            return
+        if self._refuse_chapter(post, "draws its own panels"):
             return
         if post.is_unfinished:
             self.app.notify("that post has no titles yet", severity="warning")
@@ -307,6 +319,8 @@ class PostsPane(Vertical):
         else rendered with it."""
         post = self._selected()
         if post is None:
+            return
+        if self._refuse_chapter(post, "has one cover, naming the chapter"):
             return
         if self.app.refuse_while_rendering():
             return
@@ -394,7 +408,7 @@ class PostsPane(Vertical):
             if not yes:
                 return
             try:
-                delete_post(pid, self.app.ctx.tools.posts)
+                delete_post(pid, self.app.ctx.tools.posts, self.app.ctx.store.chapters)
             except ManhwatokError as e:
                 self.app.fail(e)
                 return

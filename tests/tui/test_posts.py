@@ -360,3 +360,56 @@ def test_escaping_the_cover_choice_changes_nothing(tmp_path):
         assert "Cover:" not in _details(app)
 
     run_app(ctx, scenario)
+
+
+def _chapter_post(ctx, post_id=OLD):
+    from PIL import Image
+
+    from tests.unit.fakes import chapter_part, chapter_post as make
+
+    folder = ctx.tools.posts.folder(post_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    names = []
+    for n in (1, 2):
+        name = f"panel-{n:03d}.png"
+        Image.new("RGB", (27, 48), (30 * n, 60, 90)).save(folder / name)
+        names.append(name)
+    saved = make(id=post_id, account="reads", chapter=chapter_part(panels=names, to_panel=2))
+    ctx.tools.posts.save(saved)
+    return saved
+
+
+def test_a_chapter_post_appears_under_its_account_like_any_other(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _chapter_post(ctx, post_id=NEW)
+
+    async def scenario(app, pilot):
+        assert [r[0] for r in _rows(app)] == ["── @reads ──", NEW]
+        assert "Chapter 12 · part 1/2 · 2 panels" in _details(app)
+        assert "no picks yet" not in _details(app)
+
+    run_app(ctx, scenario)
+
+
+@pytest.mark.parametrize(("key", "why"), [("e", "picks"), ("a", "panels"), ("c", "cover")])
+def test_actions_that_make_no_sense_for_a_chapter_post_say_so(tmp_path, key, why):
+    ctx = make_ctx(tmp_path)
+    _chapter_post(ctx, post_id=NEW)
+
+    async def scenario(app, pilot):
+        await pilot.press(key)
+        await pilot.pause()
+        assert any("is a chapter post" in note and why in note for note in notes(app))
+
+    run_app(ctx, scenario)
+
+
+def test_rendering_a_chapter_post_from_the_posts_pane(tmp_path):
+    ctx = make_ctx(tmp_path)
+    post = _chapter_post(ctx, post_id=NEW)
+
+    async def scenario(app, pilot):
+        await pilot.press("r")
+        await wait_for(pilot, lambda: f"post {NEW} · {post.slide_count} slides" in notes(app))
+
+    run_app(ctx, scenario)

@@ -28,6 +28,8 @@ def update_picks(post_id: str, title: str, items: list[PostItem], tools: PostToo
 def edit_post(post_id: str, tools: PostTools) -> list[Path] | None:
     """Returns the new slide paths, or None if the user closed the editor without changes."""
     post = tools.posts.get(post_id)
+    if post.chapter:
+        raise DraftError(f"post {post_id} is a chapter post — it has no picks to edit")
     text = tools.posts.load_draft(post_id) or render_draft(post.title, post.items, post.candidates)
     edited = tools.editor(text)
     if edited is None or edited == text:

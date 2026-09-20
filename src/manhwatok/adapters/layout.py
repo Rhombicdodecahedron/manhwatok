@@ -13,6 +13,7 @@ from typing import Callable
 from PIL.ImageFont import FreeTypeFont
 
 from manhwatok.adapters.fonts import body, bold, display
+from manhwatok.domain.chapter import chapter_kicker
 from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.text import accent_spans
 
@@ -401,6 +402,47 @@ def layout_cover(title: str, count: int, byline: str = "") -> CoverLayout:
     ]
     return CoverLayout(
         _at(kicker, tops[0]), Placed(title_t, x, tops[1], w), bar, byline_of(byline)
+    )
+
+
+# --- chapter cover ----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChapterCoverLayout:
+    kicker: Pill  # "CHAPTER 12 · PART 2/3"
+    title: Placed  # the manhwa's name
+    bar: list[Box]  # one segment per part of the chapter
+    lit: int  # the segment of the part being posted, 0-based
+    byline: Placed | None = None
+
+    def text_boxes(self) -> list[Box]:
+        """The boxes laid out inside SAFE; the byline sits below it and is not one of them."""
+        return [self.kicker.box, self.title.box, *self.bar]
+
+
+def layout_chapter_cover(
+    title: str, number: str, part: int, parts: int, byline: str = ""
+) -> ChapterCoverLayout:
+    """The same bones as a list post's cover — pill, title, bar — saying which chapter and part
+    this is instead of how many picks it has. The lit segment is the part being posted, so the
+    bar reads as progress through the chapter rather than through the post."""
+    x, w = SAFE.x, SAFE.w
+    kicker = make_pill(chapter_kicker(number, part, parts), bold, 32, w, x)
+    title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 92, 56, 1.06)
+    tops = stack_up([kicker.box.h, title_t.height, BAR_H], SAFE.bottom)
+    count = max(parts, 1)
+    seg_w = (w - BAR_GAP * (count - 1)) / count
+    bar = [
+        Box(round(x + i * (seg_w + BAR_GAP)), tops[2], max(1, round(seg_w)), BAR_H)
+        for i in range(count)
+    ]
+    return ChapterCoverLayout(
+        _at(kicker, tops[0]),
+        Placed(title_t, x, tops[1], w),
+        bar,
+        min(max(part, 1), count) - 1,
+        byline_of(byline),
     )
 
 

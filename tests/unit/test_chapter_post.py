@@ -1,0 +1,259 @@
+from datetime import datetime, timezone
+
+import pytest
+
+from manhwatok.app.chapter_post import (
+    build_chapter_post,
+    chapter_status,
+    refresh_chapters,
+    resolve_title,
+)
+from manhwatok.domain.account import Account
+from manhwatok.domain.errors import ManhwatokError, MetadataError
+from manhwatok.ports.chapters import ChapterInfo
+from tests.unit.fakes import (
+    FakeChapterPages,
+    FakeCutter,
+    FakeMetadata,
+    make_chapter_tools,
+    make_tools,
+    manhwa,
+)
+
+NOW = datetime(2026, 9, 20, 12, 0, tzinfo=timezone.utc)
+BOXER = manhwa(anilist_id=119174, title="The Boxer")
+CH12 = ChapterInfo("ch-12", "12", "Talent", "en", 36)
+CH13 = ChapterInfo("ch-13", "13", "", "en", 37)
+
+
+def _tools(tmp_path, **fields):
+    return make_tools(tmp_path, **fields)
+
+
+def _chapter_tools(tmp_path, chapters=(CH12, CH13), panels=4, **fields):
+    pages = fields.pop("pages", None) or FakeChapterPages(chapters=list(chapters))
+    return make_chapter_tools(tmp_path, pages=pages, cutter=FakeCutter(panels), **fields)
+
+
+def _build(tmp_path, ct, tools=None, account=None, **fields):
+    return build_chapter_post(BOXER, tools or _tools(tmp_path), ct, account, NOW, **fields)
+
+
+# --- building -----------------------------------------------------------------------------------
+
+
+def test_builds_the_first_part_of_the_first_chapter_of_a_fresh_title(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    post, slides = _build(tmp_path, ct)
+    assert post.chapter.number == "12" and post.chapter.part == 1
+    assert len(slides) == post.slide_count
+    assert post.title == "The Boxer *Chapter 12*"
+
+
+def test_the_next_build_continues_where_the_last_post_stopped(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)  # two parts
+    tools = _tools(tmp_path)
+    first, _ = _build(tmp_path, ct, tools)
+    second, _ = _build(tmp_path, ct, tools)
+    third, _ = _build(tmp_path, ct, tools)
+    assert [(p.chapter.number, p.chapter.part) for p in (first, second, third)] == [
+        ("12", 1),
+        ("12", 2),
+        ("13", 1),
+    ]
+
+
+def test_a_chapter_longer_than_the_cap_is_split_across_several_posts(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    post, _ = _build(tmp_path, ct)
+    assert (post.chapter.parts, len(post.chapter.panels)) == (2, 20)
+    assert (post.chapter.from_panel, post.chapter.to_panel) == (0, 20)
+
+
+def test_an_explicit_chapter_number_beats_continuing(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    post, _ = _build(tmp_path, ct, number="13")
+    assert post.chapter.number == "13"
+
+
+def test_an_unknown_chapter_number_fails_naming_what_is_listed(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    with pytest.raises(ManhwatokError, match="12, 13"):
+        _build(tmp_path, ct, number="99")
+
+
+def test_a_part_past_the_last_one_fails_naming_how_many_there_are(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    with pytest.raises(ManhwatokError, match="1 part"):
+        _build(tmp_path, ct, part=4)
+
+
+def test_a_title_without_english_chapters_is_skipped_with_a_clear_message(tmp_path):
+    ct = _chapter_tools(tmp_path, chapters=())
+    with pytest.raises(ManhwatokError, match="no English chapters"):
+        _build(tmp_path, ct)
+
+
+def test_a_source_failure_is_reported_as_it_came(tmp_path):
+    pages = FakeChapterPages(error=MetadataError("MangaDex is down"))
+    ct = _chapter_tools(tmp_path, pages=pages)
+    with pytest.raises(MetadataError, match="MangaDex is down"):
+        _build(tmp_path, ct)
+
+
+def test_every_listed_chapter_built_says_so_instead_of_building_nothing(tmp_path):
+    ct = _chapter_tools(tmp_path, chapters=(CH12,))
+    tools = _tools(tmp_path)
+    _build(tmp_path, ct, tools)
+    with pytest.raises(ManhwatokError, match="already built"):
+        _build(tmp_path, ct, tools)
+
+
+def test_the_panels_of_this_part_are_copied_into_the_posts_own_folder(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    tools = _tools(tmp_path)
+    post, _ = _build(tmp_path, ct, tools)
+    folder = tools.posts.folder(post.id)
+    assert [p.name for p in sorted(folder.glob("panel-*.png"))] == post.chapter.panels
+    assert len(post.chapter.panels) == 20
+
+
+def test_the_post_carries_the_chapter_the_part_and_the_panel_range(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    tools = _tools(tmp_path)
+    _build(tmp_path, ct, tools)
+    second, _ = _build(tmp_path, ct, tools)
+    part = second.chapter
+    assert (part.chapter_id, part.pages, part.language) == ("ch-12", 36, "en")
+    assert (part.part, part.parts, part.from_panel, part.to_panel) == (2, 2, 20, 40)
+
+
+def test_the_post_takes_the_accounts_style(tmp_path):
+    account = Account(handle="reads", hashtags="#chapters", accent="#ff5a5f", emojis="🥊")
+    post, _ = _build(tmp_path, _chapter_tools(tmp_path), account=account)
+    assert (post.account, post.hashtags, post.accent, post.emojis) == (
+        "reads",
+        "#chapters",
+        "#ff5a5f",
+        "🥊",
+    )
+
+
+def test_the_post_without_an_account_falls_back_to_the_defaults(tmp_path):
+    from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS
+
+    post, _ = _build(tmp_path, _chapter_tools(tmp_path))
+    assert (post.account, post.hashtags, post.accent) == (None, DEFAULT_HASHTAGS, DEFAULT_ACCENT)
+
+
+def test_the_part_is_recorded_once_the_post_is_saved(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    post, _ = _build(tmp_path, ct)
+    [record] = ct.chapters.parts(119174)
+    assert (record.number, record.part, record.post_id) == ("12", 1, post.id)
+    assert record.built_at == NOW and record.published_at is None
+
+
+def test_downloading_a_chapter_marks_it_downloaded(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    _build(tmp_path, ct)
+    downloaded = {c.number: c.downloaded_at for c in ct.chapters.chapters(119174)}
+    assert downloaded["12"] == NOW and downloaded["13"] is None
+
+
+def test_pages_already_cut_are_not_cut_again(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    tools = _tools(tmp_path)
+    _build(tmp_path, ct, tools)
+    _build(tmp_path, ct, tools)  # part 2 of the same chapter
+    assert len(ct.cutter.cuts) == 1
+
+
+# --- listing ---------------------------------------------------------------------------------
+
+
+def test_refresh_records_the_feed_and_returns_it_in_chapter_order(tmp_path):
+    ct = _chapter_tools(tmp_path, chapters=(CH13, CH12))
+    found = refresh_chapters(BOXER, ct, NOW)
+    assert [c.number for c in found] == ["12", "13"]
+    assert [c.number for c in ct.chapters.chapters(119174)] == ["12", "13"]
+    assert found[0].manhwa_title == "The Boxer"
+
+
+def test_refresh_keeps_the_download_dates_of_chapters_it_already_knew(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    _build(tmp_path, ct)
+    refresh_chapters(BOXER, ct, NOW)
+    assert ct.chapters.chapters(119174)[0].downloaded_at == NOW
+
+
+def test_refresh_of_a_title_without_english_chapters_says_so(tmp_path):
+    ct = _chapter_tools(tmp_path, chapters=())
+    with pytest.raises(ManhwatokError, match="no English chapters"):
+        refresh_chapters(BOXER, ct, NOW)
+
+
+def test_chapter_status_reports_listed_built_and_published(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    tools = _tools(tmp_path)
+    post, _ = _build(tmp_path, ct, tools)
+    ct.chapters.mark_published(post.id, NOW)
+    status = {s.chapter.number: s for s in chapter_status(119174, ct)}
+    assert (status["12"].built, status["12"].published) == (1, 1)
+    assert status["12"].chapter.downloaded_at == NOW
+    assert (status["13"].built, status["13"].published) == (0, 0)
+
+
+# --- naming a title ------------------------------------------------------------------------------
+
+
+def test_resolve_title_accepts_an_anilist_id_as_well_as_a_search(tmp_path):
+    from tests.unit.test_mangadex import MemoryCache
+
+    meta = FakeMetadata([BOXER])
+    cache = MemoryCache()
+    assert resolve_title("The Boxer", meta, cache).anilist_id == 119174
+    assert resolve_title("119174", meta, cache).title == "The Boxer"
+
+
+def test_resolve_title_reuses_the_cached_title_instead_of_searching_again(tmp_path):
+    from tests.unit.test_mangadex import MemoryCache
+
+    meta = FakeMetadata([BOXER])
+    cache = MemoryCache()
+    resolve_title("The Boxer", meta, cache)
+    resolve_title("119174", meta, cache)
+    assert meta.searches == ["The Boxer"]
+
+
+def test_resolve_title_that_matches_nothing_says_so(tmp_path):
+    from tests.unit.test_mangadex import MemoryCache
+
+    with pytest.raises(ManhwatokError, match="nothing called"):
+        resolve_title("no such thing", FakeMetadata([BOXER]), MemoryCache())
+
+
+def test_resolve_title_lists_the_near_matches_when_several_fit(tmp_path):
+    from tests.unit.test_mangadex import MemoryCache
+
+    other = manhwa(anilist_id=2, title="The Boxer's Son")
+    with pytest.raises(ManhwatokError, match="The Boxer's Son"):
+        resolve_title("boxer", FakeMetadata([BOXER, other]), MemoryCache())
+
+
+def test_the_end_slide_of_a_middle_part_points_at_the_next_one(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    post, _ = _build(tmp_path, ct)
+    assert post.cta_title == "Part *2* next"
+
+
+def test_the_end_slide_of_the_last_part_closes_the_chapter(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    post, _ = _build(tmp_path, ct)
+    assert post.cta_title == "Chapter *12* done"
+
+
+def test_an_account_that_wrote_its_own_end_slide_title_keeps_it(tmp_path):
+    account = Account(handle="reads", cta_title="Read it on *Webtoon*")
+    post, _ = _build(tmp_path, _chapter_tools(tmp_path), account=account)
+    assert post.cta_title == "Read it on *Webtoon*"

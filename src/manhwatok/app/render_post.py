@@ -9,7 +9,13 @@ from typing import Callable
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.quad_art import SceneSearch, kept_scenes, prepare_quad
 from manhwatok.domain.caption import build_caption
-from manhwatok.domain.errors import DraftError, MetadataError, NotRendered, StorageError
+from manhwatok.domain.errors import (
+    DraftError,
+    ManhwatokError,
+    MetadataError,
+    NotRendered,
+    StorageError,
+)
 from manhwatok.domain.models import QUAD_PICTURES, ArtStyle, CoverStyle, Manhwa
 from manhwatok.domain.post import ListPost, PostItem
 from manhwatok.ports.posts import PostRepository, SlideArt
@@ -157,6 +163,8 @@ def _fetch_each(
 def restyle(post_id: str, art: ArtStyle, tools: PostTools) -> None:
     """Change a saved post's art style, so the next render draws it that way."""
     post = tools.posts.get(post_id)
+    if post.chapter:
+        raise ManhwatokError(f"post {post_id} is a chapter post — its slides are its panels")
     if post.art is not art:
         tools.posts.save(post.model_copy(update={"art": art}))
 
@@ -164,6 +172,10 @@ def restyle(post_id: str, art: ArtStyle, tools: PostTools) -> None:
 def set_cover(post_id: str, style: CoverStyle, tools: PostTools) -> None:
     """Change which cover version a saved post's next render makes 01.png."""
     post = tools.posts.get(post_id)
+    if post.chapter:
+        raise ManhwatokError(
+            f"post {post_id} is a chapter post — its cover names the chapter, and has one version"
+        )
     if post.cover is not style:
         tools.posts.save(post.model_copy(update={"cover": style}))
 

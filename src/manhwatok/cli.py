@@ -459,6 +459,7 @@ def export(
                 store.history,
                 out or settings.export_dir,
                 now=datetime.now(timezone.utc),
+                chapters=store.chapters,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -637,8 +638,9 @@ def delete(
     from manhwatok.app.delete_post import delete_post, leftover_state
     from manhwatok.domain.errors import PostNotFound
 
+    settings = Settings()
     try:
-        repo = container.build_posts(Settings())
+        repo = container.build_posts(settings)
         try:
             post = repo.get(post_id)
             size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
@@ -647,7 +649,8 @@ def delete(
         if not yes and not typer.confirm(f"Delete post {post_id} ({size})?", default=False):
             typer.echo("kept")
             return
-        delete_post(post_id, repo)
+        with container.build_store(settings) as store:
+            delete_post(post_id, repo, chapters=store.chapters)
     except ManhwatokError as e:
         _fail(e)
     typer.echo(f"deleted post {post_id}")
@@ -780,8 +783,15 @@ account_app = typer.Typer(
 theme_app = typer.Typer(
     help="Themes: reusable tags/genres + title, shared by every account.", no_args_is_help=True
 )
+chapter_app = typer.Typer(
+    help="Publish a manhwa's chapters, a part at a time. The pages come from MangaDex, which "
+    "hosts fan translations: whether you have the rights to repost a chapter is your call, and "
+    "copyright holders do have TikTok accounts taken down.",
+    no_args_is_help=True,
+)
 app.add_typer(account_app, name="account")
 app.add_typer(theme_app, name="theme")
+app.add_typer(chapter_app, name="chapter")
 
 
 def _warn(msg: str) -> None:
@@ -1152,3 +1162,133 @@ def theme_remove(name: str = typer.Argument(..., help="Theme name.")) -> None:
     except ManhwatokError as e:
         _fail(e)
     typer.echo(f"removed theme {n}")
+
+
+# --- chapters ---------------------------------------------------------------------------------
+
+TITLE_ARG = typer.Argument(..., help="Manhwa title, or its AniList id.", metavar="TITLE")
+
+
+def _close(source) -> None:
+    getattr(source, "close", lambda: None)()
+
+
+LANGUAGE = typer.Option("en", "--language", help="Chapter language to publish.")
+
+
+def _chapter_parts(settings, store, text: str, language: str):
+    """(title, chapter tools, its chapters) for a named title — the three every command here
+    starts from. Lists from MangaDex the first time a title is asked about."""
+    from manhwatok.app import container
+    from manhwatok.app.chapter_post import refresh_chapters, resolve_title
+
+    manhwa = resolve_title(text, container.build_metadata(settings), store.cache)
+    tools = container.build_chapter_tools(settings, store)
+    known = store.chapters.chapters(manhwa.anilist_id, language)
+    if not known:
+        known = refresh_chapters(manhwa, tools, datetime.now(timezone.utc), language, _progress)
+    return manhwa, tools, known
+
+
+@chapter_app.command("list")
+def chapter_list(
+    title: str = TITLE_ARG,
+    refresh: bool = typer.Option(False, "--refresh", help="Ask MangaDex for new chapters."),
+    language: str = LANGUAGE,
+) -> None:
+    """A title's chapters: their pages, what was built from them and what went out."""
+    from manhwatok.app import container
+    from manhwatok.app.chapter_post import chapter_status, refresh_chapters
+
+    settings = Settings()
+    try:
+        with container.build_store(settings) as store:
+            manhwa, tools, _ = _chapter_parts(settings, store, title, language)
+            if refresh:
+                refresh_chapters(manhwa, tools, datetime.now(timezone.utc), language, _progress)
+            rows = chapter_status(manhwa.anilist_id, tools, language)
+            _close(tools.pages)
+    except ManhwatokError as e:
+        _fail(e)
+    typer.secho(f"{manhwa.title} ({manhwa.anilist_id})", bold=True)
+    for row in rows:
+        built = f"{row.built}/{row.parts[0].parts} parts" if row.built else "-"
+        published = f"published {row.parts[0].published_at:%Y-%m-%d}" if row.published else ""
+        downloaded = "downloaded" if row.chapter.downloaded_at else ""
+        cells = [f"ch. {row.chapter.number:<8}", f"{row.chapter.pages:>3} pages"]
+        typer.echo("  " + "  ".join(cells + [f"{downloaded:<10}", f"{built:<10}", published]).rstrip())
+    typer.echo(f"build the next part with: manhwatok chapter build {manhwa.anilist_id}")
+
+
+@chapter_app.command("next")
+def chapter_next(title: str = TITLE_ARG, language: str = LANGUAGE) -> None:
+    """Which chapter and part `chapter build` would make next."""
+    from manhwatok.app import container
+    from manhwatok.domain.chapter import next_part
+
+    settings = Settings()
+    try:
+        with container.build_store(settings) as store:
+            manhwa, tools, known = _chapter_parts(settings, store, title, language)
+            found = next_part(known, store.chapters.parts(manhwa.anilist_id, language))
+            _close(tools.pages)
+    except ManhwatokError as e:
+        _fail(e)
+    if found is None:
+        typer.echo(f"every listed chapter of {manhwa.title} is already built")
+        return
+    parts = f" of {found.parts}" if found.parts else ""
+    typer.echo(f"next: chapter {found.chapter.number}, part {found.part}{parts}")
+    typer.echo(f"build it with: manhwatok chapter build {manhwa.anilist_id}")
+
+
+@chapter_app.command("build")
+def chapter_build(
+    title: str = TITLE_ARG,
+    number: Optional[str] = typer.Option(
+        None, "--number", help="Chapter to publish (default: the next one not built)."
+    ),
+    part: Optional[int] = typer.Option(
+        None, "--part", min=1, help="Which part of it (default: the next one not built)."
+    ),
+    account: Optional[str] = ACCOUNT,
+    language: str = LANGUAGE,
+    title_text: Optional[str] = typer.Option(
+        None, "--title", help="Post title; wrap words in *stars* to colour."
+    ),
+    hashtags: Optional[str] = typer.Option(None, help="Caption hashtags."),
+    accent: Optional[str] = typer.Option(None, help="Accent colour for the cover and end slide."),
+    emojis: Optional[str] = typer.Option(None, help="Emojis after the title on TikTok."),
+) -> None:
+    """Build one post from a chapter: its pages, cut into slides."""
+    from manhwatok.app import container
+    from manhwatok.app.chapter_post import build_chapter_post
+
+    settings = Settings()
+    try:
+        tools = _tools(settings)
+        with container.build_store(settings) as store:
+            manhwa, chapter_tools, _ = _chapter_parts(settings, store, title, language)
+            post, slides = build_chapter_post(
+                manhwa,
+                tools,
+                chapter_tools,
+                _account(store, account),
+                datetime.now(timezone.utc),
+                number=number,
+                part=part,
+                language=language,
+                title=title_text,
+                hashtags=hashtags,
+                accent=accent,
+                emojis=emojis,
+            )
+            _close(chapter_tools.pages)
+    except ManhwatokError as e:
+        _fail(e)
+    where = post.chapter
+    typer.echo(
+        f"post {post.id} · chapter {where.number} part {where.part}/{where.parts} · "
+        f"{len(slides)} slides → {tools.posts.folder(post.id)}"
+    )
+    typer.echo(f"export with: manhwatok export {post.id}")

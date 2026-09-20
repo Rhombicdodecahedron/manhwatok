@@ -37,9 +37,18 @@ def _tables(path) -> set[str]:
 def test_fresh_database_is_migrated_to_latest(tmp_path):
     path = tmp_path / "m.db"
     SqliteStore(path).close()
-    assert SCHEMA_VERSION == 2
-    assert _version(path) == 2
-    assert _tables(path) == {"cache", "accounts", "themes", "history", "history_by_account_date"}
+    assert SCHEMA_VERSION == 3
+    assert _version(path) == 3
+    assert _tables(path) == {
+        "cache",
+        "accounts",
+        "themes",
+        "history",
+        "history_by_account_date",
+        "chapters",
+        "chapter_parts",
+        "chapter_parts_by_post",
+    }
 
 
 def test_phase2_database_is_upgraded_in_place_and_keeps_cache_rows(tmp_path):
@@ -58,7 +67,7 @@ def test_phase2_database_is_upgraded_in_place_and_keeps_cache_rows(tmp_path):
     with SqliteStore(path, clock=Clock(1010.0)) as store:
         assert store.cache.get("latest_chapter:7", 60) == "55"
         assert store.cache.get("latest_chapter:8", 60) == "null"
-    assert _version(path) == 2
+    assert _version(path) == 3
     assert {"accounts", "themes", "history"} <= _tables(path)
 
 
@@ -102,7 +111,7 @@ def test_concurrent_openers_upgrade_a_phase2_database_exactly_once(tmp_path):
                 conn.execute("PRAGMA integrity_check").fetchone()[0],
                 conn.execute("SELECT key, value FROM cache ORDER BY key").fetchall(),
             )
-        if state != (2, "ok", [(f"latest_chapter:{i}", str(i)) for i in range(3)]):
+        if state != (SCHEMA_VERSION, "ok", [(f"latest_chapter:{i}", str(i)) for i in range(3)]):
             failures.append(f"trial {trial}: user_version/integrity/rows = {state}")
     assert failures == []
 
@@ -122,7 +131,7 @@ def test_migration_scripts_split_into_single_statements():
         "CREATE INDEX a_x ON a (x);",
         "INSERT INTO a VALUES ('no trailing semicolon');",
     ]
-    assert [len(sqlite_store._statements(m)) for m in MIGRATIONS] == [1, 4]
+    assert [len(sqlite_store._statements(m)) for m in MIGRATIONS] == [1, 4, 3]
 
 
 def test_reopening_keeps_data_and_version(tmp_path):
@@ -131,7 +140,7 @@ def test_reopening_keeps_data_and_version(tmp_path):
         store.cache.put("k", "v")
     with SqliteStore(path) as store:
         assert store.cache.get("k", 60) == "v"
-    assert _version(path) == 2
+    assert _version(path) == 3
 
 
 def test_database_from_a_newer_version_is_refused(tmp_path):

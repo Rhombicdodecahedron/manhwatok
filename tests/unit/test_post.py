@@ -125,3 +125,44 @@ def test_post_item_carries_hand_picked_art():
 def test_a_post_saved_with_a_song_note_still_loads():
     data = post().model_dump(mode="json") | {"song": "Die For You"}  # the song note was dropped
     assert ListPost.model_validate(data) == post()
+
+
+# --- chapter posts ----------------------------------------------------------------------------
+
+
+def test_a_chapter_posts_slide_count_counts_its_panels():
+    from tests.unit.fakes import chapter_post
+
+    assert chapter_post().slide_count == 5  # cover + 3 panels + end
+
+
+def test_a_chapter_post_with_no_picks_is_not_unfinished():
+    from tests.unit.fakes import chapter_post
+
+    assert not chapter_post().is_unfinished
+
+
+def test_a_post_with_neither_picks_nor_a_chapter_is_unfinished():
+    assert post(items=[]).is_unfinished
+
+
+def test_a_post_saved_before_chapter_posts_still_loads():
+    data = post().model_dump(mode="json")
+    data.pop("chapter", None)
+    assert ListPost.model_validate(data).chapter is None
+
+
+def test_a_chapter_posts_description_names_the_chapter_and_the_part():
+    from tests.unit.fakes import chapter_part, chapter_post
+
+    one = chapter_post(chapter=chapter_part(parts=1), hashtags="#manhwa")
+    many = chapter_post(chapter=chapter_part(part=2, parts=3), hashtags="#manhwa")
+    assert upload_description(one).startswith("Test Manhwa — chapter 12\n")
+    assert upload_description(many).startswith("Test Manhwa — chapter 12 · part 2/3\n")
+    assert upload_description(one).endswith("#manhwa")
+
+
+def test_a_chapter_posts_title_is_the_plain_title():
+    from tests.unit.fakes import chapter_post
+
+    assert upload_title(chapter_post()) == "Test Manhwa Chapter 12"

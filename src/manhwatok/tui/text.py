@@ -38,16 +38,22 @@ def caption_text(post: ListPost, posts: PostRepository) -> tuple[str, bool]:
 
 def post_details(post: ListPost, posts: PostRepository, sounds: list[str]) -> str:
     """The text beside the slide preview: title, the account's sounds, art style, cover version,
-    emojis, caption, picks."""
+    emojis, caption, and its picks — or, for a chapter post, which chapter and part it is."""
     who = f"@{post.account}" if post.account else "no account"
     size = "no picks" if post.is_unfinished else f"{post.slide_count} slides"
+    part = post.chapter
     lines = [
         plain_title(post.title) or "(untitled)",
         f"{post.id} · {who} · {post_status(post, posts)} · {size}",
         "",
         f"Sounds: {' | '.join(sounds) or '–'}",
     ]
-    if post.art is not ArtStyle.NONE:
+    if part:
+        which = f"Chapter {part.number}" if part.number else "Oneshot"
+        if part.parts > 1:
+            which += f" · part {part.part}/{part.parts}"
+        lines.append(f"{which} · {len(part.panels)} panels of {part.pages} pages ({part.language})")
+    if post.art is not ArtStyle.NONE and not part:
         lines.append(f"Art: {post.art.value}")
     if post.cover is not CoverStyle.FAN:
         lines.append(f"Cover: {post.cover.value}")
@@ -58,7 +64,10 @@ def post_details(post: ListPost, posts: PostRepository, sounds: list[str]) -> st
         lines += ["", "no picks yet — press e to pick titles"]
         return "\n".join(lines)
     caption, rendered = caption_text(post, posts)
-    lines += ["", "Caption" if rendered else "Caption (not rendered)", caption, "", "Picks"]
+    lines += ["", "Caption" if rendered else "Caption (not rendered)", caption]
+    if part:
+        return "\n".join(lines)
+    lines += ["", "Picks"]
     for n, item in enumerate(post.items, 1):
         lines.append(f"{n:>2}. {item.manhwa.title} — {chapter_label(item.manhwa)}")
         if item.hook:

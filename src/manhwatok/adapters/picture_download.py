@@ -67,3 +67,38 @@ def _suffix(url: str, content_type: str) -> str | None:
     if from_url in SUFFIXES:
         return ".jpg" if from_url == ".jpeg" else from_url
     return TYPES.get(content_type)
+
+
+def stream_to_file(
+    url: str,
+    path: Path,
+    client: httpx.Client,
+    headers: dict | None = None,
+    max_bytes: int = MAX_BYTES,
+) -> Path:
+    """Download `url` straight into `path`, in chunks, without holding it in memory — a chapter
+    is dozens of pages of a few megabytes each. Writes through a `.part` file so an interrupted
+    download never looks like a finished one, and leaves nothing behind when it fails."""
+    partial = path.with_name(path.name + ".part")
+    written = 0
+    try:
+        with client.stream("GET", url, headers=headers or {"User-Agent": USER_AGENT}) as resp:
+            if resp.status_code >= 400:
+                raise ManhwatokError(f"could not download {url}: HTTP {resp.status_code}")
+            with partial.open("wb") as out:
+                for chunk in resp.iter_bytes():
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise ManhwatokError(f"{url} is too big ({max_bytes} bytes allowed)")
+                    out.write(chunk)
+    except httpx.HTTPError as e:
+        partial.unlink(missing_ok=True)
+        raise ManhwatokError(f"could not download {url}: {e}") from e
+    except BaseException:
+        partial.unlink(missing_ok=True)
+        raise
+    if not written:
+        partial.unlink(missing_ok=True)
+        raise ManhwatokError(f"{url} served nothing")
+    partial.replace(path)
+    return path

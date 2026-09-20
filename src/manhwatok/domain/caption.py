@@ -17,7 +17,14 @@ def upload_title(post: ListPost) -> str:
 
 
 def upload_description(post: ListPost) -> str:
-    """TikTok's description: numbered picks, hashtags."""
+    """TikTok's description: what the post holds, then hashtags. A chapter post names its
+    chapter and part; a list post numbers its picks."""
+    if post.chapter:
+        part = post.chapter
+        which = f"{part.manhwa_title} — chapter {part.number}"
+        if part.parts > 1:
+            which += f" · part {part.part}/{part.parts}"
+        return f"{which}\n\n{post.hashtags}".strip()
     picks = "\n".join(f"{i}. {item.manhwa.title}" for i, item in enumerate(post.items, 1))
     return f"{picks}\n\n{post.hashtags}".strip()
 

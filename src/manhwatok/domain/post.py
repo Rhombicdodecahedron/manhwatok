@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pydantic import AwareDatetime, BaseModel, Field
 
+from manhwatok.domain.chapter import SLIDES_PER_POST, ChapterPart
 from manhwatok.domain.models import ArtStyle, CoverStyle, Manhwa
 
 DEFAULT_ACCENT = "#43c9e4"
 DEFAULT_HASHTAGS = "#manhwa #manhwarecommendation #webtoon #manhwatiktok"
 DEFAULT_CTA_TITLE = "Which one have you *read?*"
 DEFAULT_CTA_FOLLOW = "Follow for part 2"
-MAX_ITEMS = 33  # TikTok photo posts cap at 35 images: cover + items + end slide
+MAX_ITEMS = SLIDES_PER_POST  # picks per post: the same cap the panels of a chapter post get
 
 
 class PostItem(BaseModel):
@@ -44,11 +45,15 @@ class ListPost(BaseModel):
     cover: CoverStyle = CoverStyle.FAN  # which cover version render makes 01.png
     # The theme it was built from, when it was: `upload` offers that theme's sounds first.
     theme: str | None = None
+    # A chapter post: its slides are this part of a chapter, drawn from `chapter.panels`
+    # instead of from picks. None on every recommendation-list post.
+    chapter: ChapterPart | None = None
 
     @property
     def slide_count(self) -> int:
-        return len(self.items) + 2
+        drawn = len(self.chapter.panels) if self.chapter else len(self.items)
+        return drawn + 2
 
     @property
     def is_unfinished(self) -> bool:
-        return not self.items
+        return not self.items and self.chapter is None

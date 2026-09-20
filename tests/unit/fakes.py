@@ -26,6 +26,7 @@ class FakeMetadata:
         self.tags: list[TagInfo] = list(tags)
         self.genres: list[str] = list(genres)
         self.queries: list[SearchQuery] = []
+        self.searches: list[str] = []  # the free-text lookups find() was asked for
         # What extras() answers, by id.
         self.character_urls: dict[int, list[str]] = {}
         self.synonyms: dict[int, list[str]] = {}
@@ -35,6 +36,10 @@ class FakeMetadata:
     def search(self, query: SearchQuery) -> list[Manhwa]:
         self.queries.append(query)
         return list(self.results)
+
+    def find(self, text: str, limit: int = 10) -> list[Manhwa]:
+        self.searches.append(text)
+        return [m for m in self.results if text.lower() in m.title.lower()][:limit]
 
     def extras(self, ids: list[int]):
         from manhwatok.ports.metadata import TitleExtras
@@ -302,3 +307,165 @@ class FakeArtSource:
         colour = hashlib.md5(self.twins.get(option.url, option.url).encode()).digest()[:3]
         Image.new("RGB", (46, 65), tuple(colour)).save(path)
         return path
+
+
+def chapter_part(**overrides) -> "ChapterPart":
+    from manhwatok.domain.chapter import ChapterPart
+
+    fields = {
+        "anilist_id": 1,
+        "manhwa_title": "Test Manhwa",
+        "number": "12",
+        "chapter_id": "ch-12",
+        "part": 1,
+        "parts": 2,
+        "panels": [f"panel-{n:03d}.png" for n in range(1, 4)],
+        "pages": 36,
+        "from_panel": 0,
+        "to_panel": 3,
+    }
+    fields.update(overrides)
+    return ChapterPart(**fields)
+
+
+def chapter_post(**overrides) -> ListPost:
+    """A post whose slides are a chapter's panels, not picks."""
+    chapter = overrides.pop("chapter", None) or chapter_part()
+    fields = {
+        "items": [],
+        "candidates": [],
+        "title": f"{chapter.manhwa_title} *Chapter {chapter.number}*",
+        "chapter": chapter,
+    }
+    fields.update(overrides)
+    return post(**fields)
+
+
+class FakeChapterPages:
+    """Scripted chapter listings and page files, in place of MangaDex."""
+
+    def __init__(self, chapters=None, pages=3, error=None):
+        from manhwatok.ports.chapters import ChapterInfo
+
+        self.listed: list[ChapterInfo] = list(chapters or [])
+        self.pages_each = pages
+        self.error = error
+        self.listings: list[int] = []  # anilist ids chapters() was asked about
+        self.downloads: list[str] = []  # chapter ids pages() was asked for
+        self.root: Path | None = None  # set by make_chapter_tools
+
+    def chapters(self, manhwa: Manhwa, language: str = "en"):
+        self.listings.append(manhwa.anilist_id)
+        if self.error is not None:
+            raise self.error
+        return [c for c in self.listed if c.language == language]
+
+    def pages(self, chapter, progress=None) -> list[Path]:
+        self.downloads.append(chapter.chapter_id)
+        folder = (self.root or Path(".")) / "pages" / chapter.chapter_id
+        folder.mkdir(parents=True, exist_ok=True)
+        made = []
+        for n in range(1, self.pages_each + 1):
+            path = folder / f"{n:02d}.png"
+            if not path.is_file():
+                cover_file(folder, n, color=(40, 40, 40), size=(20, 40))
+                (folder / f"{n}.jpg").replace(path)
+            made.append(path)
+        if progress:
+            progress(f"chapter {chapter.number}: {len(made)} pages")
+        return made
+
+    def cached_pages(self, chapter) -> list[Path]:
+        folder = (self.root or Path(".")) / "pages" / chapter.chapter_id
+        return sorted(folder.glob("[0-9][0-9].png"))
+
+    def close(self) -> None:
+        """Nothing to close; the real source has an HTTP client."""
+
+
+class FakeCutter:
+    """Cuts every chapter into `panels` slide-sized pictures, one colour each."""
+
+    def __init__(self, panels=4):
+        self.panels = panels
+        self.cuts: list[Path] = []  # the folders it was asked to cut into
+
+    def cut(self, pages: list[Path], out_dir: Path, prefix: str = "panel") -> list[Path]:
+        from PIL import Image
+
+        found = sorted(out_dir.glob(f"{prefix}-*.png"))
+        if len(found) == self.panels:
+            return found
+        self.cuts.append(out_dir)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        made = []
+        for n in range(1, self.panels + 1):
+            path = out_dir / f"{prefix}-{n:03d}.png"
+            Image.new("RGB", (1080, 1920), (20 * n % 255, 60, 120)).save(path)
+            made.append(path)
+        return made
+
+
+class FakeChapterRepo:
+    """In-memory ChapterRepository."""
+
+    def __init__(self):
+        self.rows: dict[tuple, object] = {}
+        self.built: dict[tuple, object] = {}
+
+    def record_chapters(self, rows) -> None:
+        for row in rows:
+            key = (row.anilist_id, row.number, row.language)
+            kept = self.rows.get(key)
+            downloaded = kept.downloaded_at if kept else None
+            self.rows[key] = row.model_copy(update={"downloaded_at": downloaded})
+
+    def chapters(self, anilist_id: int, language: str = "en"):
+        from manhwatok.domain.chapter import chapter_sort_key
+
+        found = [
+            row
+            for (aid, _, lang), row in self.rows.items()
+            if aid == anilist_id and lang == language
+        ]
+        return sorted(found, key=lambda c: chapter_sort_key(c.number))
+
+    def mark_downloaded(self, anilist_id, number, language, when) -> None:
+        key = (anilist_id, number, language)
+        if key in self.rows:
+            self.rows[key] = self.rows[key].model_copy(update={"downloaded_at": when})
+
+    def record_part(self, part) -> None:
+        self.built[(part.anilist_id, part.number, part.language, part.part)] = part
+
+    def parts(self, anilist_id: int, language: str = "en"):
+        from manhwatok.domain.chapter import chapter_sort_key
+
+        found = [p for p in self.built.values() if p.anilist_id == anilist_id and p.language == language]
+        return sorted(found, key=lambda p: (chapter_sort_key(p.number), p.part))
+
+    def mark_published(self, post_id: str, when) -> None:
+        for key, part in self.built.items():
+            if part.post_id == post_id and part.published_at is None:
+                self.built[key] = part.model_copy(update={"published_at": when})
+
+    def forget_parts(self, post_id: str) -> None:
+        self.built = {k: p for k, p in self.built.items() if p.post_id != post_id}
+
+    def titles(self) -> list[tuple[int, str]]:
+        seen = {row.anilist_id: row.manhwa_title for row in self.rows.values()}
+        return sorted(seen.items(), key=lambda pair: pair[1])
+
+
+def make_chapter_tools(tmp_path: Path, pages=None, cutter=None, chapters=None):
+    """ChapterTools with fakes and a pages folder under tmp_path."""
+    from manhwatok.app.chapter_post import ChapterTools
+
+    pages = pages or FakeChapterPages()
+    pages.root = tmp_path
+    return ChapterTools(
+        pages=pages,
+        cutter=cutter or FakeCutter(),
+        chapters=chapters or FakeChapterRepo(),
+        pages_dir=tmp_path / "pages",
+    )

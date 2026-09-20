@@ -676,3 +676,101 @@ def test_the_byline_reads_on_bright_art(tmp_path):
     out = PillowRenderer().render(p, {1: SlideArt(white, None)}, tmp_path / "out")
     row = _byline_row(out[1])
     assert any(max(px) < 150 for px in row)  # the shadow
+
+
+# --- chapter posts ------------------------------------------------------------------------------
+
+
+def _panels(tmp_path, colours):
+    from PIL import Image
+
+    folder = tmp_path / "post"
+    folder.mkdir(parents=True, exist_ok=True)
+    names = []
+    for n, colour in enumerate(colours, 1):
+        name = f"panel-{n:03d}.png"
+        Image.new("RGB", (1080, 1920), colour).save(folder / name)
+        names.append(name)
+    return folder, names
+
+
+def _chapter_post(tmp_path, colours=((200, 40, 40), (40, 200, 40)), **fields):
+    from tests.unit.fakes import chapter_part, chapter_post
+
+    folder, names = _panels(tmp_path, colours)
+    part = chapter_part(panels=names, to_panel=len(names), **fields)
+    return chapter_post(chapter=part), folder
+
+
+def test_a_chapter_post_renders_a_cover_its_panels_and_an_end_slide_at_tiktok_size(tmp_path):
+    post, folder = _chapter_post(tmp_path)
+    paths = PillowRenderer().render(post, {}, folder)
+    assert [p.name for p in paths] == ["01.png", "02.png", "03.png", "04.png"]
+    for path in paths:
+        with Image.open(path) as img:
+            assert img.size == (1080, 1920) and img.mode == "RGB"
+
+
+def test_a_panel_slide_is_the_panel_itself(tmp_path):
+    post, folder = _chapter_post(tmp_path)
+    paths = PillowRenderer().render(post, {}, folder)
+    assert _dominant(_pixel(paths[1], (540, 500))) == 0  # the red panel, untouched
+    assert _dominant(_pixel(paths[2], (540, 500))) == 1  # then the green one
+
+
+def test_a_chapter_post_signs_every_slide(tmp_path):
+    post, folder = _chapter_post(tmp_path)
+    signed = post.model_copy(update={"account": "reads"})
+    for path in PillowRenderer().render(signed, {}, folder):
+        assert any(min(px) > 170 for px in _byline_row(path)), path.name
+
+
+def test_a_panel_that_is_not_slide_sized_is_fitted_onto_the_slide(tmp_path):
+    post, folder = _chapter_post(tmp_path)
+    Image.new("RGB", (400, 400), (40, 40, 200)).save(folder / post.chapter.panels[0])
+    paths = PillowRenderer().render(post, {}, folder)
+    with Image.open(paths[1]) as img:
+        assert img.size == (1080, 1920)
+    assert _dominant(_pixel(paths[1], (540, 960))) == 2
+
+
+def test_the_chapter_cover_skips_a_black_opening_panel_for_a_drawn_one(tmp_path):
+    """Chapters often open on a black page; blurring it gives a cover with nothing on it."""
+    post, folder = _chapter_post(tmp_path, colours=((2, 2, 2), (40, 200, 40)))
+    paths = PillowRenderer().render(post, {}, folder)
+    assert _dominant(_pixel(paths[0], (540, 200))) == 1  # the drawn panel, blurred
+
+
+def test_the_chapter_cover_uses_the_only_panel_there_is(tmp_path):
+    post, folder = _chapter_post(tmp_path, colours=((200, 40, 40),))
+    paths = PillowRenderer().render(post, {}, folder)
+    assert _dominant(_pixel(paths[0], (540, 200))) == 0
+
+
+def test_a_missing_panel_file_still_renders(tmp_path):
+    post, folder = _chapter_post(tmp_path)
+    (folder / post.chapter.panels[0]).unlink()
+    paths = PillowRenderer().render(post, {}, folder)
+    assert len(paths) == 4
+    assert _pixel(paths[1], (20, 20)) != (0, 0, 0)
+
+
+def test_rerendering_a_chapter_post_removes_stale_slides(tmp_path):
+    post, folder = _chapter_post(tmp_path, colours=[(200, 40, 40)] * 5)
+    PillowRenderer().render(post, {}, folder)
+    shorter = post.model_copy(
+        update={"chapter": post.chapter.model_copy(update={"panels": post.chapter.panels[:2]})}
+    )
+    PillowRenderer().render(shorter, {}, folder)
+    assert sorted(p.name for p in folder.glob("[0-9][0-9].png")) == [
+        "01.png",
+        "02.png",
+        "03.png",
+        "04.png",
+    ]
+
+
+def test_a_chapter_post_writes_only_the_cover_version_it_uses(tmp_path):
+    post, folder = _chapter_post(tmp_path)
+    PillowRenderer().render(post, {}, folder)
+    assert [p.name for p in sorted(folder.glob("cover-*.png"))] == ["cover-fan.png"]

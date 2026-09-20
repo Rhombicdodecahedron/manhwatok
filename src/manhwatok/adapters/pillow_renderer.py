@@ -18,6 +18,8 @@ from manhwatok.adapters.layout import (
     Pill,
     Placed,
     fit_inside,
+    byline_of,
+    layout_chapter_cover,
     layout_cover,
     layout_end,
     layout_item,
@@ -49,6 +51,7 @@ SCENE_CROP = (0.5, 0.5)
 QUAD_CROP = (0.5, 0.2)
 QUAD_COUNT = QUAD_PICTURES
 QUARTER = (SLIDE_W // 2, SLIDE_H // 2)
+MID_GREY = 110.0  # the brightness a drawn panel sits around, between black pages and blank ones
 
 
 class _Art(NamedTuple):
@@ -131,6 +134,20 @@ def _full_bleed(src: Image.Image | None, accent: str) -> Image.Image:
         filled = ImageOps.fit(src, SIZE, Image.Resampling.LANCZOS, centering=SCENE_CROP)
         canvas.paste(filled.convert("RGBA"), (0, 0))
     return canvas
+
+
+def _backdrop_panel(panels: list[Image.Image | None]) -> Image.Image | None:
+    """Which panel the cover is built on. A chapter often opens on a black page or a blank one,
+    and blurring either gives a cover with nothing on it — so this takes the panel closest to
+    mid-brightness, which is a drawn one."""
+    lit = [(abs(_brightness(p) - MID_GREY), n, p) for n, p in enumerate(panels) if p is not None]
+    return min(lit)[2] if lit else None
+
+
+def _brightness(img: Image.Image) -> float:
+    small = img.convert("L").resize((8, 8), Image.Resampling.BOX)
+    data = small.tobytes()
+    return sum(data) / len(data)
 
 
 def _grid(pictures: list[Image.Image], accent: str) -> Image.Image:
@@ -254,6 +271,8 @@ class PillowRenderer:
                 old.unlink()
         except OSError as e:
             raise StorageError(f"could not prepare slide folder {out_dir}: {e}") from e
+        if post.chapter is not None:
+            return self._render_chapter(post, out_dir)
         wants_banner = post.art in (ArtStyle.BACKGROUND, ArtStyle.PANEL)
         # The quad cover draws the first four titles' characters whatever the post's style.
         quad_ids = {it.manhwa.anilist_id for it in post.items[:QUAD_COUNT]}
@@ -288,6 +307,80 @@ class PillowRenderer:
         for style, slide in versions.items():
             _save(slide, out_dir / f"cover-{style.value}.png")
         return paths
+
+    def _render_chapter(self, post: ListPost, out_dir: Path) -> list[Path]:
+        """A chapter post: the cover, one slide per panel, the end slide. A chapter has one
+        sensible cover, so the other versions are not drawn."""
+        panels = [_load(out_dir / name) for name in post.chapter.panels]
+        slides = [self.chapter_cover_slide(post, _backdrop_panel(panels))]
+        slides += [self.panel_slide(post, panel) for panel in panels]
+        slides.append(self.chapter_end_slide(post, panels[-1] if panels else None))
+        paths = []
+        for n, slide in enumerate(slides, 1):
+            path = out_dir / f"{n:02d}.png"
+            _save(slide, path)
+            paths.append(path)
+        _save(slides[0], out_dir / f"cover-{CoverStyle.FAN.value}.png")
+        return paths
+
+    def panel_slide(self, post: ListPost, panel: Image.Image | None) -> Image.Image:
+        """The panel, and the mark every slide carries. The cutter already made it slide-sized;
+        anything else — a panel from elsewhere, or a file that has gone — is fitted."""
+        accent = readable_accent(post.accent)
+        canvas = _full_bleed(panel, accent) if panel else _accent_gradient(SIZE, accent).convert("RGBA")
+        _draw_byline(canvas, byline_of(_byline(post)))
+        return canvas
+
+    def chapter_cover_slide(self, post: ListPost, first: Image.Image | None) -> Image.Image:
+        """The chapter's first panel, blurred, under the chapter's name and its part bar."""
+        part = post.chapter
+        accent_hex = readable_accent(post.accent)
+        accent = hex_to_rgb(accent_hex)
+        canvas = (
+            _blurred(first, SIZE, COVER_BLUR, COVER_DIM)
+            if first
+            else _accent_gradient(SIZE, accent_hex)
+        ).convert("RGBA")
+        _bottom_gradient(canvas)
+        layout = layout_chapter_cover(
+            part.manhwa_title, part.number, part.part, part.parts, _byline(post)
+        )
+        draw = ImageDraw.Draw(canvas)
+        _draw_pill(draw, layout.kicker, accent, filled=True)
+        _draw_text(draw, layout.title, WHITE, accent)
+        dim_layer = Image.new("RGBA", SIZE, (0, 0, 0, 0))
+        dim_draw = ImageDraw.Draw(dim_layer)
+        for i, seg in enumerate(layout.bar):
+            rect = (seg.x, seg.y, seg.right, seg.bottom)
+            if i == layout.lit:
+                draw.rounded_rectangle(rect, radius=BAR_H // 2, fill=accent)
+            else:
+                dim_draw.rounded_rectangle(rect, radius=BAR_H // 2, fill=DIM)
+        canvas.alpha_composite(dim_layer)
+        _draw_byline(canvas, layout.byline)
+        return canvas
+
+    def chapter_end_slide(self, post: ListPost, last: Image.Image | None) -> Image.Image:
+        """The last panel, blurred, under the account's own closing words."""
+        part = post.chapter
+        accent_hex = readable_accent(post.accent)
+        accent = hex_to_rgb(accent_hex)
+        canvas = (
+            _blurred(last, SIZE, COVER_BLUR, COVER_DIM)
+            if last
+            else _accent_gradient(SIZE, accent_hex)
+        ).convert("RGBA")
+        name = f"{part.manhwa_title} — ch. {part.number}" if part.number else part.manhwa_title
+        layout = layout_end([name], post.cta_title, post.cta_follow, _byline(post))
+        draw = ImageDraw.Draw(canvas)
+        _draw_text(draw, layout.title, WHITE, accent)
+        for row in layout.rows:
+            if row.number:
+                _draw_text(draw, row.number, accent, accent)
+            _draw_text(draw, row.name, WHITE, accent)
+        _draw_text(draw, layout.follow, WHITE, accent)
+        _draw_byline(canvas, layout.byline)
+        return canvas
 
     def item_slide(self, post: ListPost, index: int, loaded: dict[int, _Art]) -> Image.Image:
         item = post.items[index]

@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Protocol
 
 from manhwatok.domain.account import Account
+from manhwatok.domain.chapter import ChapterRecord, PartRecord
 from manhwatok.domain.theme import Theme
 
 
@@ -43,3 +44,31 @@ class HistoryRepository(Protocol):
     def recent(self, account: str, since: datetime) -> set[int]:
         """AniList ids this account exported at or after `since`."""
         ...
+
+
+class ChapterRepository(Protocol):
+    """What each title's chapters are, and which parts of them were built and published."""
+
+    def record_chapters(self, rows: list[ChapterRecord]) -> None:
+        """Upsert what the source listed, keeping each chapter's download date."""
+        ...
+
+    def chapters(self, anilist_id: int, language: str = "en") -> list[ChapterRecord]: ...
+
+    def mark_downloaded(
+        self, anilist_id: int, number: str, language: str, when: datetime
+    ) -> None: ...
+
+    def record_part(self, part: PartRecord) -> None:
+        """Idempotent per part; rebuilding one replaces the post that carries it."""
+        ...
+
+    def parts(self, anilist_id: int, language: str = "en") -> list[PartRecord]: ...
+
+    def mark_published(self, post_id: str, when: datetime) -> None:
+        """Stamp every part this post carries; the first date wins."""
+        ...
+
+    def forget_parts(self, post_id: str) -> None: ...
+
+    def titles(self) -> list[tuple[int, str]]: ...

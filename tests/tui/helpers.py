@@ -16,6 +16,7 @@ from tests.unit.fakes import (
     FakeChapters,
     FakeMetadata,
     FakeRenderer,
+    make_chapter_tools,
     FakeUploader,
     make_tools,
 )
@@ -54,6 +55,7 @@ def make_ctx(
     fanart=None,
     pins=None,
     reddit=None,
+    chapter_pages=None,
 ) -> AppContext:
     """A context on a real database and real post folders under tmp_path, fakes elsewhere.
     Every `uploader()` call returns the same `uploader` (a FakeUploader by default)."""
@@ -71,6 +73,9 @@ def make_ctx(
             ArtSourceName.PINS: pins or FakeArtSource(),
             ArtSourceName.REDDIT: reddit or FakeArtSource(),
         },
+        chapter_tools=make_chapter_tools(
+            tmp_path, pages=chapter_pages, chapters=store.chapters
+        ),
         uploader_factory=lambda: browser,
         closers=[store],
     )

@@ -43,6 +43,30 @@ query ($perPage: Int, $genres: [String], $tags: [String], $sort: [MediaSort], $m
 }
 """
 
+_FIND = """
+query ($text: String, $perPage: Int) {
+  Page(page: 1, perPage: $perPage) {
+    media(type: MANGA, search: $text, sort: [SEARCH_MATCH]) {
+      id
+      title { english romaji }
+      status
+      chapters
+      startDate { year }
+      genres
+      tags { name rank isMediaSpoiler }
+      averageScore
+      popularity
+      coverImage { extraLarge color }
+      bannerImage
+      characters(sort: FAVOURITES_DESC, perPage: 8) { nodes { image { large } } }
+      synonyms
+      description(asHtml: false)
+      siteUrl
+    }
+  }
+}
+"""
+
 _EXTRAS = """
 query ($ids: [Int]) {
   Page(page: 1, perPage: 50) {
@@ -112,6 +136,14 @@ class AniListSource:
         if query.exclude_tags:
             variables["excludeTags"] = query.exclude_tags
         data = self._post(_SEARCH, variables)
+        return [_to_manhwa(m) for m in data["Page"]["media"]]
+
+    def find(self, text: str, limit: int = 10) -> list[Manhwa]:
+        """Titles matching free text. Unlike `search` this does not filter to Korean comics:
+        the user named this title, so the catalogue's best matches are what they meant."""
+        if not text.strip():
+            return []
+        data = self._post(_FIND, {"text": text.strip(), "perPage": limit})
         return [_to_manhwa(m) for m in data["Page"]["media"]]
 
     def extras(self, ids: list[int]) -> dict[int, TitleExtras]:

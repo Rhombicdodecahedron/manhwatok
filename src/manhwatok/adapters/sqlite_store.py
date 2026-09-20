@@ -21,6 +21,7 @@ from manhwatok.domain.errors import (
     StorageError,
     ThemeNotFound,
 )
+from manhwatok.domain.chapter import ChapterRecord, PartRecord, chapter_sort_key
 from manhwatok.domain.theme import Theme
 
 # MIGRATIONS[n - 1] takes the schema from PRAGMA user_version n-1 to n. Never edit a shipped
@@ -43,6 +44,31 @@ MIGRATIONS: tuple[str, ...] = (
         PRIMARY KEY (account, anilist_id, post_id)
     );
     CREATE INDEX history_by_account_date ON history (account, exported_at);
+    """,
+    """
+    CREATE TABLE chapters (
+        anilist_id INTEGER NOT NULL,
+        number TEXT NOT NULL,
+        language TEXT NOT NULL,
+        chapter_id TEXT NOT NULL,
+        manhwa_title TEXT NOT NULL DEFAULT '',
+        chapter_title TEXT NOT NULL DEFAULT '',
+        pages INTEGER NOT NULL DEFAULT 0,
+        downloaded_at TEXT,
+        PRIMARY KEY (anilist_id, number, language)
+    );
+    CREATE TABLE chapter_parts (
+        anilist_id INTEGER NOT NULL,
+        number TEXT NOT NULL,
+        language TEXT NOT NULL,
+        part INTEGER NOT NULL,
+        parts INTEGER NOT NULL,
+        post_id TEXT NOT NULL,
+        built_at TEXT NOT NULL,
+        published_at TEXT,
+        PRIMARY KEY (anilist_id, number, language, part)
+    );
+    CREATE INDEX chapter_parts_by_post ON chapter_parts (post_id);
     """,
 )
 SCHEMA_VERSION = len(MIGRATIONS)
@@ -131,6 +157,7 @@ class SqliteStore:
         self.accounts = AccountTable(self)
         self.themes = ThemeTable(self)
         self.history = HistoryTable(self)
+        self.chapters = ChapterTable(self)
 
     def close(self) -> None:
         with self._lock:
@@ -298,3 +325,136 @@ class HistoryTable:
             (account, _stamp(since)),
         )
         return {anilist_id for (anilist_id,) in rows}
+
+
+class ChapterTable:
+    """What each title's chapters are, which were downloaded, and which parts of them were
+    built into posts and published."""
+
+    def __init__(self, store: SqliteStore) -> None:
+        self._store = store
+
+    def record_chapters(self, rows: list[ChapterRecord]) -> None:
+        """Upsert what the source listed. `downloaded_at` is this machine's own fact, not the
+        source's, so re-listing a chapter never clears it."""
+        self._store.write_many(
+            StorageError,
+            "INSERT INTO chapters (anilist_id, number, language, chapter_id, manhwa_title, "
+            "chapter_title, pages, downloaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL) "
+            "ON CONFLICT (anilist_id, number, language) DO UPDATE SET "
+            "chapter_id = excluded.chapter_id, manhwa_title = excluded.manhwa_title, "
+            "chapter_title = excluded.chapter_title, pages = excluded.pages",
+            [
+                (
+                    row.anilist_id,
+                    row.number,
+                    row.language,
+                    row.chapter_id,
+                    row.manhwa_title,
+                    row.chapter_title,
+                    row.pages,
+                )
+                for row in rows
+            ],
+        )
+
+    def chapters(self, anilist_id: int, language: str = "en") -> list[ChapterRecord]:
+        """Every listed chapter of the title, in chapter-number order."""
+        rows = self._store.query(
+            StorageError,
+            "SELECT anilist_id, manhwa_title, number, chapter_id, language, chapter_title, "
+            "pages, downloaded_at FROM chapters WHERE anilist_id = ? AND language = ?",
+            (anilist_id, language),
+        )
+        found = [
+            ChapterRecord(
+                anilist_id=row[0],
+                manhwa_title=row[1],
+                number=row[2],
+                chapter_id=row[3],
+                language=row[4],
+                chapter_title=row[5],
+                pages=row[6],
+                downloaded_at=datetime.fromisoformat(row[7]) if row[7] else None,
+            )
+            for row in rows
+        ]
+        return sorted(found, key=lambda c: chapter_sort_key(c.number))
+
+    def mark_downloaded(
+        self, anilist_id: int, number: str, language: str, when: datetime
+    ) -> None:
+        self._store.write(
+            StorageError,
+            "UPDATE chapters SET downloaded_at = ? "
+            "WHERE anilist_id = ? AND number = ? AND language = ?",
+            (_stamp(when), anilist_id, number, language),
+        )
+
+    def record_part(self, part: PartRecord) -> None:
+        """Idempotent per part: rebuilding one replaces the post that carries it, and keeps the
+        date it was published."""
+        self._store.write(
+            StorageError,
+            "INSERT INTO chapter_parts (anilist_id, number, language, part, parts, post_id, "
+            "built_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (anilist_id, number, language, part) DO UPDATE SET "
+            "parts = excluded.parts, post_id = excluded.post_id, built_at = excluded.built_at",
+            (
+                part.anilist_id,
+                part.number,
+                part.language,
+                part.part,
+                part.parts,
+                part.post_id,
+                _stamp(part.built_at),
+                _stamp(part.published_at) if part.published_at else None,
+            ),
+        )
+
+    def parts(self, anilist_id: int, language: str = "en") -> list[PartRecord]:
+        """Every part built of the title, in chapter then part order."""
+        rows = self._store.query(
+            StorageError,
+            "SELECT anilist_id, number, language, part, parts, post_id, built_at, published_at "
+            "FROM chapter_parts WHERE anilist_id = ? AND language = ?",
+            (anilist_id, language),
+        )
+        found = [
+            PartRecord(
+                anilist_id=row[0],
+                number=row[1],
+                language=row[2],
+                part=row[3],
+                parts=row[4],
+                post_id=row[5],
+                built_at=datetime.fromisoformat(row[6]),
+                published_at=datetime.fromisoformat(row[7]) if row[7] else None,
+            )
+            for row in rows
+        ]
+        return sorted(found, key=lambda p: (chapter_sort_key(p.number), p.part))
+
+    def mark_published(self, post_id: str, when: datetime) -> None:
+        """Stamp every part this post carries. An earlier stamp wins: the first time it went
+        out is what counts, as with the export history."""
+        self._store.write(
+            StorageError,
+            "UPDATE chapter_parts SET published_at = MIN(COALESCE(published_at, ?), ?) "
+            "WHERE post_id = ?",
+            (_stamp(when), _stamp(when), post_id),
+        )
+
+    def forget_parts(self, post_id: str) -> None:
+        """Drop a deleted post's parts, so they are built again."""
+        self._store.write(
+            StorageError, "DELETE FROM chapter_parts WHERE post_id = ?", (post_id,)
+        )
+
+    def titles(self) -> list[tuple[int, str]]:
+        """(anilist id, title) of every tracked title, alphabetical."""
+        rows = self._store.query(
+            StorageError,
+            "SELECT DISTINCT anilist_id, manhwa_title FROM chapters ORDER BY manhwa_title",
+        )
+        return [(row[0], row[1]) for row in rows]

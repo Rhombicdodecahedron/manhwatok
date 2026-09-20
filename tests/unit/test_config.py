@@ -63,3 +63,9 @@ def test_reddit_credentials_default_to_none_set(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     s = Settings()
     assert (s.reddit_client_id, s.reddit_client_secret, s.reddit_user) == ("", "", "")
+
+
+def test_pages_dir_sits_under_the_data_dir(tmp_path):
+    from manhwatok.config import Settings
+
+    assert Settings(data_dir=tmp_path).pages_dir == tmp_path / "pages"

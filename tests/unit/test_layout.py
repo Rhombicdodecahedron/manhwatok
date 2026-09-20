@@ -6,8 +6,10 @@ from manhwatok.adapters.layout import (
     SLIDE_H,
     SLIDE_W,
     Box,
+    byline_of,
     fit_inside,
     fit_words,
+    layout_chapter_cover,
     layout_cover,
     layout_end,
     layout_item,
@@ -364,3 +366,36 @@ def test_scene_layout_keeps_text_where_it_was(name, hook):
 def test_quad_image_box_is_the_whole_slide():
     layout = layout_item(1, LONG_NAME, "ongoing", LONG_HOOK, art=ArtStyle.QUAD)
     assert layout.cover_area == Box(0, 0, SLIDE_W, SLIDE_H)
+
+
+# --- chapter cover ------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("parts", [1, 2, 6])
+def test_chapter_cover_layout_stays_in_the_safe_area(parts):
+    layout = layout_chapter_cover(LONG_NAME, "1024.5", 1, parts, BY)
+    assert all(SAFE.contains(b) for b in layout.text_boxes())
+    assert len(layout.bar) == parts
+
+
+def test_chapter_cover_kicker_names_the_chapter_and_the_part():
+    layout = layout_chapter_cover("The Boxer", "12", 2, 3)
+    assert layout.kicker.text.line_text(0) == "CHAPTER 12 · PART 2/3"
+
+
+def test_chapter_cover_kicker_drops_the_part_when_there_is_only_one():
+    assert layout_chapter_cover("The Boxer", "12", 1, 1).kicker.text.line_text(0) == "CHAPTER 12"
+
+
+def test_the_chapter_cover_bar_lights_the_part_being_posted():
+    assert layout_chapter_cover("The Boxer", "12", 3, 4).lit == 2  # 0-based segment
+
+
+def test_the_chapter_cover_signs_itself_where_every_other_slide_does():
+    assert layout_chapter_cover("The Boxer", "12", 1, 1, BY).byline.box == byline_of(BY).box
+
+
+def test_a_long_manhwa_name_shrinks_rather_than_leaving_the_safe_area():
+    layout = layout_chapter_cover(LONG_NAME + " " + LONG_NAME, "12", 1, 1)
+    assert len(layout.title.text.lines) <= 4
+    assert all(SAFE.contains(b) for b in layout.text_boxes())

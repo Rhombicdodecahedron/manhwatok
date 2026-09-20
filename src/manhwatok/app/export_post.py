@@ -11,7 +11,7 @@ from pathlib import Path
 from manhwatok.app.render_post import rendered_files, unfinished_error
 from manhwatok.domain.errors import StorageError
 from manhwatok.ports.posts import PostRepository
-from manhwatok.ports.store import HistoryRepository
+from manhwatok.ports.store import ChapterRepository, HistoryRepository
 
 
 def export_post(
@@ -20,6 +20,7 @@ def export_post(
     history: HistoryRepository,
     dest_root: Path,
     now: datetime,
+    chapters: ChapterRepository | None = None,
 ) -> Path:
     post = posts.get(post_id)
     if post.is_unfinished:
@@ -34,6 +35,10 @@ def export_post(
             shutil.copy2(f, dest / f.name)
     except OSError as e:
         raise StorageError(f"could not export post {post_id} to {dest}: {e}") from e
+    if post.chapter and chapters is not None:
+        # A chapter part counts as published the first time it leaves for TikTok, as a list
+        # post's titles count as posted on its first export.
+        chapters.mark_published(post.id, post.exported_at or now)
     if post.account:
         # Every export records the current titles (idempotent per title and post, dated with
         # the post's first export), so a title swapped in by `edit` after the first export is

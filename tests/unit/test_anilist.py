@@ -284,3 +284,23 @@ def test_search_without_alternative_titles_records_none_found():
         SearchQuery(tags=["x"])
     )
     assert m.synonyms == []  # looked up and empty, not "never looked up"
+
+
+def test_find_searches_titles_by_free_text():
+    seen = {}
+
+    def handler(request):
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json=_page(DOOM_BREAKER))
+
+    [found] = _source(handler).find("doom breaker", limit=5)
+    assert seen["variables"] == {"text": "doom breaker", "perPage": 5}
+    assert "search: $text" in seen["query"]
+    assert found.title == "Doom Breaker"
+
+
+def test_find_without_words_asks_nothing():
+    def handler(request):
+        raise AssertionError("no request expected")
+
+    assert _source(handler).find("  ") == []

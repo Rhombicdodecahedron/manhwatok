@@ -6,6 +6,7 @@ import shutil
 
 from manhwatok.domain.errors import PostNotFound, StorageError
 from manhwatok.ports.posts import PostRepository
+from manhwatok.ports.store import ChapterRepository
 
 
 def _no_post(post_id: str) -> PostNotFound:
@@ -25,10 +26,16 @@ def leftover_state(post_id: str, posts: PostRepository) -> str:
     return "empty" if empty else "unreadable"
 
 
-def delete_post(post_id: str, posts: PostRepository) -> None:
+def delete_post(
+    post_id: str, posts: PostRepository, chapters: ChapterRepository | None = None
+) -> None:
+    """Remove the post. A chapter post's part is forgotten too, so `chapter build` offers it
+    again rather than skipping over a post that no longer exists."""
     folder = posts.folder(post_id)
     if not folder.is_dir():
         raise _no_post(post_id)
+    if chapters is not None:
+        chapters.forget_parts(post_id)
     try:
         shutil.rmtree(folder)
     except OSError as e:

@@ -51,6 +51,11 @@ class Settings:
         return self.data_dir / "covers"
 
     @property
+    def pages_dir(self) -> Path:
+        """Downloaded chapter pages and the panels cut from them, a folder per chapter."""
+        return self.data_dir / "pages"
+
+    @property
     def browser_dir(self) -> Path:
         """One persistent Chromium profile (TikTok login) per account handle."""
         return self.data_dir / "browser"
