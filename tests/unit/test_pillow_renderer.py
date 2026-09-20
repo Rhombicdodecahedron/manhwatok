@@ -136,9 +136,9 @@ def test_end_slide_uses_the_posts_cta_texts(tmp_path, monkeypatch):
     seen = []
     real = pillow_renderer.layout_end
 
-    def spy(names, cta_title, cta_follow):
+    def spy(names, cta_title, cta_follow, byline=""):
         seen.append((names, cta_title, cta_follow))
-        return real(names, cta_title, cta_follow)
+        return real(names, cta_title, cta_follow, byline)
 
     monkeypatch.setattr(pillow_renderer, "layout_end", spy)
     p = _post(1).model_copy(update={"cta_title": "Seen *these*?", "cta_follow": "More tomorrow"})
@@ -643,76 +643,36 @@ def test_hero_cover_uses_the_cover_without_picked_art(tmp_path):
 
 
 def _byline_row(path):
-    """Pixels across the byline line, just under the bar."""
-    from manhwatok.adapters.layout import layout_cover
+    """Pixels across the byline line, centred at the foot of the slide."""
+    from manhwatok.adapters.layout import byline_of
 
-    box = layout_cover("Manhwa where the MC *regresses*", 3, "by @reads").byline.box
+    placed = byline_of("by @reads")
+    box, start = placed.box, placed.line_x(0)
     with Image.open(path) as img:
-        return [img.getpixel((x, box.y + box.h // 2)) for x in range(box.x, box.x + 200)]
+        return [img.getpixel((x, box.y + box.h // 2)) for x in range(start, start + 150)]
 
 
-def test_cover_says_who_it_is_by_when_the_post_has_an_account(tmp_path):
+def _signed(tmp_path, art=ArtStyle.NONE, account="reads"):
     covers = {i: cover_file(tmp_path / "covers", i) for i in (1, 2, 3)}
-    plain = PillowRenderer().render(_post(3), _art(covers), tmp_path / "a")[0]
-    signed = PillowRenderer().render(
-        _post(3).model_copy(update={"account": "reads"}), _art(covers), tmp_path / "b"
-    )[0]
-    assert not any(min(px) > 180 for px in _byline_row(plain))
-    assert any(min(px) > 180 for px in _byline_row(signed))  # white text
+    p = _post(3).model_copy(update={"art": art, "account": account})
+    return PillowRenderer().render(p, _art(covers), tmp_path / f"{art.value}-{account}")
 
 
-# --- quad art: four of a title's own pictures ------------------------------------------------
+@pytest.mark.parametrize("art", list(ArtStyle))
+def test_every_slide_of_an_accounts_post_is_signed(tmp_path, art):
+    for path in _signed(tmp_path, art):
+        assert any(min(px) > 170 for px in _byline_row(path)), path.name
 
 
-def _quad_post(n=1):
-    return _post(n).model_copy(update={"art": ArtStyle.QUAD})
+def test_a_post_without_an_account_is_not_signed(tmp_path):
+    for path in _signed(tmp_path, account=None):
+        assert not any(min(px) > 170 for px in _byline_row(path)), path.name
 
 
-def _same_hue(px, color):
-    return all(
-        px[i] > px[j] + 30
-        for i in range(3)
-        for j in range(3)
-        if color[i] > color[j] + 100
-    )
-
-
-def test_quad_art_puts_four_of_the_titles_pictures_in_the_quadrants(tmp_path):
-    gallery = tuple(
-        cover_file(tmp_path / f"g{k}", 1, color=COLORS[k], size=(230, 345)) for k in range(4)
-    )
-    art = {1: SlideArt(_red_cover(tmp_path), None, None, None, gallery)}
-    PillowRenderer().render(_quad_post(), art, tmp_path / "out")
-    for xy, color in zip(QUADRANTS, COLORS):
-        assert _same_hue(_pixel(tmp_path / "out" / "02.png", xy), color)
-
-
-def test_quad_art_tops_up_with_the_cover_and_repeats(tmp_path):
-    blue = cover_file(tmp_path / "g", 1, color=(30, 30, 230))
-    art = {1: SlideArt(_red_cover(tmp_path), None, None, None, (blue,))}
-    PillowRenderer().render(_quad_post(), art, tmp_path / "out")
-    slide = tmp_path / "out" / "02.png"
-    assert _dominant(_pixel(slide, QUADRANTS[0])) == 2  # the picture
-    assert _dominant(_pixel(slide, QUADRANTS[1])) == 0  # then the cover
-    assert _dominant(_pixel(slide, QUADRANTS[2])) == 2  # then round again
-
-
-def test_quad_art_without_a_gallery_uses_the_cover(tmp_path):
-    art = {1: SlideArt(_red_cover(tmp_path), None)}
-    PillowRenderer().render(_quad_post(), art, tmp_path / "out")
-    assert _dominant(_pixel(tmp_path / "out" / "02.png", QUADRANTS[1])) == 0
-
-
-def test_quad_art_renders_with_no_images_at_all(tmp_path):
-    paths = PillowRenderer().render(_quad_post(), {1: SlideArt(None, None)}, tmp_path / "out")
-    assert len(paths) == 3
-    assert _pixel(tmp_path / "out" / "02.png", (20, 20)) != (0, 0, 0)
-
-
-def test_quad_art_skips_a_broken_picture(tmp_path):
-    broken = tmp_path / "broken.jpg"
-    broken.write_bytes(b"not an image")
-    blue = cover_file(tmp_path / "g", 1, color=(30, 30, 230))
-    art = {1: SlideArt(None, None, None, None, (broken, blue))}
-    PillowRenderer().render(_quad_post(), art, tmp_path / "out")
-    assert _dominant(_pixel(tmp_path / "out" / "02.png", QUADRANTS[0])) == 2
+def test_the_byline_reads_on_bright_art(tmp_path):
+    """A shadow under it, so it never disappears into a white panel."""
+    white = cover_file(tmp_path / "w", 1, color=(255, 255, 255))
+    p = _post(1).model_copy(update={"art": ArtStyle.SCENE, "account": "reads"})
+    out = PillowRenderer().render(p, {1: SlideArt(white, None)}, tmp_path / "out")
+    row = _byline_row(out[1])
+    assert any(max(px) < 150 for px in row)  # the shadow

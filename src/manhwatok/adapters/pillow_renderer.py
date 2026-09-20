@@ -33,6 +33,7 @@ WHITE = (255, 255, 255)
 DARK = (11, 11, 16)
 DIM = (255, 255, 255, 77)
 BYLINE = (255, 255, 255, 204)
+SHADOW = (0, 0, 0, 190)
 SIZE = (SLIDE_W, SLIDE_H)
 # A cover behind its own card is blurred hard so the card reads; a banner is real art meant to
 # be seen, so it keeps more detail and brightness.
@@ -207,6 +208,23 @@ def _draw_text(draw: ImageDraw.ImageDraw, placed: Placed, color, accent) -> None
                 x += text.font.getlength(chunk)
 
 
+def _byline(post: ListPost) -> str:
+    """Who the post is by, for the mark every slide carries; nothing without an account."""
+    return f"by @{post.account}" if post.account else ""
+
+
+def _draw_byline(canvas: Image.Image, placed: Placed | None) -> None:
+    """The byline, slightly faded, over a soft shadow — it sits on art of any brightness."""
+    if placed is None:
+        return
+    layer = Image.new("RGBA", SIZE, (0, 0, 0, 0))
+    shadow = ImageDraw.Draw(layer)
+    _draw_text(shadow, Placed(placed.text, placed.x + 2, placed.y + 2, placed.w), SHADOW, SHADOW)
+    layer = layer.filter(ImageFilter.GaussianBlur(3))
+    _draw_text(ImageDraw.Draw(layer), placed, BYLINE, BYLINE)
+    canvas.alpha_composite(layer)
+
+
 def _draw_pill(draw: ImageDraw.ImageDraw, pill: Pill, accent, filled: bool) -> None:
     b = pill.box
     rect = (b.x, b.y, b.right, b.bottom)
@@ -278,7 +296,9 @@ class PillowRenderer:
         accent = hex_to_rgb(accent_hex)
         art = loaded.get(m.anilist_id) or _Art(None, None, None, None)
         img, banner = art.cover, art.banner
-        layout = layout_item(index + 1, m.title, chapter_label(m), item.hook, art=post.art)
+        layout = layout_item(
+            index + 1, m.title, chapter_label(m), item.hook, art=post.art, byline=_byline(post)
+        )
         area = layout.cover_area
         if post.art is ArtStyle.SCENE:
             # One picture, the whole slide, square-cornered: no card, so no backdrop behind it,
@@ -327,6 +347,7 @@ class PillowRenderer:
         _draw_pill(draw, layout.pill, accent, filled=False)
         if layout.hook:
             _draw_text(draw, layout.hook, WHITE, accent)
+        _draw_byline(canvas, layout.byline)
         return canvas
 
     def cover_slide(
@@ -403,9 +424,7 @@ class PillowRenderer:
     def _cover_text(canvas: Image.Image, post: ListPost) -> Image.Image:
         """The text every cover version shares: pill, title, progress bar and byline."""
         accent = hex_to_rgb(readable_accent(post.accent))
-        layout = layout_cover(
-            post.title, len(post.items), f"by @{post.account}" if post.account else ""
-        )
+        layout = layout_cover(post.title, len(post.items), _byline(post))
         draw = ImageDraw.Draw(canvas)
         _draw_pill(draw, layout.kicker, accent, filled=True)
         _draw_text(draw, layout.title, WHITE, accent)
@@ -417,7 +436,7 @@ class PillowRenderer:
                     radius=BAR_H // 2,
                     fill=accent,
                 )
-        # DIM segments (and the byline, slightly faded) with proper alpha blending
+        # DIM segments with proper alpha blending
         dim_layer = Image.new("RGBA", SIZE, (0, 0, 0, 0))
         dim_draw = ImageDraw.Draw(dim_layer)
         for i, seg in enumerate(layout.bar):
@@ -427,9 +446,8 @@ class PillowRenderer:
                     radius=BAR_H // 2,
                     fill=DIM,
                 )
-        if layout.byline:
-            _draw_text(dim_draw, layout.byline, BYLINE, BYLINE)
         canvas.alpha_composite(dim_layer)
+        _draw_byline(canvas, layout.byline)
         return canvas
 
     def end_slide(self, post: ListPost, images: dict[int, Image.Image | None]) -> Image.Image:
@@ -446,7 +464,12 @@ class PillowRenderer:
             canvas = _blurred(grid, SIZE, 30, 0.30).convert("RGBA")
         else:
             canvas = _accent_gradient(SIZE, readable_accent(post.accent)).convert("RGBA")
-        layout = layout_end([it.manhwa.title for it in post.items], post.cta_title, post.cta_follow)
+        layout = layout_end(
+            [it.manhwa.title for it in post.items],
+            post.cta_title,
+            post.cta_follow,
+            _byline(post),
+        )
         draw = ImageDraw.Draw(canvas)
         _draw_text(draw, layout.title, WHITE, accent)
         for i, row in enumerate(layout.rows):
@@ -456,4 +479,5 @@ class PillowRenderer:
                 _draw_text(draw, row.number, num_color, num_color)
             _draw_text(draw, row.name, WHITE, accent)
         _draw_text(draw, layout.follow, WHITE, accent)
+        _draw_byline(canvas, layout.byline)
         return canvas

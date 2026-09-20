@@ -50,6 +50,9 @@ class Box:
 
 
 SAFE = Box(90, 250, 900, 1420)  # x 90–990, y 250–1670
+# "by @handle", centred below the text safe area on every slide. TikTok draws its own caption
+# and buttons over the lowest ~130px, so the mark sits above that rather than at the very edge.
+BYLINE_SIZE, BYLINE_BOTTOM = 34, 1790
 FULL_SLIDE = Box(0, 0, SLIDE_W, SLIDE_H)  # the scene style's box: the slide itself
 
 
@@ -281,6 +284,16 @@ def fit_inside(img_w: int, img_h: int, area: Box) -> Box:
     return Box(area.x + (area.w - w) // 2, area.y, w, h)
 
 
+def byline_of(text: str) -> Placed | None:
+    """"by @handle" centred under the text, below the safe area. The same box on every slide: it
+    marks the post, so it must not wander from one to the next, and nothing else is laid out
+    around it."""
+    if not text.strip():
+        return None
+    fitted = fit_words(plain_words(text), body, SAFE.w, 1, BYLINE_SIZE, BYLINE_SIZE - 8)
+    return Placed(fitted, SAFE.x, BYLINE_BOTTOM - fitted.height, SAFE.w, "center")
+
+
 # --- manhwa slide -------------------------------------------------------------------------
 
 ITEM_TEXT_W = 870  # x 90–960 (keeps clear of TikTok's right-hand buttons)
@@ -298,14 +311,21 @@ class ItemLayout:
     pill: Pill
     hook: Placed | None
     cover_area: Box  # the sharp cover is fitted inside this box
+    byline: Placed | None = None  # "by @handle", for an account's post
 
     def text_boxes(self) -> list[Box]:
+        """The boxes laid out inside SAFE; the byline sits below it and is not one of them."""
         boxes = [self.rank.box, self.name.box, self.pill.box]
         return boxes + ([self.hook.box] if self.hook else [])
 
 
 def layout_item(
-    rank: int, name: str, pill_label: str, hook: str, art: ArtStyle = ArtStyle.NONE
+    rank: int,
+    name: str,
+    pill_label: str,
+    hook: str,
+    art: ArtStyle = ArtStyle.NONE,
+    byline: str = "",
 ) -> ItemLayout:
     x = SAFE.x
     rank_t = fit_words(plain_words(f"#{rank}"), display, ITEM_TEXT_W, 1, 96, 96)
@@ -319,21 +339,21 @@ def layout_item(
     heights = [rank_t.height, name_t.height, pill.box.h] + ([hook_t.height] if hook_t else [])
     tops = stack_up(heights, SAFE.bottom)
     cover_bottom = tops[0] - 40
-    free_h = cover_bottom - SAFE.y
-    area = _image_area(art, free_h)
+    area = _image_area(art, cover_bottom - SAFE.y, SAFE.y)
     return ItemLayout(
         rank=Placed(rank_t, x, tops[0], ITEM_TEXT_W),
         name=Placed(name_t, x, tops[1], ITEM_TEXT_W),
         pill=_at(pill, tops[2]),
         hook=Placed(hook_t, x, tops[3], ITEM_TEXT_W) if hook_t else None,
         cover_area=area,
+        byline=byline_of(byline),
     )
 
 
-def _image_area(art: ArtStyle, free_h: int) -> Box:
-    """The box a manhwa slide's image gets, for each style. The renderer fits the cover inside
-    this box, crops the panel and character art to fill it, and crops the scene art to fill the
-    slide itself."""
+def _image_area(art: ArtStyle, free_h: int, top: int) -> Box:
+    """The box a manhwa slide's image gets, for each style, in the room between `top` and the
+    text. The renderer fits the cover inside this box, crops the panel and character art to fill
+    it, and crops the scene and quad art to fill the slide itself."""
     if art in (ArtStyle.SCENE, ArtStyle.QUAD):
         # The whole slide, text over it. `free_h` is ignored on purpose: the picture is the slide,
         # so a long title and hook darken more of it rather than shrinking it.
@@ -342,13 +362,13 @@ def _image_area(art: ArtStyle, free_h: int) -> Box:
         # Landscape, the full safe width, centred in the space above the text. Shrinks when a
         # long title and hook leave less room than the ratio wants.
         h = max(1, min(round(SAFE.w / PANEL_RATIO), free_h))
-        return Box(SAFE.x, SAFE.y + (free_h - h) // 2, SAFE.w, h)
+        return Box(SAFE.x, top + (free_h - h) // 2, SAFE.w, h)
     if art is ArtStyle.CHARACTER:
         # Every pixel above the text: a character portrait is the slide's subject, not a card
         # sitting on it, so it takes the room rather than being capped at the cover's size.
-        return Box(SAFE.x, SAFE.y, SAFE.w, max(1, free_h))
+        return Box(SAFE.x, top, SAFE.w, max(1, free_h))
     return Box(
-        (SLIDE_W - COVER_MAX_W) // 2, SAFE.y, COVER_MAX_W, max(1, min(COVER_MAX_H, free_h))
+        (SLIDE_W - COVER_MAX_W) // 2, top, COVER_MAX_W, max(1, min(COVER_MAX_H, free_h))
     )
 
 
@@ -362,30 +382,25 @@ class CoverLayout:
     kicker: Pill
     title: Placed
     bar: list[Box]
-    byline: Placed | None = None  # "by @handle" under the bar, for an account's post
+    byline: Placed | None = None  # "by @handle" below the safe area, for an account's post
 
     def text_boxes(self) -> list[Box]:
-        boxes = [self.kicker.box, self.title.box, *self.bar]
-        return boxes + ([self.byline.box] if self.byline else [])
+        """The boxes laid out inside SAFE; the byline sits below it and is not one of them."""
+        return [self.kicker.box, self.title.box, *self.bar]
 
 
 def layout_cover(title: str, count: int, byline: str = "") -> CoverLayout:
     x, w = SAFE.x, SAFE.w
     kicker = make_pill(f"{count} PICK" if count == 1 else f"{count} PICKS", bold, 32, w, x)
     title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 92, 56, 1.06)
-    by_t = fit_words(plain_words(byline), body, w, 1, 34, 26) if byline.strip() else None
-    heights = [kicker.box.h, title_t.height, BAR_H] + ([by_t.height] if by_t else [])
-    tops = stack_up(heights, SAFE.bottom)
+    tops = stack_up([kicker.box.h, title_t.height, BAR_H], SAFE.bottom)
     seg_w = (w - BAR_GAP * (count - 1)) / max(count, 1)
     bar = [
         Box(round(x + i * (seg_w + BAR_GAP)), tops[2], max(1, round(seg_w)), BAR_H)
         for i in range(count)
     ]
     return CoverLayout(
-        _at(kicker, tops[0]),
-        Placed(title_t, x, tops[1], w),
-        bar,
-        Placed(by_t, x, tops[3], w) if by_t else None,
+        _at(kicker, tops[0]), Placed(title_t, x, tops[1], w), bar, byline_of(byline)
     )
 
 
@@ -409,8 +424,10 @@ class EndLayout:
     title: Placed
     rows: list[EndRow]
     follow: Placed
+    byline: Placed | None = None  # "by @handle" below the safe area, for an account's post
 
     def text_boxes(self) -> list[Box]:
+        """The boxes laid out inside SAFE; the byline sits below it and is not one of them."""
         boxes = [self.title.box, self.follow.box]
         for row in self.rows:
             boxes += ([row.number.box] if row.number else []) + [row.name.box]
@@ -461,7 +478,7 @@ def _ink_span(rows: list[EndRow]) -> tuple[int, int]:
     return min(b.y for b in boxes), max(b.bottom for b in boxes)
 
 
-def layout_end(names: list[str], cta_title: str, cta_follow: str) -> EndLayout:
+def layout_end(names: list[str], cta_title: str, cta_follow: str, byline: str = "") -> EndLayout:
     """Title near the top, follow line near the bottom, and the numbered recap centred
     vertically in the band between them (a long list fills it and ends in "+N more")."""
     x, w = SAFE.x, SAFE.w
@@ -482,4 +499,4 @@ def layout_end(names: list[str], cta_title: str, cta_follow: str) -> EndLayout:
 
     ink_top, ink_bottom = _ink_span(_recap_rows(shown, size, len(names), 0))
     top = band_top + (avail - (ink_bottom - ink_top)) // 2 - ink_top
-    return EndLayout(title, _recap_rows(shown, size, len(names), top), follow)
+    return EndLayout(title, _recap_rows(shown, size, len(names), top), follow, byline_of(byline))

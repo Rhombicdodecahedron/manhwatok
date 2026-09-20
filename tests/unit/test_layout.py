@@ -21,6 +21,7 @@ from manhwatok.domain.post import DEFAULT_CTA_FOLLOW, DEFAULT_CTA_TITLE
 from manhwatok.domain.text import accent_spans
 
 LONG_NAME = "The Reincarnated Assassin Who Became the Strongest Swordmaster of the Northern Duchy"
+BY = "by @manhwa.daily.reads"
 LONG_HOOK = "He wakes up again " * 25
 
 
@@ -32,8 +33,8 @@ def _line_text(line) -> str:
     return " ".join(_word_text(w) for w in line)
 
 
-def _end(names):
-    return layout_end(names, DEFAULT_CTA_TITLE, DEFAULT_CTA_FOLLOW)
+def _end(names, byline=""):
+    return layout_end(names, DEFAULT_CTA_TITLE, DEFAULT_CTA_FOLLOW, byline)
 
 
 def test_stack_up_ends_at_bottom_with_gaps():
@@ -208,19 +209,55 @@ def test_cover_kicker_is_singular_for_one_pick():
     assert layout_cover("T", 5).kicker.text.line_text(0) == "5 PICKS"
 
 
-def test_cover_layout_has_no_byline_without_an_account():
+def test_layouts_have_no_byline_without_an_account():
     assert layout_cover("T", 5).byline is None
+    assert layout_item(1, "Kubera", "ongoing", "A hook.").byline is None
+    assert _end(["Kubera"]).byline is None
 
 
 @pytest.mark.parametrize("count", [1, 12, 33])
-def test_cover_byline_sits_under_the_bar_inside_the_safe_area(count):
-    layout = layout_cover("*" + LONG_NAME + "* and " + LONG_NAME, count, "by @" + "x" * 24)
+def test_cover_byline_sits_centred_below_the_safe_area(count):
+    layout = layout_cover("*" + LONG_NAME + "* and " + LONG_NAME, count, BY)
     assert layout.byline is not None
-    assert layout.byline.box.y > layout.bar[0].bottom
-    assert layout.byline.box.bottom == SAFE.bottom
+    assert layout.byline.align == "center"
+    assert layout.byline.box.y >= SAFE.bottom  # under everything laid out in the safe area
+    assert layout.byline.box.bottom <= SLIDE_H - 120  # clear of TikTok's own caption and buttons
     assert len(layout.byline.text.lines) == 1
     assert all(SAFE.contains(b) for b in layout.text_boxes())
-    assert layout.byline.box in layout.text_boxes()
+
+
+@pytest.mark.parametrize("art", list(ArtStyle))
+def test_every_slide_signs_itself_in_the_same_place(art):
+    """The byline is a mark on the post, so it never moves between slides."""
+    cover = layout_cover("T", 3, BY).byline
+    item = layout_item(33, LONG_NAME, "ongoing · ch. 1234", LONG_HOOK, art=art, byline=BY).byline
+    end = _end([LONG_NAME] * 5, byline=BY).byline
+    assert cover is not None
+    assert (item.box, end.box) == (cover.box, cover.box)
+
+
+@pytest.mark.parametrize("art", list(ArtStyle))
+def test_the_byline_costs_the_slide_nothing(art):
+    """It sits below the safe area, so the text and the art are laid out as they always were."""
+    plain = layout_item(1, "Kubera", "ongoing", "A hook.", art=art)
+    signed = layout_item(1, "Kubera", "ongoing", "A hook.", art=art, byline=BY)
+    assert signed.text_boxes() == plain.text_boxes()
+    assert signed.cover_area == plain.cover_area
+    assert signed.hook.box.bottom < signed.byline.box.y
+
+
+@pytest.mark.parametrize("art", [ArtStyle.SCENE, ArtStyle.QUAD])
+def test_full_bleed_art_keeps_the_whole_slide(art):
+    signed = layout_item(1, "Kubera", "ongoing", "A hook.", art=art, byline=BY)
+    assert signed.cover_area == Box(0, 0, SLIDE_W, SLIDE_H)
+
+
+@pytest.mark.parametrize("n", [1, 12, 33])
+def test_end_layout_with_a_byline_stays_in_the_safe_area(n):
+    layout = _end([LONG_NAME] * n, byline=BY)
+    assert all(SAFE.contains(b) for b in layout.text_boxes())
+    assert layout.follow.box.bottom < layout.byline.box.y
+    assert layout.text_boxes() == _end([LONG_NAME] * n).text_boxes()
 
 
 # --- panel art (Phase 5) ---------------------------------------------------------------------
