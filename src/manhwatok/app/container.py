@@ -112,7 +112,9 @@ def build_chapter_sources(
     """Every place a chapter's pages can come from, by the name the CLI calls it.
 
     MangaDex first: it has the wider catalogue. WEBTOON is the publisher's own English, which
-    is what a licensed title is missing on MangaDex — but only its free episodes."""
+    is what a licensed title is missing on MangaDex — but only its free episodes. Asura
+    translates ongoing action manhwa itself and keeps whole runs of it."""
+    from manhwatok.adapters.asura import AsuraChapters
     from manhwatok.adapters.mangadex import MangaDexChapters
     from manhwatok.adapters.webtoons import WebtoonsChapters
 
@@ -125,6 +127,12 @@ def build_chapter_sources(
             timeout=settings.http_timeout,
         ),
         ChapterSourceName.WEBTOONS: WebtoonsChapters(
+            pages_dir=settings.pages_dir,
+            cache=cache,
+            max_age=max_age,
+            timeout=settings.http_timeout,
+        ),
+        ChapterSourceName.ASURA: AsuraChapters(
             pages_dir=settings.pages_dir,
             cache=cache,
             max_age=max_age,

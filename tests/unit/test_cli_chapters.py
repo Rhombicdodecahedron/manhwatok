@@ -227,5 +227,5 @@ def test_a_title_keeps_the_source_it_was_built_from(monkeypatch, tmp_path):
 
 
 def test_an_unknown_source_is_refused():
-    result = runner.invoke(app, ["chapter", "list", "The Boxer", "--source", "asura"])
+    result = runner.invoke(app, ["chapter", "list", "The Boxer", "--source", "no-such-site"])
     assert result.exit_code == 2

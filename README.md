@@ -172,7 +172,7 @@ part to be built again.
 | --- | --- |
 | Pages | `$XDG_DATA_HOME/manhwatok/pages/<chapter id>/`, with the cut panels beside them |
 | Size | 30–100 MB a chapter, and about as much again in panels |
-| Sources | `mangadex` (fan translations, wide catalogue) and `webtoons` (the publisher's own English from episode 1, free episodes only) |
+| Sources | `mangadex` (fan translations, wide catalogue), `webtoons` (the publisher's own English from episode 1, free episodes only) and `asura` (Asura's own translations, whole runs) |
 | Language | English only; a title the source has with nothing in English says so |
 | Gaps | `chapter list` says where the English run starts, what is missing inside it, and which languages have the rest |
 | Speed | about 20s a chapter, most of it downloading |
@@ -194,8 +194,21 @@ Without `--source`, a title uses whichever source it is already tracked under, e
 that has it (MangaDex, then WEBTOON). **A title keeps its source**: chapter 12 does not mean the
 same thing in two catalogues, so what has been built and posted is counted per source.
 
-Sampled over eight of the titles in these posts, WEBTOON had three of them. It is a fallback,
-not a replacement.
+Asura translates ongoing action manhwa itself and keeps the whole run of what it picks up,
+which is where it beats both: Solo Leveling is 201 chapters from 0 there against MangaDex's 24,
+and Return of the Mad Demon 215 from 1 against MangaDex's 1. Its newest chapters are early
+access — paid — and those are left out rather than downloaded empty. It has changed domain four
+times (asurascans.com → asura.gg → asuracomic.net → asurascans.com), so the day it moves again,
+the host at the top of `adapters/asura.py` is the line to change.
+
+```bash
+uv run manhwatok chapter list "Solo Leveling" --source asura
+uv run manhwatok chapter build "Solo Leveling" --source asura
+```
+
+Sampled over eight of the titles in these posts, WEBTOON had three. None of the three sources
+covers everything: MangaDex has the widest catalogue, WEBTOON the official text, Asura the
+complete early runs of what it translates.
 
 **Whether you may repost a chapter is your call.** MangaDex hosts fan translations, most of them
 unauthorised copies of a licensed work; copyright holders do have TikTok accounts taken down.

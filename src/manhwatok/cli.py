@@ -1178,8 +1178,9 @@ LANGUAGE = typer.Option("en", "--language", help="Chapter language to publish.")
 SOURCE = typer.Option(
     None,
     "--source",
-    help="Where the pages come from: 'mangadex' (fan translations, wider catalogue) or "
-    "'webtoons' (the publisher's own English from episode 1, free episodes only). Default: "
+    help="Where the pages come from: 'mangadex' (fan translations, wider catalogue), "
+    "'webtoons' (the publisher's own English from episode 1, free episodes only) or 'asura' "
+    "(Asura's own translations of ongoing action manhwa, whole runs). Default: "
     "whichever the title is already tracked under, else the first that has it. A title keeps "
     "its source, because chapter numbers don't mean the same thing in two catalogues.",
 )

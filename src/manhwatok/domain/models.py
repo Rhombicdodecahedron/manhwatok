@@ -54,6 +54,7 @@ class ChapterSourceName(StrEnum):
 
     MANGADEX = "mangadex"  # fan translations, wide catalogue, often missing the early run
     WEBTOONS = "webtoons"  # the publisher's own English, from episode 1, free episodes only
+    ASURA = "asura"  # Asura's own translations: whole runs of the action manhwa it picks up
 
 
 class ArtOrder(StrEnum):

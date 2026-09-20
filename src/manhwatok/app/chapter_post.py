@@ -39,6 +39,11 @@ from manhwatok.ports.chapters import ChapterInfo, ChapterPagesSource, PanelCutte
 from manhwatok.ports.metadata import MetadataSource
 from manhwatok.ports.store import ChapterRepository
 
+SOURCE_NAMES = {
+    ChapterSourceName.MANGADEX: "MangaDex",
+    ChapterSourceName.WEBTOONS: "WEBTOON",
+    ChapterSourceName.ASURA: "Asura",
+}
 LANGUAGES = {
     "en": "English",
     "es": "Spanish",
@@ -161,7 +166,7 @@ def refresh_chapters(
     found = ct.pages.chapters(manhwa, language)
     if not found:
         named = LANGUAGES.get(language, language)
-        where = "MangaDex" if ct.source is ChapterSourceName.MANGADEX else "WEBTOON"
+        where = SOURCE_NAMES.get(ct.source, ct.source.value)
         raise ManhwatokError(
             f"{manhwa.title}: no {named} chapters to publish — {where} either has no entry for "
             f"it, or has it with nothing in {named}"
