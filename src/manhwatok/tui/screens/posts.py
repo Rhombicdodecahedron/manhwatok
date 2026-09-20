@@ -12,7 +12,7 @@ from manhwatok.app.delete_post import delete_post
 from manhwatok.app.edit_post import update_picks
 from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import choose_cover, render_post, rendered_files
-from manhwatok.app.upload_post import upload_post
+from manhwatok.app.upload_post import sounds_for, upload_post
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered
 from manhwatok.domain.models import CoverStyle
 from manhwatok.domain.post import ListPost
@@ -143,16 +143,18 @@ class PostsPane(Vertical):
         details.update(post_details(post, ctx.tools.posts, self._sounds(post)))
 
     def _sounds(self, post: ListPost) -> list[str]:
-        """The sounds of the post's account; none for a post without one (or a removed one)."""
+        """What `upload` would offer for the post: its theme's sounds, then its account's.
+        None for a post without an account (or with one since removed)."""
         if not post.account:
             return []
         try:
-            return self.app.ctx.store.accounts.get(post.account).sounds
+            account = self.app.ctx.store.accounts.get(post.account)
         except AccountNotFound:
             return []
         except ManhwatokError as e:
             self.app.fail(e)
             return []
+        return sounds_for(post, account, self.app.ctx.store.themes)
 
     def action_slide(self, delta: int) -> None:
         self.query_one(SlidePreview).step(delta)
@@ -329,6 +331,7 @@ class PostsPane(Vertical):
                 now=app.clock(),
                 debug=debug,
                 choose_sound=choose_sound,
+                themes=ctx.store.themes,
             )
             return f"recorded post {pid} as sent" if posted else "nothing recorded"
 

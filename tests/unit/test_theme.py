@@ -69,3 +69,17 @@ def test_name_is_normalized_and_lists_cleaned():
 def test_json_round_trip():
     t = Theme(name="murim", genres=["Action"], sort=Sort.TRENDING, title="Best *murim*")
     assert Theme.model_validate_json(t.model_dump_json()) == t
+
+
+def test_a_theme_keeps_its_sounds_tidy():
+    theme = Theme(
+        name="murim",
+        tags=["Martial Arts"],
+        title="T",
+        sounds=["  Close Eyes DVRST ", "Close Eyes DVRST", "", "Sahara Hensonn"],
+    )
+    assert theme.sounds == ["Close Eyes DVRST", "Sahara Hensonn"]
+
+
+def test_a_theme_without_sounds_has_none():
+    assert Theme(name="murim", tags=["Martial Arts"], title="T").sounds == []

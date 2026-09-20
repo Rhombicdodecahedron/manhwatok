@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from manhwatok.domain.errors import InvalidName, ManhwatokError
 from manhwatok.domain.models import SearchQuery, Sort
-from manhwatok.domain.text import clean_names
+from manhwatok.domain.text import clean_names, clean_sounds
 
 _NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,39}")
 
@@ -31,6 +31,9 @@ class Theme(BaseModel):
     sort: Sort = Sort.SCORE
     min_tag_rank: int = 60
     title: str
+    # TikTok sound searches that suit this kind of post (phonk for murim, soft pop for romance).
+    # `upload` offers a post's theme sounds before its account's.
+    sounds: list[str] = Field(default_factory=list)
 
     @field_validator("name")
     @classmethod
@@ -41,6 +44,11 @@ class Theme(BaseModel):
     @classmethod
     def _names(cls, value: list[str]) -> list[str]:
         return clean_names(value)
+
+    @field_validator("sounds")
+    @classmethod
+    def _sounds(cls, value: list[str]) -> list[str]:
+        return clean_sounds(value)
 
     @field_validator("min_tag_rank")
     @classmethod

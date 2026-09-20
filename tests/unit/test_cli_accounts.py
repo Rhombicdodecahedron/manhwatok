@@ -316,3 +316,30 @@ def test_account_emojis_and_sounds(tmp_path):
         assert store.accounts.get("reads").sounds == ["Dark Aria", "night drive"]
     out = _ok(["account", "set", "reads", "--sound", "", "--emojis", ""])
     assert "  emojis        -\n  sounds        -\n" in out
+
+
+def test_theme_sounds_are_saved_shown_and_changed(tmp_path):
+    added = runner.invoke(
+        app,
+        ["theme", "add", "murim", "-t", "Revenge", "--title", "Murim", "--sound",
+         "Close Eyes DVRST", "--sound", "Sahara Hensonn"],
+    )
+    assert added.exit_code == 0, added.output
+    with _store(tmp_path) as store:
+        assert store.themes.get("murim").sounds == ["Close Eyes DVRST", "Sahara Hensonn"]
+    assert "Close Eyes DVRST | Sahara Hensonn" in added.output
+
+    changed = runner.invoke(app, ["theme", "set", "murim", "--sound", "Montagem Xonada"])
+    assert changed.exit_code == 0, changed.output
+    with _store(tmp_path) as store:
+        assert store.themes.get("murim").sounds == ["Montagem Xonada"]
+
+    shown = runner.invoke(app, ["theme", "show", "murim"])
+    assert "Montagem Xonada" in shown.output
+
+
+def test_theme_set_without_options_asks_for_one(tmp_path):
+    runner.invoke(app, ["theme", "add", "murim", "-t", "Revenge", "--title", "Murim"])
+    out = runner.invoke(app, ["theme", "set", "murim"])
+    assert out.exit_code == 1
+    assert "nothing to change" in out.output

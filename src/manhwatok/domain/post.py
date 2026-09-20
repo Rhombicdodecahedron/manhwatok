@@ -42,6 +42,8 @@ class ListPost(BaseModel):
     # Phase 5: a post keeps the art style it was built with, as it keeps its CTA texts.
     art: ArtStyle = ArtStyle.NONE
     cover: CoverStyle = CoverStyle.FAN  # which cover version render makes 01.png
+    # The theme it was built from, when it was: `upload` offers that theme's sounds first.
+    theme: str | None = None
 
     @property
     def slide_count(self) -> int:

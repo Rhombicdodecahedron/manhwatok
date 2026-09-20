@@ -49,3 +49,12 @@ def clean_names(names: list[str]) -> list[str]:
 def split_names(raw: str) -> list[str]:
     """'Action, Fantasy,,' -> ['Action', 'Fantasy']; '' -> [] (used to clear a list)."""
     return clean_names(raw.split(","))
+
+
+def clean_sounds(sounds: list[str]) -> list[str]:
+    """TikTok sound searches, in order: spaces collapsed, blanks and repeats dropped."""
+    kept: list[str] = []
+    for sound in (" ".join(s.split()) for s in sounds):
+        if sound and sound not in kept:
+            kept.append(sound)
+    return kept

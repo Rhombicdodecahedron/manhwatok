@@ -61,6 +61,7 @@ def _upload(posts, store, uploader, yes=True, messages=None, debug=False, **soun
         (messages if messages is not None else []).append,
         now=NOW,
         debug=debug,
+        themes=store.themes,
         **sound,
     )
     return posted, answer
@@ -218,3 +219,51 @@ def test_unknown_post(tmp_path, store):
     with pytest.raises(PostNotFound):
         _upload(make_tools(tmp_path).posts, store, uploader)
     assert uploader.events == []
+
+
+# --- sounds per theme ------------------------------------------------------------------------
+
+
+def _themed(tmp_path, store, theme_sounds, account_sounds=("account song",), theme="murim"):
+    from manhwatok.domain.theme import Theme
+
+    store.accounts.update(Account(handle="reads", sounds=list(account_sounds)))
+    if theme_sounds is not None:
+        store.themes.add(Theme(name=theme, tags=["Martial Arts"], title="T", sounds=theme_sounds))
+    return _posts(tmp_path, theme=theme)
+
+
+def test_the_posts_theme_sounds_come_before_the_accounts(tmp_path, store):
+    posts = _themed(tmp_path, store, ["phonk one", "phonk two"])
+    offered = []
+    _upload(posts, store, FakeUploader(), choose_sound=lambda s: (offered.append(s), s[0])[1])
+    assert offered == [["phonk one", "phonk two", "account song"]]
+
+
+def test_a_post_with_no_theme_is_offered_the_accounts_sounds(tmp_path, store):
+    store.accounts.update(Account(handle="reads", sounds=["account song"]))
+    posts = _posts(tmp_path)
+    offered = []
+    _upload(posts, store, FakeUploader(), choose_sound=lambda s: (offered.append(s), None)[1])
+    assert offered == [["account song"]]
+
+
+def test_a_theme_removed_since_the_post_was_built_is_not_an_error(tmp_path, store):
+    posts = _themed(tmp_path, store, None, theme="gone")
+    offered = []
+    _upload(posts, store, FakeUploader(), choose_sound=lambda s: (offered.append(s), None)[1])
+    assert offered == [["account song"]]
+
+
+def test_a_sound_on_both_the_theme_and_the_account_is_offered_once(tmp_path, store):
+    posts = _themed(tmp_path, store, ["shared song"], account_sounds=("shared song", "other"))
+    offered = []
+    _upload(posts, store, FakeUploader(), choose_sound=lambda s: (offered.append(s), None)[1])
+    assert offered == [["shared song", "other"]]
+
+
+def test_a_theme_with_sounds_and_an_account_without_still_offers_them(tmp_path, store):
+    posts = _themed(tmp_path, store, ["phonk one"], account_sounds=())
+    offered = []
+    _upload(posts, store, FakeUploader(), choose_sound=lambda s: (offered.append(s), s[0])[1])
+    assert offered == [["phonk one"]]

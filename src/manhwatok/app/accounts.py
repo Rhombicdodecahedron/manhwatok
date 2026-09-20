@@ -57,9 +57,16 @@ def add_theme(
     sort: Sort,
     min_tag_rank: int,
     title: str,
+    sounds: list[str] | None = None,
 ) -> Theme:
     theme = Theme(
-        name=name, tags=tags, genres=genres, sort=sort, min_tag_rank=min_tag_rank, title=title
+        name=name,
+        tags=tags,
+        genres=genres,
+        sort=sort,
+        min_tag_rank=min_tag_rank,
+        title=title,
+        sounds=sounds or [],
     )
     theme = theme.model_copy(
         update={"tags": names.tags(theme.tags), "genres": names.genres(theme.genres)}

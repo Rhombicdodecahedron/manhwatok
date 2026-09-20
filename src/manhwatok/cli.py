@@ -226,6 +226,7 @@ def build(
     from manhwatok.app import container
     from manhwatok.app.build_post import build_post
     from manhwatok.app.suggest import suggest_for_account
+    from manhwatok.domain.theme import normalize_theme_name
 
     settings = Settings()
     now = datetime.now(timezone.utc)
@@ -248,6 +249,7 @@ def build(
                 now=now,
                 art=art,
                 emojis=emojis,
+                theme=normalize_theme_name(theme) if theme else None,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -760,6 +762,7 @@ def upload(
                 debug=debug,
                 sound="" if no_sound else sound,
                 choose_sound=_choose_sound,
+                themes=store.themes,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -1009,8 +1012,17 @@ def _print_theme(t) -> None:
         ("genres", ", ".join(t.genres) or "-"),
         ("sort", t.sort.value),
         ("min tag rank", str(t.min_tag_rank)),
+        ("sounds", " | ".join(t.sounds) or "-"),
     ]:
         typer.echo(f"  {label:<13} {value}")
+
+
+THEME_SOUND = typer.Option(
+    None,
+    "--sound",
+    help="A TikTok sound search that suits this kind of post, e.g. 'Close Eyes DVRST'. Repeat "
+    "for several. `upload` offers a post's theme sounds before its account's.",
+)
 
 
 @theme_app.command("add")
@@ -1023,6 +1035,7 @@ def theme_add(
     min_tag_rank: int = typer.Option(
         60, min=0, max=100, help="Ignore titles where the tag is weaker than this rank."
     ),
+    sound: Optional[list[str]] = THEME_SOUND,
 ) -> None:
     """Save a theme: the search filters and title for one kind of post."""
     from manhwatok.app import container
@@ -1034,11 +1047,62 @@ def theme_add(
         with container.build_store(settings) as store:
             names = AniListNames(container.build_metadata(settings), store.cache, _warn)
             theme = add_theme(
-                store.themes, names, name, tag or [], genre or [], sort, min_tag_rank, title
+                store.themes,
+                names,
+                name,
+                tag or [],
+                genre or [],
+                sort,
+                min_tag_rank,
+                title,
+                sound or [],
             )
     except ManhwatokError as e:
         _fail(e)
     typer.echo(f"added theme {theme.name}")
+    _print_theme(theme)
+
+
+@theme_app.command("set")
+def theme_set(
+    name: str = typer.Argument(..., help="Theme name."),
+    tag: Optional[list[str]] = TAG,
+    genre: Optional[list[str]] = GENRE,
+    title: Optional[str] = typer.Option(None, "--title", help="Post title."),
+    sort: Optional[Sort] = typer.Option(None, help="Ranking order."),
+    min_tag_rank: Optional[int] = typer.Option(
+        None, min=0, max=100, help="Ignore titles where the tag is weaker than this rank."
+    ),
+    sound: Optional[list[str]] = THEME_SOUND,
+) -> None:
+    """Change a theme; only the given options change. Repeated --sound replaces its sounds."""
+    from manhwatok.app import container
+    from manhwatok.app.accounts import update_theme
+    from manhwatok.app.names import AniListNames
+
+    changes: dict = {}
+    if tag:
+        changes["tags"] = tag
+    if genre:
+        changes["genres"] = genre
+    if title is not None:
+        changes["title"] = title
+    if sort is not None:
+        changes["sort"] = sort
+    if min_tag_rank is not None:
+        changes["min_tag_rank"] = min_tag_rank
+    if sound:  # typer gives [] when --sound wasn't used
+        changes["sounds"] = sound
+    if not changes:
+        _fail(ManhwatokError("nothing to change — give at least one option"))
+    settings = Settings()
+    try:
+        with container.build_store(settings) as store:
+            names = AniListNames(container.build_metadata(settings), store.cache, _warn)
+            theme = update_theme(store.themes, names, name, changes)
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo(f"updated theme {theme.name}")
     _print_theme(theme)
 
 

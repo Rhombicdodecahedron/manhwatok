@@ -11,14 +11,31 @@ from manhwatok.app.post_tools import ProgressFn
 from manhwatok.app.render_post import rendered_files, unfinished_error
 from manhwatok.domain.caption import upload_description, upload_title
 from manhwatok.domain.errors import ManhwatokError
+from manhwatok.domain.post import ListPost
+from manhwatok.domain.text import clean_sounds
 from manhwatok.ports.posts import PostRepository
-from manhwatok.ports.store import AccountRepository, HistoryRepository
+from manhwatok.domain.account import Account
+from manhwatok.ports.store import AccountRepository, HistoryRepository, ThemeRepository
 from manhwatok.ports.uploader import Uploader
 
 # Asks a yes/no question in the terminal; False for "no" and for no answer at all (EOF).
 ConfirmFn = Callable[[str], bool]
-# Asks which of the account's sounds to use; None for no sound.
+# Asks which sound to use, of the post's theme and its account; None for no sound.
 ChooseSoundFn = Callable[[list[str]], "str | None"]
+
+
+def sounds_for(
+    post: ListPost, account: Account, themes: ThemeRepository | None
+) -> list[str]:
+    """What to offer for this post: its theme's sounds, which suit what the post is about,
+    then the account's. A theme removed since the post was built simply has none."""
+    themed: list[str] = []
+    if post.theme and themes is not None:
+        try:
+            themed = themes.get(post.theme).sounds
+        except ManhwatokError:
+            themed = []
+    return clean_sounds([*themed, *account.sounds])
 
 
 def upload_post(
@@ -33,9 +50,10 @@ def upload_post(
     debug: bool,
     sound: str | None = None,
     choose_sound: ChooseSoundFn | None = None,
+    themes: ThemeRepository | None = None,
 ) -> bool:
     """True when the user confirmed the post went out (and it was recorded). `sound`: a TikTok
-    sound search, "" for none; None asks `choose_sound` among the account's sounds."""
+    sound search, "" for none; None asks `choose_sound` among the post's sounds."""
     post = posts.get(post_id)
     if post.is_unfinished:
         raise unfinished_error(post_id)
@@ -44,7 +62,8 @@ def upload_post(
     account = accounts.get(post.account)
     slides, _ = rendered_files(post, posts)
     if sound is None:
-        sound = choose_sound(account.sounds) if account.sounds and choose_sound else None
+        offer = sounds_for(post, account, themes)
+        sound = choose_sound(offer) if offer and choose_sound else None
     sound = sound.strip() if sound else None
     if post.sent_at:
         when = post.sent_at.astimezone()

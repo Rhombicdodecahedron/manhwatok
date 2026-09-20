@@ -366,7 +366,7 @@ Fonts: Montserrat, bundled under the SIL Open Font License (`src/manhwatok/asset
 ## Accounts and themes
 
 Each TikTok account keeps its own genre filters, hashtags, accent colour and end-slide texts.
-Themes (tags/genres + title) are shared by every account.
+Themes (tags/genres + title, and the sounds that suit them) are shared by every account.
 
 ```bash
 uv run manhwatok account add @manhwa.daily --genres Action,Fantasy --block-genres Romance \
@@ -376,6 +376,7 @@ uv run manhwatok account list                     # also: show <handle>, remove 
 
 uv run manhwatok theme add regression-revenge -t "Time Manipulation" -t Revenge \
     --title "Manhwa where the MC *regresses* for *revenge*"
+uv run manhwatok theme set regression-revenge --sound "Close Eyes DVRST"   # only these change
 uv run manhwatok theme list                       # also: show <name>, remove <name>
 
 uv run manhwatok build --account @manhwa.daily --theme regression-revenge
@@ -427,9 +428,14 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
   ```
 
   They are worked out when the caption is written, so re-picking a post updates them.
-- Each `--sound` is a search in TikTok's sound library. `upload` asks which of the account's
-  sounds to use (Enter: the first, 0: none) and adds the first result TikTok finds.
+- Each `--sound` is a search in TikTok's sound library. `upload` asks which sound to use
+  (Enter: the first, 0: none) and adds the first result TikTok finds.
   `upload --sound "..."` searches for something else; `--no-sound` adds none.
+- Sounds live on themes as well as accounts, so a post is offered what suits it: phonk for a
+  murim list, something softer for a romance one. A post remembers the theme it was built from,
+  and `upload` offers that theme's sounds first, then the account's (a sound on both is listed
+  once). Posts built without a theme, or whose theme has been removed since, are offered the
+  account's. Set them with `theme add/set --sound "..."`, repeated for several.
 
 - Each account gets its own browser profile in `$XDG_DATA_HOME/manhwatok/browser/<handle>/`;
   manhwatok never sees your password. Captchas and login checks are yours to answer in the
@@ -461,7 +467,7 @@ uv run manhwatok tui
 Everything the commands above do, in one window with four tabs (`1`–`4`, `q` quits):
 
 - **Posts** — the list, and a preview of the highlighted post: its slides (`←`/`→` flip, `o`
-  opens the slide in your image viewer), its account's sounds, its art style and emojis (when
+  opens the slide in your image viewer), the sounds it would be offered, its art style and emojis (when
   set), caption and picks. `e` edit picks, `r` render, `a` art, `c` cover version (fan, quad or
   hero; swapped in at once when already rendered), `x` export, `u` upload (`U` with `--debug`),
   `d` delete, `f` show one account's posts.
@@ -478,7 +484,8 @@ Everything the commands above do, in one window with four tabs (`1`–`4`, `q` q
   to TikTok. The account form also edits its emojis (`auto` = from each post's genres), its art
   style (`none`, `background`,
   `panel`, `character` or `scene`; blank = none) and its sounds, one line separated by ` | ` (e.g.
-  `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none).
+  `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none). The theme form edits its
+  sounds the same way, and those are offered before the account's.
 
 Slides show as real pictures in terminals with image support (kitty, WezTerm, Konsole, foot and
 other sixel terminals); elsewhere as coloured blocks. Uploading works as with `manhwatok upload`:

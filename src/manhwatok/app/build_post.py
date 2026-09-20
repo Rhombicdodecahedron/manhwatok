@@ -38,6 +38,7 @@ def create_post(
     accent: str | None,
     art: ArtStyle | None = None,
     emojis: str | None = None,
+    theme: str | None = None,
 ) -> ListPost:
     """A new post (pure). Hashtags, emojis, accent and art: the override if given, else the
     account's, else the defaults. End-slide texts come from the account."""
@@ -52,6 +53,7 @@ def create_post(
     return ListPost(
         id=post_id,
         created_at=now,
+        theme=theme,
         title=title,
         items=items,
         candidates=candidates,
@@ -84,11 +86,14 @@ def save_new_post(
     now: datetime,
     art: ArtStyle | None = None,
     emojis: str | None = None,
+    theme: str | None = None,
 ) -> tuple[ListPost, list[Path]]:
     """Check the picks, save them as a new post and render it. Nothing is written if the
     picks or the style are invalid."""
     check_picks(title, items)
-    post = create_post("", now, candidates, title, items, account, hashtags, accent, art, emojis)
+    post = create_post(
+        "", now, candidates, title, items, account, hashtags, accent, art, emojis, theme
+    )
     post = post.model_copy(update={"id": tools.posts.new_id(now.astimezone().date())})
     _save_new(post, tools.posts)
     return post, render_post(post.id, tools)
@@ -104,6 +109,7 @@ def build_post(
     now: datetime,
     art: ArtStyle | None = None,
     emojis: str | None = None,
+    theme: str | None = None,
 ) -> tuple[ListPost, list[Path]] | None:
     """Returns (post, slide paths), or None if the user cancelled in the editor.
     `find_candidates` runs the search (e.g. `suggest_for_account`) once the inputs are valid."""
@@ -122,13 +128,13 @@ def build_post(
     except DraftError as e:
         post_id = tools.posts.new_id(now.astimezone().date())
         draft = create_post(
-            post_id, now, candidates, "", [], account, hashtags, accent, art, emojis
+            post_id, now, candidates, "", [], account, hashtags, accent, art, emojis, theme
         )
         _save_new(draft, tools.posts)
         tools.posts.save_draft(post_id, edited)
         raise DraftError(f"{e} — your draft is saved; fix with: manhwatok edit {post_id}") from e
     return save_new_post(
-        candidates, title, items, account, hashtags, accent, tools, now, art, emojis
+        candidates, title, items, account, hashtags, accent, tools, now, art, emojis, theme
     )
 
 

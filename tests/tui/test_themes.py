@@ -124,6 +124,7 @@ def test_theme_fields():
         "genres": "",
         "sort": "score",
         "min_tag_rank": "60",
+        "sounds": "",
     }
     assert theme_fields(before, before) == {}
     assert theme_fields({**before, "min_tag_rank": "70"}, before) == {"min_tag_rank": 70}
@@ -134,6 +135,9 @@ def test_theme_fields():
         "genres": [],
         "sort": Sort.SCORE,
         "min_tag_rank": 60,
+        "sounds": [],
     }
+    sounded = {**before, "sounds": " Close Eyes DVRST | Sahara Hensonn |  "}
+    assert theme_fields(sounded, before) == {"sounds": ["Close Eyes DVRST", "Sahara Hensonn"]}
     with pytest.raises(ManhwatokError, match="min tag rank must be a whole number"):
         theme_fields({**before, "min_tag_rank": "high"}, before)

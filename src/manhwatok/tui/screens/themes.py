@@ -26,6 +26,10 @@ LABELS = {
     "genres": "Genres (comma-separated, all must match)",
     "sort": f"Sort ({SORTS})",
     "min_tag_rank": "Min tag rank (0–100)",
+    "sounds": (
+        "TikTok sounds for this kind of post, offered before the account's "
+        "(separate with | ; a sound can't contain | ; empty = none)"
+    ),
 }
 
 
@@ -36,6 +40,7 @@ def theme_texts(theme: Theme) -> dict[str, str]:
         "genres": ", ".join(theme.genres),
         "sort": theme.sort.value,
         "min_tag_rank": str(theme.min_tag_rank),
+        "sounds": " | ".join(theme.sounds),
     }
 
 
@@ -54,6 +59,8 @@ def theme_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict[s
                 fields[name] = Sort((text or Sort.SCORE.value).lower())
             except ValueError:
                 raise ManhwatokError(f"sort must be one of {SORTS}") from None
+        elif name == "sounds":
+            fields[name] = [part.strip() for part in text.split("|") if part.strip()]
         elif name == "min_tag_rank":
             try:
                 fields[name] = int(text or "60")
@@ -152,6 +159,7 @@ class ThemesPane(Vertical):
                 f["sort"],
                 f["min_tag_rank"],
                 f["title"],
+                f["sounds"],
             )
 
         self.app.push_screen(FormModal("Add a theme", fields, save), self._saved("added"))

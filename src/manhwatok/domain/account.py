@@ -15,7 +15,7 @@ from manhwatok.domain.post import (
     DEFAULT_CTA_TITLE,
     DEFAULT_HASHTAGS,
 )
-from manhwatok.domain.text import clean_names
+from manhwatok.domain.text import clean_names, clean_sounds
 
 DEFAULT_REPEAT_DAYS = 30
 MAX_REPEAT_DAYS = 3650
@@ -66,11 +66,7 @@ class Account(BaseModel):
     @field_validator("sounds")
     @classmethod
     def _sounds(cls, value: list[str]) -> list[str]:
-        sounds: list[str] = []
-        for sound in (" ".join(s.split()) for s in value):
-            if sound and sound not in sounds:
-                sounds.append(sound)
-        return sounds
+        return clean_sounds(value)
 
     @field_validator("accent")
     @classmethod
