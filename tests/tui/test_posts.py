@@ -37,15 +37,49 @@ def _details(app) -> str:
     return str(app.query_one("#details").render())
 
 
-def test_lists_posts_with_status(tmp_path):
+def test_lists_posts_grouped_by_account(tmp_path):
+    """One heading per account, its posts under it, newest first; the accountless last."""
     ctx = make_ctx(tmp_path)
     _two_posts(ctx)
 
     async def scenario(app, pilot):
         assert _rows(app) == [
+            ["── @reads ──", "", "", "", ""],
             [NEW, "@reads", "Manhwa where the MC regresses", "rendered", "5"],
+            ["── no account ──", "", "", "", ""],
             [OLD, "-", "Manhwa where the MC regresses", "not rendered", "5"],
         ]
+
+    run_app(ctx, scenario)
+
+
+def test_the_cursor_skips_the_headings(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        pane = app.query_one(PostsPane)
+        assert pane.current_id == NEW  # starts on a post, not on its heading
+        await pilot.press("down")
+        assert pane.current_id == OLD  # stepped over "── no account ──"
+        await pilot.press("up")
+        assert pane.current_id == NEW
+        await pilot.press("up")
+        assert pane.current_id == NEW  # nowhere above it but a heading
+
+
+def test_a_heading_row_is_no_post(tmp_path):
+    """Whatever lands on a heading, the actions must refuse rather than act on a neighbour."""
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        table = app.query_one(PostTable)
+        table.move_cursor(row=0)  # the heading
+        await pilot.pause()
+        assert app.query_one(PostsPane).current is None
+        await pilot.press("x")
+        assert "no post selected" in notes(app)
 
     run_app(ctx, scenario)
 
@@ -85,9 +119,9 @@ def test_a_bracketed_title_renders_verbatim_in_the_table(tmp_path):
     ctx.tools.posts.save(post(title="The Ending [/] Twist"))
 
     async def scenario(app, pilot):
-        assert _rows(app)[0][2] == "The Ending [/] Twist"
+        assert _rows(app)[1][2] == "The Ending [/] Twist"
         table = app.query_one(PostTable)
-        rendered = str(table._get_row_renderables(0).cells[2])
+        rendered = str(table._get_row_renderables(1).cells[2])
         assert rendered == "The Ending [/] Twist"
 
     run_app(ctx, scenario)
@@ -129,12 +163,12 @@ def test_filter_by_account(tmp_path):
         await pilot.pause()
         await pilot.press("down", "enter")
         await pilot.pause()
-        assert [r[0] for r in _rows(app)] == [NEW]
+        assert [r[0] for r in _rows(app)] == ["── @reads ──", NEW]
         await pilot.press("f")
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
-        assert [r[0] for r in _rows(app)] == [NEW, OLD]
+        assert [r[0] for r in _rows(app)] == ["── @reads ──", NEW, "── no account ──", OLD]
 
     run_app(ctx, scenario)
 
@@ -155,7 +189,7 @@ def test_render_renders_the_highlighted_post(tmp_path):
 
     async def scenario(app, pilot):
         await pilot.press("down", "r")
-        await wait_for(pilot, lambda: _rows(app)[1][3] == "rendered")
+        await wait_for(pilot, lambda: _rows(app)[3][3] == "rendered")
         assert app.query_one(SlidePreview).current == ctx.tools.posts.folder(OLD) / "01.png"
         assert f"post {OLD} · 5 slides" in notes(app)
 
@@ -180,7 +214,7 @@ def test_export_copies_the_slides_and_records_the_titles(tmp_path):
     async def scenario(app, pilot):
         await pilot.press("x")
         assert f"exported → {tmp_path / 'exports' / NEW}" in notes(app)
-        assert _rows(app)[0][3] == "exported"
+        assert _rows(app)[1][3] == "exported"
         assert ctx.store.history.recent("reads", NOW - timedelta(days=1)) == {1, 2, 3}
         await pilot.press("down", "x")
         assert any(n.startswith(f"post {OLD} has no up-to-date slides") for n in notes(app))
@@ -224,7 +258,8 @@ def test_delete_asks_first(tmp_path, answer, kept):
         assert str(app.screen.query_one("#question").render()) == f"Delete post {NEW} (5 slides)?"
         await pilot.press(answer)
         await pilot.pause()
-        assert [r[0] for r in _rows(app)] == ([NEW, OLD] if kept else [OLD])
+        kept_rows = ["── @reads ──", NEW, "── no account ──", OLD]
+        assert [r[0] for r in _rows(app)] == (kept_rows if kept else ["── no account ──", OLD])
 
     run_app(ctx, scenario)
     assert ctx.tools.posts.folder(NEW).exists() is kept
@@ -305,7 +340,7 @@ def test_cover_of_an_unrendered_post_renders_it_with_that_cover(tmp_path):
         await pilot.press("down", "c")
         await pilot.pause()
         await pilot.press("down", "down", "enter")  # hero
-        await wait_for(pilot, lambda: _rows(app)[1][3] == "rendered")
+        await wait_for(pilot, lambda: _rows(app)[3][3] == "rendered")
         assert ctx.tools.posts.get(OLD).cover is CoverStyle.HERO
         assert _first_slide_is(ctx, OLD, CoverStyle.HERO)
 

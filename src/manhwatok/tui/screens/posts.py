@@ -6,6 +6,7 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.coordinate import Coordinate
 from textual.widgets import DataTable, Static
 
 from manhwatok.app.delete_post import delete_post
@@ -25,16 +26,53 @@ from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal
 from manhwatok.tui.widgets.slide_preview import SlidePreview
 
 ALL = "*"
+HEADING = "account:"  # row key prefix of an account's heading row
+NO_ACCOUNT = "no account"
 
 
 class PostTable(DataTable):
-    """Left/right flip the preview's slides instead of scrolling sideways."""
+    """The posts, under a heading per account. Left/right flip the preview's slides instead of
+    scrolling sideways, and up/down step over the headings."""
 
     def action_cursor_left(self) -> None:
         self.query_ancestor(PostsPane).action_slide(-1)
 
     def action_cursor_right(self) -> None:
         self.query_ancestor(PostsPane).action_slide(1)
+
+    def action_cursor_down(self) -> None:
+        super().action_cursor_down()
+        self.skip_headings(1)
+
+    def action_cursor_up(self) -> None:
+        super().action_cursor_up()
+        self.skip_headings(-1)
+
+    def row_key_at(self, row: int) -> str | None:
+        return self.coordinate_to_cell_key(Coordinate(row, 0)).row_key.value
+
+    def skip_headings(self, step: int) -> None:
+        """Move on from a heading in the direction of travel, or back the other way when there
+        is nothing that way — a heading is a label, never a selection."""
+        for way in (step, -step):
+            row = self.cursor_row
+            while 0 <= row < self.row_count and (self.row_key_at(row) or "").startswith(HEADING):
+                row += way
+            if 0 <= row < self.row_count:
+                self.move_cursor(row=row)
+                return
+
+
+def _by_account(posts: list[ListPost]) -> list[tuple[str, list[ListPost]]]:
+    """The posts under one heading each, accounts alphabetical and the accountless last. Each
+    account's posts keep the order they came in (newest first)."""
+    groups: dict[str, list[ListPost]] = {}
+    for post in posts:
+        groups.setdefault(f"@{post.account}" if post.account else NO_ACCOUNT, []).append(post)
+    named = sorted((who for who in groups if who != NO_ACCOUNT))
+    return [(who, groups[who]) for who in named] + (
+        [(NO_ACCOUNT, groups[NO_ACCOUNT])] if NO_ACCOUNT in groups else []
+    )
 
 
 class PostsPane(Vertical):
@@ -96,32 +134,37 @@ class PostsPane(Vertical):
         self.posts = {p.id: p for p in posts}
         table = self.query_one(PostTable)
         table.clear()
-        for p in posts:
-            table.add_row(
-                p.id,
-                f"@{p.account}" if p.account else "-",
-                Text(clip(plain_title(p.title) or "(untitled)", 40)),
-                post_status(p, ctx.tools.posts),
-                "-" if p.is_unfinished else str(p.slide_count),
-                key=p.id,
-            )
+        for who, theirs in _by_account(posts):
+            table.add_row(Text(f"── {who} ──", style="bold"), "", "", "", "", key=HEADING + who)
+            for p in theirs:
+                table.add_row(
+                    p.id,
+                    f"@{p.account}" if p.account else "-",
+                    Text(clip(plain_title(p.title) or "(untitled)", 40)),
+                    post_status(p, ctx.tools.posts),
+                    "-" if p.is_unfinished else str(p.slide_count),
+                    key=p.id,
+                )
         if keep in self.posts:
             table.move_cursor(row=table.get_row_index(keep))
+        table.skip_headings(1)  # the first row is a heading; start on the post under it
         self.show_post(self.current_id)
 
     @property
     def current_id(self) -> str | None:
+        """The highlighted post's id, or None on an account heading (or an empty table)."""
         table = self.query_one(PostTable)
         if not table.row_count:
             return None
-        return table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        key = table.row_key_at(table.cursor_row)
+        return None if (key or "").startswith(HEADING) else key
 
     @property
     def current(self) -> ListPost | None:
         return self.posts.get(self.current_id or "")
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        self.show_post(event.row_key.value)
+        self.show_post(self.current_id)
 
     def show_post(self, post_id: str | None) -> None:
         preview = self.query_one(SlidePreview)

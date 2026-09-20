@@ -51,7 +51,7 @@ def test_yes_records_the_post_as_sent(tmp_path):
         await pilot.press("escape")
         await pilot.pause()
         table = app.query_one(PostTable)
-        assert str(table.get_row_at(0)[3]) == "sent"
+        assert str(table.get_row_at(1)[3]) == "sent"  # row 0 is the account heading
 
     run_app(ctx, scenario)
     assert uploader.events == ["upload", "close"]
