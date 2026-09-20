@@ -12,6 +12,8 @@ from typing import NamedTuple
 
 from pydantic import AwareDatetime, BaseModel, Field
 
+from manhwatok.domain.models import ChapterSourceName
+
 # TikTok photo posts cap at 35 images, and every post spends two of them on its cover and end
 # slide. `post.MAX_ITEMS` is the same cap under the name the picks side uses.
 SLIDES_PER_POST = 33
@@ -20,6 +22,7 @@ SLIDES_PER_POST = 33
 class ChapterPart(BaseModel):
     """The part of a chapter one post carries, and the panels it draws."""
 
+    source: ChapterSourceName = ChapterSourceName.MANGADEX
     anilist_id: int
     manhwa_title: str  # drawn on the cover; post.title carries the *starred* styling
     number: str  # MangaDex's own chapter text: "12", "12.5", "" for a oneshot
@@ -36,6 +39,7 @@ class ChapterPart(BaseModel):
 class ChapterRecord(BaseModel):
     """A chapter the source listed for a title."""
 
+    source: ChapterSourceName = ChapterSourceName.MANGADEX
     anilist_id: int
     manhwa_title: str = ""
     number: str
@@ -49,6 +53,7 @@ class ChapterRecord(BaseModel):
 class PartRecord(BaseModel):
     """A part that was built into a post, and when that post went out."""
 
+    source: ChapterSourceName = ChapterSourceName.MANGADEX
     anilist_id: int
     number: str
     language: str = "en"

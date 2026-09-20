@@ -22,6 +22,7 @@ from manhwatok.domain.errors import (
     ThemeNotFound,
 )
 from manhwatok.domain.chapter import ChapterRecord, PartRecord, chapter_sort_key
+from manhwatok.domain.models import ChapterSourceName
 from manhwatok.domain.theme import Theme
 
 # MIGRATIONS[n - 1] takes the schema from PRAGMA user_version n-1 to n. Never edit a shipped
@@ -68,6 +69,45 @@ MIGRATIONS: tuple[str, ...] = (
         published_at TEXT,
         PRIMARY KEY (anilist_id, number, language, part)
     );
+    CREATE INDEX chapter_parts_by_post ON chapter_parts (post_id);
+    """,
+    """
+    CREATE TABLE chapters_v2 (
+        anilist_id INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        number TEXT NOT NULL,
+        language TEXT NOT NULL,
+        chapter_id TEXT NOT NULL,
+        manhwa_title TEXT NOT NULL DEFAULT '',
+        chapter_title TEXT NOT NULL DEFAULT '',
+        pages INTEGER NOT NULL DEFAULT 0,
+        downloaded_at TEXT,
+        PRIMARY KEY (anilist_id, source, number, language)
+    );
+    INSERT INTO chapters_v2 (anilist_id, source, number, language, chapter_id, manhwa_title,
+                             chapter_title, pages, downloaded_at)
+        SELECT anilist_id, 'mangadex', number, language, chapter_id, manhwa_title,
+               chapter_title, pages, downloaded_at FROM chapters;
+    DROP TABLE chapters;
+    ALTER TABLE chapters_v2 RENAME TO chapters;
+    CREATE TABLE chapter_parts_v2 (
+        anilist_id INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        number TEXT NOT NULL,
+        language TEXT NOT NULL,
+        part INTEGER NOT NULL,
+        parts INTEGER NOT NULL,
+        post_id TEXT NOT NULL,
+        built_at TEXT NOT NULL,
+        published_at TEXT,
+        PRIMARY KEY (anilist_id, source, number, language, part)
+    );
+    INSERT INTO chapter_parts_v2 (anilist_id, source, number, language, part, parts, post_id,
+                                  built_at, published_at)
+        SELECT anilist_id, 'mangadex', number, language, part, parts, post_id, built_at,
+               published_at FROM chapter_parts;
+    DROP TABLE chapter_parts;
+    ALTER TABLE chapter_parts_v2 RENAME TO chapter_parts;
     CREATE INDEX chapter_parts_by_post ON chapter_parts (post_id);
     """,
 )
@@ -143,8 +183,14 @@ class SqliteStore:
             raise StorageError(f"database at {path} is unusable: {e}") from e
         try:
             _migrate(conn, path)
-            # WAL: readers don't wait for a writer, so the TUI and CLI commands can run together
-            conn.execute("PRAGMA journal_mode=WAL")
+            # WAL: readers don't wait for a writer, so the TUI and CLI commands can run together.
+            # The switch needs the database to itself for a moment, which it may not get while
+            # other commands are opening it at the same time — it is an optimisation, and the
+            # next opener will set it, so a busy database is not worth failing over.
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:
+                pass
         except sqlite3.Error as e:
             conn.close()
             raise StorageError(f"database at {path} is unusable: {e}") from e
@@ -339,14 +385,16 @@ class ChapterTable:
         source's, so re-listing a chapter never clears it."""
         self._store.write_many(
             StorageError,
-            "INSERT INTO chapters (anilist_id, number, language, chapter_id, manhwa_title, "
-            "chapter_title, pages, downloaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL) "
-            "ON CONFLICT (anilist_id, number, language) DO UPDATE SET "
+            "INSERT INTO chapters (anilist_id, source, number, language, chapter_id, "
+            "manhwa_title, chapter_title, pages, downloaded_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL) "
+            "ON CONFLICT (anilist_id, source, number, language) DO UPDATE SET "
             "chapter_id = excluded.chapter_id, manhwa_title = excluded.manhwa_title, "
             "chapter_title = excluded.chapter_title, pages = excluded.pages",
             [
                 (
                     row.anilist_id,
+                    row.source.value,
                     row.number,
                     row.language,
                     row.chapter_id,
@@ -358,13 +406,19 @@ class ChapterTable:
             ],
         )
 
-    def chapters(self, anilist_id: int, language: str = "en") -> list[ChapterRecord]:
-        """Every listed chapter of the title, in chapter-number order."""
+    def chapters(
+        self,
+        anilist_id: int,
+        language: str = "en",
+        source: ChapterSourceName = ChapterSourceName.MANGADEX,
+    ) -> list[ChapterRecord]:
+        """Every chapter this source listed for the title, in chapter-number order."""
         rows = self._store.query(
             StorageError,
             "SELECT anilist_id, manhwa_title, number, chapter_id, language, chapter_title, "
-            "pages, downloaded_at FROM chapters WHERE anilist_id = ? AND language = ?",
-            (anilist_id, language),
+            "pages, downloaded_at, source FROM chapters "
+            "WHERE anilist_id = ? AND language = ? AND source = ?",
+            (anilist_id, language, source.value),
         )
         found = [
             ChapterRecord(
@@ -376,19 +430,34 @@ class ChapterTable:
                 chapter_title=row[5],
                 pages=row[6],
                 downloaded_at=datetime.fromisoformat(row[7]) if row[7] else None,
+                source=ChapterSourceName(row[8]),
             )
             for row in rows
         ]
         return sorted(found, key=lambda c: chapter_sort_key(c.number))
 
+    def sources_of(self, anilist_id: int, language: str = "en") -> list[ChapterSourceName]:
+        """Which sources this title's chapters were listed from — a title sticks to one."""
+        rows = self._store.query(
+            StorageError,
+            "SELECT DISTINCT source FROM chapters WHERE anilist_id = ? AND language = ?",
+            (anilist_id, language),
+        )
+        return [ChapterSourceName(row[0]) for row in rows]
+
     def mark_downloaded(
-        self, anilist_id: int, number: str, language: str, when: datetime
+        self,
+        anilist_id: int,
+        number: str,
+        language: str,
+        when: datetime,
+        source: ChapterSourceName = ChapterSourceName.MANGADEX,
     ) -> None:
         self._store.write(
             StorageError,
             "UPDATE chapters SET downloaded_at = ? "
-            "WHERE anilist_id = ? AND number = ? AND language = ?",
-            (_stamp(when), anilist_id, number, language),
+            "WHERE anilist_id = ? AND number = ? AND language = ? AND source = ?",
+            (_stamp(when), anilist_id, number, language, source.value),
         )
 
     def record_part(self, part: PartRecord) -> None:
@@ -396,12 +465,13 @@ class ChapterTable:
         date it was published."""
         self._store.write(
             StorageError,
-            "INSERT INTO chapter_parts (anilist_id, number, language, part, parts, post_id, "
-            "built_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT (anilist_id, number, language, part) DO UPDATE SET "
+            "INSERT INTO chapter_parts (anilist_id, source, number, language, part, parts, "
+            "post_id, built_at, published_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (anilist_id, source, number, language, part) DO UPDATE SET "
             "parts = excluded.parts, post_id = excluded.post_id, built_at = excluded.built_at",
             (
                 part.anilist_id,
+                part.source.value,
                 part.number,
                 part.language,
                 part.part,
@@ -412,13 +482,19 @@ class ChapterTable:
             ),
         )
 
-    def parts(self, anilist_id: int, language: str = "en") -> list[PartRecord]:
-        """Every part built of the title, in chapter then part order."""
+    def parts(
+        self,
+        anilist_id: int,
+        language: str = "en",
+        source: ChapterSourceName = ChapterSourceName.MANGADEX,
+    ) -> list[PartRecord]:
+        """Every part built of the title from this source, in chapter then part order."""
         rows = self._store.query(
             StorageError,
-            "SELECT anilist_id, number, language, part, parts, post_id, built_at, published_at "
-            "FROM chapter_parts WHERE anilist_id = ? AND language = ?",
-            (anilist_id, language),
+            "SELECT anilist_id, number, language, part, parts, post_id, built_at, "
+            "published_at, source FROM chapter_parts "
+            "WHERE anilist_id = ? AND language = ? AND source = ?",
+            (anilist_id, language, source.value),
         )
         found = [
             PartRecord(
@@ -430,6 +506,7 @@ class ChapterTable:
                 post_id=row[5],
                 built_at=datetime.fromisoformat(row[6]),
                 published_at=datetime.fromisoformat(row[7]) if row[7] else None,
+                source=ChapterSourceName(row[8]),
             )
             for row in rows
         ]

@@ -12,6 +12,7 @@ from manhwatok.domain.models import (
     ArtOrder,
     ArtSourceName,
     ArtStyle,
+    ChapterSourceName,
     CoverStyle,
     SearchQuery,
     Sort,
@@ -1174,17 +1175,27 @@ def _close(source) -> None:
 
 
 LANGUAGE = typer.Option("en", "--language", help="Chapter language to publish.")
+SOURCE = typer.Option(
+    None,
+    "--source",
+    help="Where the pages come from: 'mangadex' (fan translations, wider catalogue) or "
+    "'webtoons' (the publisher's own English from episode 1, free episodes only). Default: "
+    "whichever the title is already tracked under, else the first that has it. A title keeps "
+    "its source, because chapter numbers don't mean the same thing in two catalogues.",
+)
 
 
-def _chapter_parts(settings, store, text: str, language: str):
+def _chapter_parts(settings, store, text: str, language: str, source=None):
     """(title, chapter tools, its chapters) for a named title — the three every command here
-    starts from. Lists from MangaDex the first time a title is asked about."""
+    starts from. Lists from the source the first time a title is asked about."""
     from manhwatok.app import container
-    from manhwatok.app.chapter_post import refresh_chapters, resolve_title
+    from manhwatok.app.chapter_post import pick_source, refresh_chapters, resolve_title
 
     manhwa = resolve_title(text, container.build_metadata(settings), store.cache)
-    tools = container.build_chapter_tools(settings, store)
-    known = store.chapters.chapters(manhwa.anilist_id, language)
+    tools = pick_source(
+        manhwa, container.build_chapter_tools(settings, store), language, source, _progress
+    )
+    known = store.chapters.chapters(manhwa.anilist_id, language, tools.source)
     if not known:
         known = refresh_chapters(manhwa, tools, datetime.now(timezone.utc), language, _progress)
     return manhwa, tools, known
@@ -1193,8 +1204,9 @@ def _chapter_parts(settings, store, text: str, language: str):
 @chapter_app.command("list")
 def chapter_list(
     title: str = TITLE_ARG,
-    refresh: bool = typer.Option(False, "--refresh", help="Ask MangaDex for new chapters."),
+    refresh: bool = typer.Option(False, "--refresh", help="Ask the source for new chapters."),
     language: str = LANGUAGE,
+    source: Optional[ChapterSourceName] = SOURCE,
 ) -> None:
     """A title's chapters: their pages, what was built from them and what went out."""
     from manhwatok.app import container
@@ -1203,15 +1215,16 @@ def chapter_list(
     settings = Settings()
     try:
         with container.build_store(settings) as store:
-            manhwa, tools, _ = _chapter_parts(settings, store, title, language)
+            manhwa, tools, _ = _chapter_parts(settings, store, title, language, source)
             if refresh:
                 refresh_chapters(manhwa, tools, datetime.now(timezone.utc), language, _progress)
             rows = chapter_status(manhwa.anilist_id, tools, language)
             gaps = missing_report(manhwa, tools, [r.chapter for r in rows], language)
-            _close(tools.pages)
+            for reader in tools.sources.values():
+                _close(reader)
     except ManhwatokError as e:
         _fail(e)
-    typer.secho(f"{manhwa.title} ({manhwa.anilist_id})", bold=True)
+    typer.secho(f"{manhwa.title} ({manhwa.anilist_id}) · {tools.source.value}", bold=True)
     for row in rows:
         built = f"{row.built}/{row.parts[0].parts} parts" if row.built else "-"
         published = f"published {row.parts[0].published_at:%Y-%m-%d}" if row.published else ""
@@ -1224,7 +1237,11 @@ def chapter_list(
 
 
 @chapter_app.command("next")
-def chapter_next(title: str = TITLE_ARG, language: str = LANGUAGE) -> None:
+def chapter_next(
+    title: str = TITLE_ARG,
+    language: str = LANGUAGE,
+    source: Optional[ChapterSourceName] = SOURCE,
+) -> None:
     """Which chapter and part `chapter build` would make next."""
     from manhwatok.app import container
     from manhwatok.domain.chapter import next_part
@@ -1232,9 +1249,12 @@ def chapter_next(title: str = TITLE_ARG, language: str = LANGUAGE) -> None:
     settings = Settings()
     try:
         with container.build_store(settings) as store:
-            manhwa, tools, known = _chapter_parts(settings, store, title, language)
-            found = next_part(known, store.chapters.parts(manhwa.anilist_id, language))
-            _close(tools.pages)
+            manhwa, tools, known = _chapter_parts(settings, store, title, language, source)
+            found = next_part(
+                known, store.chapters.parts(manhwa.anilist_id, language, tools.source)
+            )
+            for reader in tools.sources.values():
+                _close(reader)
     except ManhwatokError as e:
         _fail(e)
     if found is None:
@@ -1256,6 +1276,7 @@ def chapter_build(
     ),
     account: Optional[str] = ACCOUNT,
     language: str = LANGUAGE,
+    source: Optional[ChapterSourceName] = SOURCE,
     title_text: Optional[str] = typer.Option(
         None, "--title", help="Post title; wrap words in *stars* to colour."
     ),
@@ -1271,7 +1292,7 @@ def chapter_build(
     try:
         tools = _tools(settings)
         with container.build_store(settings) as store:
-            manhwa, chapter_tools, _ = _chapter_parts(settings, store, title, language)
+            manhwa, chapter_tools, _ = _chapter_parts(settings, store, title, language, source)
             post, slides = build_chapter_post(
                 manhwa,
                 tools,
@@ -1286,12 +1307,14 @@ def chapter_build(
                 accent=accent,
                 emojis=emojis,
             )
-            _close(chapter_tools.pages)
+            for reader in chapter_tools.sources.values():
+                _close(reader)
     except ManhwatokError as e:
         _fail(e)
     where = post.chapter
     typer.echo(
-        f"post {post.id} · chapter {where.number} part {where.part}/{where.parts} · "
-        f"{len(slides)} slides → {tools.posts.folder(post.id)}"
+        f"post {post.id} · {where.source.value} chapter {where.number} "
+        f"part {where.part}/{where.parts} · {len(slides)} slides → "
+        f"{tools.posts.folder(post.id)}"
     )
     typer.echo(f"export with: manhwatok export {post.id}")

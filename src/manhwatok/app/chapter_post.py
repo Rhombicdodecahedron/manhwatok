@@ -8,7 +8,7 @@ sequence that joins them: list, download, cut, take this part's share, render, r
 from __future__ import annotations
 
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
@@ -26,8 +26,8 @@ from manhwatok.domain.chapter import (
     part_slices,
     starts_at,
 )
-from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import Manhwa
+from manhwatok.domain.errors import ManhwatokError, MetadataError
+from manhwatok.domain.models import ChapterSourceName, Manhwa
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_TITLE,
@@ -63,12 +63,26 @@ def _noop(_: str) -> None:
 
 @dataclass
 class ChapterTools:
-    """What a chapter post needs beyond the usual PostTools."""
+    """What a chapter post needs beyond the usual PostTools. `sources` holds every place
+    chapters can come from; `pages` is the one a command settled on."""
 
     pages: ChapterPagesSource
     cutter: PanelCutter
     chapters: ChapterRepository
     pages_dir: Path
+    source: ChapterSourceName = ChapterSourceName.MANGADEX
+    sources: dict[ChapterSourceName, ChapterPagesSource] = field(default_factory=dict)
+
+    def using(self, source: ChapterSourceName) -> "ChapterTools":
+        """The same tools, reading from `source`."""
+        return ChapterTools(
+            pages=self.sources.get(source, self.pages),
+            cutter=self.cutter,
+            chapters=self.chapters,
+            pages_dir=self.pages_dir,
+            source=source,
+            sources=self.sources,
+        )
 
 
 class ChapterStatus(NamedTuple):
@@ -82,6 +96,34 @@ class ChapterStatus(NamedTuple):
     @property
     def published(self) -> int:
         return len([p for p in self.parts if p.published_at])
+
+
+def pick_source(
+    manhwa: Manhwa,
+    ct: ChapterTools,
+    language: str = "en",
+    wanted: ChapterSourceName | None = None,
+    progress: ProgressFn = _noop,
+) -> ChapterTools:
+    """The tools to use for this title: the source asked for, else the one it is already
+    tracked under, else the first that has it. A title keeps its source — chapter 12 does not
+    mean the same thing in two catalogues, and what was posted is counted by number."""
+    if wanted is not None:
+        return ct.using(wanted)
+    known = ct.chapters.sources_of(manhwa.anilist_id, language)
+    if known:
+        return ct.using(known[0])
+    order = [ct.source, *(s for s in ct.sources if s != ct.source)]
+    for name in order:
+        trying = ct.using(name)
+        try:
+            if trying.pages.chapters(manhwa, language):
+                if name != order[0]:
+                    progress(f"{manhwa.title}: {order[0].value} has nothing, using {name.value}")
+                return trying
+        except MetadataError as e:
+            progress(f"{name.value}: {e}")
+    return ct.using(order[0])
 
 
 def resolve_title(text: str, metadata: MetadataSource, cache: Cache | None = None) -> Manhwa:
@@ -119,14 +161,16 @@ def refresh_chapters(
     found = ct.pages.chapters(manhwa, language)
     if not found:
         named = LANGUAGES.get(language, language)
+        where = "MangaDex" if ct.source is ChapterSourceName.MANGADEX else "WEBTOON"
         raise ManhwatokError(
-            f"{manhwa.title}: no {named} chapters to publish — MangaDex either has no entry "
-            f"paired with it, or has it with nothing translated into {named}"
+            f"{manhwa.title}: no {named} chapters to publish — {where} either has no entry for "
+            f"it, or has it with nothing in {named}"
         )
     progress(f"{manhwa.title}: {len(found)} chapters listed")
     ct.chapters.record_chapters(
         [
             ChapterRecord(
+                source=ct.source,
                 anilist_id=manhwa.anilist_id,
                 manhwa_title=manhwa.title,
                 number=info.number,
@@ -138,17 +182,17 @@ def refresh_chapters(
             for info in found
         ]
     )
-    return ct.chapters.chapters(manhwa.anilist_id, language)
+    return ct.chapters.chapters(manhwa.anilist_id, language, ct.source)
 
 
 def chapter_status(
     anilist_id: int, ct: ChapterTools, language: str = "en"
 ) -> list[ChapterStatus]:
     """Every chapter known for the title, with the parts built of it."""
-    parts = ct.chapters.parts(anilist_id, language)
+    parts = ct.chapters.parts(anilist_id, language, ct.source)
     return [
         ChapterStatus(chapter, [p for p in parts if p.number == chapter.number])
-        for chapter in ct.chapters.chapters(anilist_id, language)
+        for chapter in ct.chapters.chapters(anilist_id, language, ct.source)
     ]
 
 
@@ -198,7 +242,7 @@ def build_chapter_post(
     """One post: the chapter's pages downloaded, cut into panels, this part's share copied into
     the post's own folder and rendered. `number` and `part` default to continuing where the
     last post of this title stopped."""
-    known = ct.chapters.chapters(manhwa.anilist_id, language)
+    known = ct.chapters.chapters(manhwa.anilist_id, language, ct.source)
     if not known:
         known = refresh_chapters(manhwa, ct, now, language, tools.progress)
     chapter, part = _which(known, ct, manhwa, language, number, part)
@@ -210,7 +254,7 @@ def build_chapter_post(
         pages=chapter.pages,
     )
     pages = ct.pages.pages(info, tools.progress)
-    ct.chapters.mark_downloaded(manhwa.anilist_id, chapter.number, language, now)
+    ct.chapters.mark_downloaded(manhwa.anilist_id, chapter.number, language, now, ct.source)
     panels = ct.cutter.cut(pages, ct.pages_dir / chapter.chapter_id / PANELS_DIR)
     if not panels:
         raise ManhwatokError(f"{manhwa.title} chapter {chapter.number}: nothing to cut into slides")
@@ -224,6 +268,7 @@ def build_chapter_post(
     post_id = tools.posts.new_id(now.astimezone().date())
     names = _copy_panels(panels[start:end], tools.posts.folder(post_id))
     chapter_part = ChapterPart(
+        source=ct.source,
         anilist_id=manhwa.anilist_id,
         manhwa_title=manhwa.title,
         number=chapter.number,
@@ -243,6 +288,7 @@ def build_chapter_post(
     slides = render_post(post.id, tools)
     ct.chapters.record_part(
         PartRecord(
+            source=ct.source,
             anilist_id=manhwa.anilist_id,
             number=chapter.number,
             language=language,
@@ -318,7 +364,7 @@ def _which(
                 f"{manhwa.title} has no chapter {number} in {language} — listed: {listed}"
             )
         return wanted[0], part or _next_of(ct, manhwa, language, number)
-    found = next_part(known, ct.chapters.parts(manhwa.anilist_id, language))
+    found = next_part(known, ct.chapters.parts(manhwa.anilist_id, language, ct.source))
     if found is None:
         raise ManhwatokError(
             f"every listed chapter of {manhwa.title} is already built — "
@@ -329,9 +375,8 @@ def _which(
 
 def _next_of(ct: ChapterTools, manhwa: Manhwa, language: str, number: str) -> int:
     """The first part of this chapter not built yet (1 when none are)."""
-    built = {
-        p.part for p in ct.chapters.parts(manhwa.anilist_id, language) if p.number == number
-    }
+    parts = ct.chapters.parts(manhwa.anilist_id, language, ct.source)
+    built = {p.part for p in parts if p.number == number}
     part = 1
     while part in built:
         part += 1

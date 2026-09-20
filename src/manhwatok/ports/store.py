@@ -3,6 +3,7 @@ from typing import Protocol
 
 from manhwatok.domain.account import Account
 from manhwatok.domain.chapter import ChapterRecord, PartRecord
+from manhwatok.domain.models import ChapterSourceName
 from manhwatok.domain.theme import Theme
 
 
@@ -53,17 +54,36 @@ class ChapterRepository(Protocol):
         """Upsert what the source listed, keeping each chapter's download date."""
         ...
 
-    def chapters(self, anilist_id: int, language: str = "en") -> list[ChapterRecord]: ...
+    def chapters(
+        self,
+        anilist_id: int,
+        language: str = "en",
+        source: ChapterSourceName = ChapterSourceName.MANGADEX,
+    ) -> list[ChapterRecord]: ...
+
+    def sources_of(self, anilist_id: int, language: str = "en") -> list[ChapterSourceName]:
+        """Which sources this title's chapters came from; a title sticks to one."""
+        ...
 
     def mark_downloaded(
-        self, anilist_id: int, number: str, language: str, when: datetime
+        self,
+        anilist_id: int,
+        number: str,
+        language: str,
+        when: datetime,
+        source: ChapterSourceName = ChapterSourceName.MANGADEX,
     ) -> None: ...
 
     def record_part(self, part: PartRecord) -> None:
         """Idempotent per part; rebuilding one replaces the post that carries it."""
         ...
 
-    def parts(self, anilist_id: int, language: str = "en") -> list[PartRecord]: ...
+    def parts(
+        self,
+        anilist_id: int,
+        language: str = "en",
+        source: ChapterSourceName = ChapterSourceName.MANGADEX,
+    ) -> list[PartRecord]: ...
 
     def mark_published(self, post_id: str, when: datetime) -> None:
         """Stamp every part this post carries; the first date wins."""

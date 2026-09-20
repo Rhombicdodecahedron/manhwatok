@@ -78,7 +78,7 @@ def open_context(settings: Settings) -> AppContext:
         closers=[
             tools.covers,
             *art_sources.values(),
-            chapter_tools.pages,
+            *chapter_tools.sources.values(),
             chapters,
             metadata,
             store,

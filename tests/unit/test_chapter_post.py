@@ -302,3 +302,82 @@ def test_a_late_start_with_nothing_elsewhere_says_only_the_start(tmp_path):
     ct = _chapter_tools(tmp_path, pages=FakeChapterPages(elsewhere={}))
     [line] = missing_report(BOXER, ct, _records(["12"]))
     assert "starts at chapter 12" in line
+
+
+# --- choosing a source --------------------------------------------------------------------------
+
+
+def _both(tmp_path, mangadex=(CH12,), webtoons=(), **fields):
+    from manhwatok.domain.models import ChapterSourceName
+
+    other = FakeChapterPages(chapters=list(webtoons))
+    other.root = tmp_path
+    return make_chapter_tools(
+        tmp_path,
+        pages=FakeChapterPages(chapters=list(mangadex), **fields),
+        sources={ChapterSourceName.WEBTOONS: other},
+    )
+
+
+def test_the_first_source_with_the_title_is_the_one_used(tmp_path):
+    from manhwatok.app.chapter_post import pick_source
+    from manhwatok.domain.models import ChapterSourceName
+
+    ct = _both(tmp_path, mangadex=(), webtoons=(CH12,))
+    assert pick_source(BOXER, ct).source is ChapterSourceName.WEBTOONS
+
+
+def test_mangadex_is_tried_first(tmp_path):
+    from manhwatok.app.chapter_post import pick_source
+    from manhwatok.domain.models import ChapterSourceName
+
+    ct = _both(tmp_path, mangadex=(CH12,), webtoons=(CH13,))
+    assert pick_source(BOXER, ct).source is ChapterSourceName.MANGADEX
+
+
+def test_a_source_asked_for_by_name_is_used_whatever_the_others_have(tmp_path):
+    from manhwatok.app.chapter_post import pick_source
+    from manhwatok.domain.models import ChapterSourceName
+
+    ct = _both(tmp_path, mangadex=(CH12,), webtoons=())
+    picked = pick_source(BOXER, ct, wanted=ChapterSourceName.WEBTOONS)
+    assert picked.source is ChapterSourceName.WEBTOONS
+
+
+def test_a_title_keeps_the_source_it_is_already_tracked_under(tmp_path):
+    from manhwatok.app.chapter_post import pick_source, refresh_chapters
+    from manhwatok.domain.models import ChapterSourceName
+
+    ct = _both(tmp_path, mangadex=(CH12,), webtoons=(CH12, CH13))
+    refresh_chapters(BOXER, ct.using(ChapterSourceName.WEBTOONS), NOW)
+    assert pick_source(BOXER, ct).source is ChapterSourceName.WEBTOONS
+
+
+def test_a_source_that_fails_does_not_stop_the_next_being_tried(tmp_path):
+    from manhwatok.app.chapter_post import pick_source
+    from manhwatok.domain.models import ChapterSourceName
+
+    messages: list[str] = []
+    ct = _both(tmp_path, webtoons=(CH12,), error=MetadataError("MangaDex is down"))
+    picked = pick_source(BOXER, ct, progress=messages.append)
+    assert picked.source is ChapterSourceName.WEBTOONS
+    assert any("MangaDex is down" in m for m in messages)
+
+
+def test_what_each_source_listed_is_kept_apart(tmp_path):
+    from manhwatok.app.chapter_post import refresh_chapters
+    from manhwatok.domain.models import ChapterSourceName
+
+    ct = _both(tmp_path, mangadex=(CH12,), webtoons=(CH12, CH13))
+    refresh_chapters(BOXER, ct, NOW)
+    refresh_chapters(BOXER, ct.using(ChapterSourceName.WEBTOONS), NOW)
+    assert len(ct.chapters.chapters(119174, "en", ChapterSourceName.MANGADEX)) == 1
+    assert len(ct.chapters.chapters(119174, "en", ChapterSourceName.WEBTOONS)) == 2
+
+
+def test_the_post_records_which_source_its_chapter_came_from(tmp_path):
+    from manhwatok.domain.models import ChapterSourceName
+
+    ct = _both(tmp_path, webtoons=(CH12,)).using(ChapterSourceName.WEBTOONS)
+    post, _ = _build(tmp_path, ct)
+    assert post.chapter.source is ChapterSourceName.WEBTOONS

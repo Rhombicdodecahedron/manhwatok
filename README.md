@@ -152,7 +152,7 @@ uv run manhwatok chapter build "The Boxer" -a @manhwa.daily
 uv run manhwatok chapter build "The Boxer" --number 13 --part 2
 ```
 
-`build` downloads the chapter's pages from MangaDex, joins them into the one long strip a
+`build` downloads the chapter's pages, joins them into the one long strip a
 webtoon really is, and cuts it into 1080×1920 slides — cutting only in a gutter, so a speech
 bubble or a face is never sliced. A chapter is far more than TikTok's 35 images, so it becomes
 several posts: chapter 12 of The Boxer is 27 slides of part 1 and 27 of part 2. The cover names
@@ -172,9 +172,30 @@ part to be built again.
 | --- | --- |
 | Pages | `$XDG_DATA_HOME/manhwatok/pages/<chapter id>/`, with the cut panels beside them |
 | Size | 30–100 MB a chapter, and about as much again in panels |
-| Language | English only; a title MangaDex has with nothing in English says so |
+| Sources | `mangadex` (fan translations, wide catalogue) and `webtoons` (the publisher's own English from episode 1, free episodes only) |
+| Language | English only; a title the source has with nothing in English says so |
 | Gaps | `chapter list` says where the English run starts, what is missing inside it, and which languages have the rest |
 | Speed | about 20s a chapter, most of it downloading |
+
+### Where the pages come from
+
+MangaDex carries what fan groups translated, which for a licensed title is often the middle of
+the run: it has The Boxer from chapter 12, and nothing before it. WEBTOON carries the
+publisher's own English from episode 1 — but only the free episodes, so a completed or licensed
+series may be a short preview (The Boxer: 7) and an ongoing one stops before its Fast Pass
+episodes.
+
+```bash
+uv run manhwatok chapter list "The Boxer" --source webtoons    # episode 1 onwards
+uv run manhwatok chapter build "The Boxer" --source webtoons
+```
+
+Without `--source`, a title uses whichever source it is already tracked under, else the first
+that has it (MangaDex, then WEBTOON). **A title keeps its source**: chapter 12 does not mean the
+same thing in two catalogues, so what has been built and posted is counted per source.
+
+Sampled over eight of the titles in these posts, WEBTOON had three of them. It is a fallback,
+not a replacement.
 
 **Whether you may repost a chapter is your call.** MangaDex hosts fan translations, most of them
 unauthorised copies of a licensed work; copyright holders do have TikTok accounts taken down.

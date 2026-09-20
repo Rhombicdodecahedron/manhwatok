@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from manhwatok.app.post_tools import EditorFn, PostTools, ProgressFn
 from manhwatok.config import Settings
-from manhwatok.domain.models import ArtSourceName
+from manhwatok.domain.models import ArtSourceName, ChapterSourceName
 from manhwatok.ports.art import ArtSource
 from manhwatok.ports.cache import Cache
 from manhwatok.ports.chapters import ChapterPagesSource
@@ -106,16 +106,31 @@ def build_post_tools(
     )
 
 
-def build_chapter_pages(settings: Settings, cache: Cache) -> ChapterPagesSource:
-    """MangaDex's chapter feed and page downloads, cached under <data_dir>/pages."""
-    from manhwatok.adapters.mangadex import MangaDexChapters
+def build_chapter_sources(
+    settings: Settings, cache: Cache
+) -> dict[ChapterSourceName, ChapterPagesSource]:
+    """Every place a chapter's pages can come from, by the name the CLI calls it.
 
-    return MangaDexChapters(
-        pages_dir=settings.pages_dir,
-        cache=cache,
-        max_age=settings.art_cache_days * 24 * 3600,
-        timeout=settings.http_timeout,
-    )
+    MangaDex first: it has the wider catalogue. WEBTOON is the publisher's own English, which
+    is what a licensed title is missing on MangaDex — but only its free episodes."""
+    from manhwatok.adapters.mangadex import MangaDexChapters
+    from manhwatok.adapters.webtoons import WebtoonsChapters
+
+    max_age = settings.art_cache_days * 24 * 3600
+    return {
+        ChapterSourceName.MANGADEX: MangaDexChapters(
+            pages_dir=settings.pages_dir,
+            cache=cache,
+            max_age=max_age,
+            timeout=settings.http_timeout,
+        ),
+        ChapterSourceName.WEBTOONS: WebtoonsChapters(
+            pages_dir=settings.pages_dir,
+            cache=cache,
+            max_age=max_age,
+            timeout=settings.http_timeout,
+        ),
+    }
 
 
 def build_chapter_tools(settings: Settings, store: SqliteStore) -> ChapterTools:
@@ -123,11 +138,14 @@ def build_chapter_tools(settings: Settings, store: SqliteStore) -> ChapterTools:
     from manhwatok.adapters.panel_cutter import PillowPanelCutter
     from manhwatok.app.chapter_post import ChapterTools
 
+    sources = build_chapter_sources(settings, store.cache)
     return ChapterTools(
-        pages=build_chapter_pages(settings, store.cache),
+        pages=sources[ChapterSourceName.MANGADEX],
         cutter=PillowPanelCutter(),
         chapters=store.chapters,
         pages_dir=settings.pages_dir,
+        source=ChapterSourceName.MANGADEX,
+        sources=sources,
     )
 
 

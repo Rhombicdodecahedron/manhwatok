@@ -48,6 +48,14 @@ class ArtSourceName(StrEnum):
     REDDIT = "reddit"  # image posts naming the title, most-upvoted first
 
 
+class ChapterSourceName(StrEnum):
+    """Where a chapter's pages come from. A title sticks to one: chapter numbers do not mean
+    the same thing in two catalogues, so mixing them would mix up what was already posted."""
+
+    MANGADEX = "mangadex"  # fan translations, wide catalogue, often missing the early run
+    WEBTOONS = "webtoons"  # the publisher's own English, from episode 1, free episodes only
+
+
 class ArtOrder(StrEnum):
     """How a list of art options is arranged before you pick from it."""
 

@@ -419,33 +419,50 @@ class FakeChapterRepo:
 
     def record_chapters(self, rows) -> None:
         for row in rows:
-            key = (row.anilist_id, row.number, row.language)
+            key = (row.anilist_id, row.source, row.number, row.language)
             kept = self.rows.get(key)
             downloaded = kept.downloaded_at if kept else None
             self.rows[key] = row.model_copy(update={"downloaded_at": downloaded})
 
-    def chapters(self, anilist_id: int, language: str = "en"):
+    def chapters(self, anilist_id: int, language: str = "en", source=None):
         from manhwatok.domain.chapter import chapter_sort_key
+        from manhwatok.domain.models import ChapterSourceName
 
+        source = source or ChapterSourceName.MANGADEX
         found = [
             row
-            for (aid, _, lang), row in self.rows.items()
-            if aid == anilist_id and lang == language
+            for (aid, src, _, lang), row in self.rows.items()
+            if aid == anilist_id and lang == language and src == source
         ]
         return sorted(found, key=lambda c: chapter_sort_key(c.number))
 
-    def mark_downloaded(self, anilist_id, number, language, when) -> None:
-        key = (anilist_id, number, language)
+    def sources_of(self, anilist_id: int, language: str = "en"):
+        found = []
+        for (aid, src, _, lang) in self.rows:
+            if aid == anilist_id and lang == language and src not in found:
+                found.append(src)
+        return found
+
+    def mark_downloaded(self, anilist_id, number, language, when, source=None) -> None:
+        from manhwatok.domain.models import ChapterSourceName
+
+        key = (anilist_id, source or ChapterSourceName.MANGADEX, number, language)
         if key in self.rows:
             self.rows[key] = self.rows[key].model_copy(update={"downloaded_at": when})
 
     def record_part(self, part) -> None:
-        self.built[(part.anilist_id, part.number, part.language, part.part)] = part
+        self.built[(part.anilist_id, part.source, part.number, part.language, part.part)] = part
 
-    def parts(self, anilist_id: int, language: str = "en"):
+    def parts(self, anilist_id: int, language: str = "en", source=None):
         from manhwatok.domain.chapter import chapter_sort_key
+        from manhwatok.domain.models import ChapterSourceName
 
-        found = [p for p in self.built.values() if p.anilist_id == anilist_id and p.language == language]
+        source = source or ChapterSourceName.MANGADEX
+        found = [
+            p
+            for p in self.built.values()
+            if p.anilist_id == anilist_id and p.language == language and p.source == source
+        ]
         return sorted(found, key=lambda p: (chapter_sort_key(p.number), p.part))
 
     def mark_published(self, post_id: str, when) -> None:
@@ -461,15 +478,21 @@ class FakeChapterRepo:
         return sorted(seen.items(), key=lambda pair: pair[1])
 
 
-def make_chapter_tools(tmp_path: Path, pages=None, cutter=None, chapters=None):
+def make_chapter_tools(tmp_path: Path, pages=None, cutter=None, chapters=None, sources=None):
     """ChapterTools with fakes and a pages folder under tmp_path."""
     from manhwatok.app.chapter_post import ChapterTools
+    from manhwatok.domain.models import ChapterSourceName
 
     pages = pages or FakeChapterPages()
     pages.root = tmp_path
+    every = {ChapterSourceName.MANGADEX: pages, **(sources or {})}
+    for source in every.values():
+        if getattr(source, "root", "unset") is None:
+            source.root = tmp_path
     return ChapterTools(
         pages=pages,
         cutter=cutter or FakeCutter(),
         chapters=chapters or FakeChapterRepo(),
         pages_dir=tmp_path / "pages",
+        sources=every,
     )

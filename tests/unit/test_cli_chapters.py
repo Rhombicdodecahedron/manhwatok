@@ -180,3 +180,52 @@ def test_chapter_list_warns_when_the_run_starts_late(wire):
     out = _ok(["chapter", "list", "The Boxer"])
     assert "English starts at chapter 12" in out
     assert "Spanish (11)" in out
+
+
+def _wire_both(monkeypatch, tmp_path, mangadex=(CH12, CH13), webtoons=(), panels=4):
+    """Both sources scripted, so --source and the fallback can be exercised."""
+    from manhwatok.app.chapter_post import ChapterTools
+    from manhwatok.domain.models import ChapterSourceName
+
+    md = FakeChapterPages(chapters=list(mangadex))
+    wt = FakeChapterPages(chapters=list(webtoons))
+    md.root = wt.root = tmp_path
+    cutter = FakeCutter(panels)
+    monkeypatch.setattr(container, "build_metadata", lambda settings: FakeMetadata([BOXER]))
+    monkeypatch.setattr(
+        container,
+        "build_chapter_tools",
+        lambda settings, store: ChapterTools(
+            pages=md,
+            cutter=cutter,
+            chapters=store.chapters,
+            pages_dir=tmp_path / "pages",
+            sources={ChapterSourceName.MANGADEX: md, ChapterSourceName.WEBTOONS: wt},
+        ),
+    )
+    return md, wt
+
+
+def test_chapter_list_falls_back_to_webtoons_when_mangadex_has_nothing(monkeypatch, tmp_path):
+    _wire_both(monkeypatch, tmp_path, mangadex=(), webtoons=(CH12,))
+    out = _ok(["chapter", "list", "The Boxer"])
+    assert "webtoons" in out
+    assert "mangadex has nothing, using webtoons" in out
+
+
+def test_chapter_list_takes_the_source_it_is_given(monkeypatch, tmp_path):
+    _wire_both(monkeypatch, tmp_path, mangadex=(CH12, CH13), webtoons=(CH12,))
+    out = _ok(["chapter", "list", "The Boxer", "--source", "webtoons"])
+    assert "webtoons" in out and "ch. 13" not in out
+
+
+def test_a_title_keeps_the_source_it_was_built_from(monkeypatch, tmp_path):
+    _wire_both(monkeypatch, tmp_path, mangadex=(CH12, CH13), webtoons=(CH12,))
+    built = _ok(["chapter", "build", "The Boxer", "--source", "webtoons"])
+    assert "webtoons chapter 12" in built
+    assert "webtoons" in _ok(["chapter", "list", "The Boxer"])
+
+
+def test_an_unknown_source_is_refused():
+    result = runner.invoke(app, ["chapter", "list", "The Boxer", "--source", "asura"])
+    assert result.exit_code == 2
