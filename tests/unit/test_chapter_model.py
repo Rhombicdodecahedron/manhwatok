@@ -7,8 +7,10 @@ from manhwatok.domain.chapter import (
     PartRecord,
     chapter_kicker,
     chapter_sort_key,
+    missing_numbers,
     next_part,
     part_slices,
+    starts_at,
 )
 from manhwatok.domain.post import MAX_ITEMS
 
@@ -134,3 +136,33 @@ def test_chapter_kicker_names_the_part_only_when_there_is_more_than_one():
 
 def test_chapter_kicker_of_an_unnumbered_chapter_says_oneshot():
     assert chapter_kicker("", 1, 1) == "ONESHOT"
+
+
+# --- what the source is missing ------------------------------------------------------------
+
+
+def test_missing_numbers_finds_the_holes_inside_the_run():
+    found = missing_numbers([_chapter("1"), _chapter("2"), _chapter("5"), _chapter("6")])
+    assert found == ["3", "4"]
+
+
+def test_missing_numbers_ignores_half_chapters_and_unnumbered_ones():
+    assert missing_numbers([_chapter("1"), _chapter("1.5"), _chapter("2"), _chapter("")]) == []
+
+
+def test_a_run_with_no_holes_is_missing_nothing():
+    assert missing_numbers([_chapter("12"), _chapter("13")]) == []
+
+
+def test_missing_numbers_of_nothing_is_nothing():
+    assert missing_numbers([]) == []
+
+
+def test_starts_at_is_the_first_numbered_chapter():
+    assert starts_at([_chapter("13"), _chapter("12")]) == "12"
+    assert starts_at([_chapter("")]) is None
+    assert starts_at([]) is None
+
+
+def test_a_run_that_starts_at_one_is_whole_from_the_beginning():
+    assert starts_at([_chapter("1"), _chapter("2")]) == "1"

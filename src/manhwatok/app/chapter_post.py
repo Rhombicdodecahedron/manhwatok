@@ -21,8 +21,10 @@ from manhwatok.domain.chapter import (
     ChapterPart,
     ChapterRecord,
     PartRecord,
+    missing_numbers,
     next_part,
     part_slices,
+    starts_at,
 )
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import Manhwa
@@ -37,7 +39,20 @@ from manhwatok.ports.chapters import ChapterInfo, ChapterPagesSource, PanelCutte
 from manhwatok.ports.metadata import MetadataSource
 from manhwatok.ports.store import ChapterRepository
 
-LANGUAGES = {"en": "English", "es": "Spanish", "pt-br": "Portuguese", "fr": "French"}
+LANGUAGES = {
+    "en": "English",
+    "es": "Spanish",
+    "es-la": "Latin American Spanish",
+    "pt-br": "Portuguese",
+    "fr": "French",
+    "it": "Italian",
+    "pl": "Polish",
+    "de": "German",
+    "id": "Indonesian",
+    "ru": "Russian",
+    "tr": "Turkish",
+    "vi": "Vietnamese",
+}
 PANEL_PREFIX = "panel-"
 PANELS_DIR = "panels"  # where a chapter's cut panels live, beside its pages
 
@@ -135,6 +150,34 @@ def chapter_status(
         ChapterStatus(chapter, [p for p in parts if p.number == chapter.number])
         for chapter in ct.chapters.chapters(anilist_id, language)
     ]
+
+
+def missing_report(
+    manhwa: Manhwa,
+    ct: ChapterTools,
+    known: list[ChapterRecord],
+    language: str = "en",
+) -> list[str]:
+    """What the source hasn't got: where the run starts, the holes inside it, and which other
+    languages have the chapters before it. Said plainly, because a run that starts at chapter
+    12 is something to know before building a post, not after."""
+    named = LANGUAGES.get(language, language)
+    lines = []
+    first = starts_at(known)
+    if first and first not in ("0", "1"):
+        lines.append(f"{named} starts at chapter {first} — MangaDex has nothing before it")
+        counts = ct.pages.other_languages(manhwa, first, language)
+        if counts:
+            where = ", ".join(
+                f"{LANGUAGES.get(code, code)} ({count})"
+                for code, count in sorted(counts.items(), key=lambda pair: -pair[1])
+            )
+            lines.append(f"  chapters 1–{int(float(first)) - 1} are there in: {where}")
+    holes = missing_numbers(known)
+    if holes:
+        shown = ", ".join(holes[:8]) + (" …" if len(holes) > 8 else "")
+        lines.append(f"missing from the {named} run: {shown}")
+    return lines
 
 
 def build_chapter_post(

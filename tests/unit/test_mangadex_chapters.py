@@ -235,3 +235,32 @@ def test_progress_says_which_page_is_being_fetched(tmp_path):
     messages: list[str] = []
     _chapters(tmp_path, Api()).pages(CHAPTER, messages.append)
     assert any("1" in m and "2" in m for m in messages)
+
+
+# --- what other languages have ------------------------------------------------------------------
+
+
+def test_other_languages_counts_the_chapters_below_a_number(tmp_path):
+    feed = [
+        _entry("a", "1", language="es"),
+        _entry("b", "1", language="it"),
+        _entry("c", "2", language="es"),
+        _entry("d", "12", language="en"),
+        _entry("e", "13", language="pl"),  # past the gap, so not counted
+    ]
+    found = _chapters(tmp_path, Api(feed=feed)).other_languages(BOXER, "12")
+    assert found == {"es": 2, "it": 1}
+
+
+def test_other_languages_leaves_out_english_and_the_unusable(tmp_path):
+    feed = [
+        _entry("a", "1", language="en"),
+        _entry("b", "1", language="it", pages=0),
+        _entry("c", "2", language="it", external="https://x.test"),
+        _entry("d", "3", language="pl"),
+    ]
+    assert _chapters(tmp_path, Api(feed=feed)).other_languages(BOXER, "12") == {"pl": 1}
+
+
+def test_other_languages_of_a_title_mangadex_lacks_is_nothing(tmp_path):
+    assert _chapters(tmp_path, Api(manga="")).other_languages(BOXER, "12") == {}

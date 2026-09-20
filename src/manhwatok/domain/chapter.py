@@ -94,6 +94,30 @@ def next_part(chapters: list[ChapterRecord], parts: list[PartRecord]) -> NextPar
     return None
 
 
+def _whole(number: str) -> int | None:
+    """A chapter number as a whole number, or None for "12.5", "extra" and the unnumbered."""
+    try:
+        value = float(number)
+    except ValueError:
+        return None
+    return int(value) if value == int(value) else None
+
+
+def starts_at(chapters: list[ChapterRecord]) -> str | None:
+    """The first numbered chapter of the run, or None when none of them are numbered."""
+    numbered = [c.number for c in chapters if _whole(c.number) is not None]
+    return min(numbered, key=chapter_sort_key) if numbered else None
+
+
+def missing_numbers(chapters: list[ChapterRecord]) -> list[str]:
+    """Whole chapter numbers the source skipped inside the run it does have — a gap you would
+    otherwise only notice after posting around it. Half-chapters and extras are not gaps."""
+    whole = sorted({n for n in (_whole(c.number) for c in chapters) if n is not None})
+    if len(whole) < 2:
+        return []
+    return [str(n) for n in range(whole[0], whole[-1]) if n not in set(whole)]
+
+
 def part_slices(total: int, max_slides: int = SLIDES_PER_POST) -> list[tuple[int, int]]:
     """`total` panels split into as few posts as fit `max_slides` each, as evenly as the split
     allows: 34 panels are 17 and 17, not 33 and 1 — a one-slide part is not worth posting.

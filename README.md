@@ -173,6 +173,7 @@ part to be built again.
 | Pages | `$XDG_DATA_HOME/manhwatok/pages/<chapter id>/`, with the cut panels beside them |
 | Size | 30–100 MB a chapter, and about as much again in panels |
 | Language | English only; a title MangaDex has with nothing in English says so |
+| Gaps | `chapter list` says where the English run starts, what is missing inside it, and which languages have the rest |
 | Speed | about 20s a chapter, most of it downloading |
 
 **Whether you may repost a chapter is your call.** MangaDex hosts fan translations, most of them

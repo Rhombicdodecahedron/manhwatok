@@ -1198,7 +1198,7 @@ def chapter_list(
 ) -> None:
     """A title's chapters: their pages, what was built from them and what went out."""
     from manhwatok.app import container
-    from manhwatok.app.chapter_post import chapter_status, refresh_chapters
+    from manhwatok.app.chapter_post import chapter_status, missing_report, refresh_chapters
 
     settings = Settings()
     try:
@@ -1207,6 +1207,7 @@ def chapter_list(
             if refresh:
                 refresh_chapters(manhwa, tools, datetime.now(timezone.utc), language, _progress)
             rows = chapter_status(manhwa.anilist_id, tools, language)
+            gaps = missing_report(manhwa, tools, [r.chapter for r in rows], language)
             _close(tools.pages)
     except ManhwatokError as e:
         _fail(e)
@@ -1217,6 +1218,8 @@ def chapter_list(
         downloaded = "downloaded" if row.chapter.downloaded_at else ""
         cells = [f"ch. {row.chapter.number:<8}", f"{row.chapter.pages:>3} pages"]
         typer.echo("  " + "  ".join(cells + [f"{downloaded:<10}", f"{built:<10}", published]).rstrip())
+    for line in gaps:
+        _warn(line)
     typer.echo(f"build the next part with: manhwatok chapter build {manhwa.anilist_id}")
 
 

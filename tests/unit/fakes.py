@@ -344,10 +344,11 @@ def chapter_post(**overrides) -> ListPost:
 class FakeChapterPages:
     """Scripted chapter listings and page files, in place of MangaDex."""
 
-    def __init__(self, chapters=None, pages=3, error=None):
+    def __init__(self, chapters=None, pages=3, error=None, elsewhere=None):
         from manhwatok.ports.chapters import ChapterInfo
 
         self.listed: list[ChapterInfo] = list(chapters or [])
+        self.elsewhere = dict(elsewhere or {})  # what other_languages answers
         self.pages_each = pages
         self.error = error
         self.listings: list[int] = []  # anilist ids chapters() was asked about
@@ -359,6 +360,9 @@ class FakeChapterPages:
         if self.error is not None:
             raise self.error
         return [c for c in self.listed if c.language == language]
+
+    def other_languages(self, manhwa: Manhwa, before: str, language: str = "en") -> dict[str, int]:
+        return dict(self.elsewhere)
 
     def pages(self, chapter, progress=None) -> list[Path]:
         self.downloads.append(chapter.chapter_id)

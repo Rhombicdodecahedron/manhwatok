@@ -238,6 +238,43 @@ class MangaDexChapters(_MangaDexApi):
             raise MetadataError(f"MangaDex could not list chapters of {manhwa.title}: {e}") from e
         return pick_chapters(entries, language)
 
+    def other_languages(
+        self, manhwa: Manhwa, before: str, language: str = "en"
+    ) -> dict[str, int]:
+        """Which languages have the chapters this one is missing, and how many each has. One
+        request: the feed's first page in chapter order covers the start of the run, which is
+        where the gap almost always is."""
+        manga_id = self._manga_id(manhwa)
+        if not manga_id:
+            return {}
+        try:
+            first = float(before)
+        except ValueError:
+            return {}
+        entries = self._get(
+            f"/manga/{manga_id}/feed",
+            {
+                "limit": FEED_LIMIT,
+                "order[chapter]": "asc",
+                "contentRating[]": RATINGS,
+                "includeExternalUrl": 0,
+            },
+        )
+        counts: dict[str, int] = {}
+        for entry in entries:
+            attributes = entry.get("attributes") or {}
+            pages = attributes.get("pages") or 0
+            found = attributes.get("translatedLanguage") or ""
+            if attributes.get("externalUrl") or not pages or found in ("", language):
+                continue
+            try:
+                number = float((attributes.get("chapter") or "").strip())
+            except ValueError:
+                continue
+            if number < first:
+                counts[found] = counts.get(found, 0) + 1
+        return counts
+
     def pages(
         self, chapter: ChapterInfo, progress: Callable[[str], None] | None = None
     ) -> list[Path]:

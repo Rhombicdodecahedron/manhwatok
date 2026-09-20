@@ -172,3 +172,11 @@ def test_deleting_a_chapter_post_lets_it_be_built_again(wire):
 def test_the_chapter_help_says_the_posting_is_the_users_own_call():
     out = _ok(["chapter", "--help"])
     assert "copyright" in out.lower() or "rights" in out.lower()
+
+
+def test_chapter_list_warns_when_the_run_starts_late(wire):
+    pages, _ = wire()
+    pages.elsewhere = {"es": 11, "it": 9}
+    out = _ok(["chapter", "list", "The Boxer"])
+    assert "English starts at chapter 12" in out
+    assert "Spanish (11)" in out

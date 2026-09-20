@@ -257,3 +257,48 @@ def test_an_account_that_wrote_its_own_end_slide_title_keeps_it(tmp_path):
     account = Account(handle="reads", cta_title="Read it on *Webtoon*")
     post, _ = _build(tmp_path, _chapter_tools(tmp_path), account=account)
     assert post.cta_title == "Read it on *Webtoon*"
+
+
+# --- what is missing ---------------------------------------------------------------------------
+
+
+def _records(numbers):
+    from manhwatok.domain.chapter import ChapterRecord
+
+    return [
+        ChapterRecord(anilist_id=119174, number=n, chapter_id=f"id-{n}", manhwa_title="The Boxer")
+        for n in numbers
+    ]
+
+
+def test_a_run_that_starts_late_says_so_and_where_the_rest_is(tmp_path):
+    from manhwatok.app.chapter_post import missing_report
+
+    pages = FakeChapterPages(elsewhere={"es": 11, "it": 9})
+    ct = _chapter_tools(tmp_path, pages=pages)
+    lines = missing_report(BOXER, ct, _records(["12", "13"]))
+    assert "English starts at chapter 12" in lines[0]
+    assert "chapters 1–11" in lines[1] and "Spanish (11)" in lines[1] and "Italian (9)" in lines[1]
+
+
+def test_a_run_that_starts_at_one_says_nothing(tmp_path):
+    from manhwatok.app.chapter_post import missing_report
+
+    ct = _chapter_tools(tmp_path)
+    assert missing_report(BOXER, ct, _records(["1", "2", "3"])) == []
+
+
+def test_holes_inside_the_run_are_named(tmp_path):
+    from manhwatok.app.chapter_post import missing_report
+
+    ct = _chapter_tools(tmp_path)
+    [line] = missing_report(BOXER, ct, _records(["1", "2", "5"]))
+    assert "missing from the English run: 3, 4" == line
+
+
+def test_a_late_start_with_nothing_elsewhere_says_only_the_start(tmp_path):
+    from manhwatok.app.chapter_post import missing_report
+
+    ct = _chapter_tools(tmp_path, pages=FakeChapterPages(elsewhere={}))
+    [line] = missing_report(BOXER, ct, _records(["12"]))
+    assert "starts at chapter 12" in line

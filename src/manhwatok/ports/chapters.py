@@ -20,6 +20,11 @@ class ChapterPagesSource(Protocol):
         has no such title, or has it with no chapter in that language."""
         ...
 
+    def other_languages(self, manhwa: Manhwa, before: str, language: str = "en") -> dict[str, int]:
+        """How many chapters numbered below `before` each other language has — what you are
+        missing, and where it could be read from instead. Empty when nothing is missing."""
+        ...
+
     def pages(
         self, chapter: ChapterInfo, progress: Callable[[str], None] | None = None
     ) -> list[Path]:
