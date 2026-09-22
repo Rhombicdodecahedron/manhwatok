@@ -308,6 +308,54 @@ def build(
     typer.echo(f"export with: manhwatok export {post.id}")
 
 
+@app.command("next")
+def next_post(
+    account: str = typer.Option(
+        ..., "--account", "-a", help="The account whose rotation to follow (see `account set`)."
+    ),
+    count: int = typer.Option(1, "--count", "-n", min=1, max=20, help="How many posts."),
+) -> None:
+    """Make an account's next post from its rotation, ready to review.
+
+    A chapter:<title> item builds the title's next part, as `chapter build`; one with nothing
+    left is skipped with a warning. A theme:<name> item builds a list post of the theme's first
+    picks, as `build --theme` would prefill them, gives its titles art from the account's
+    --art-source, as `render --source`, and renders it. Set the rotation with
+    `account set <handle> --rotation ...`.
+    """
+    from manhwatok.app.context import open_context
+    from manhwatok.app.next_post import make_next_post
+
+    settings = Settings()
+    try:
+        ctx = open_context(settings, _progress)
+        try:
+            for _ in range(count):
+                post = make_next_post(ctx, account, datetime.now(timezone.utc), _warn)
+                _progress.close()
+                typer.echo(f"post {post.id} · {_next_summary(post, ctx.tools.posts)}")
+        finally:
+            ctx.close()
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo(
+        "review in `manhwatok tui`, or with `manhwatok edit <id>` and "
+        "`manhwatok render <id>` (e.g. --source to pick art again)"
+    )
+
+
+def _next_summary(post, posts) -> str:
+    """What `next` made: title (or chapter and part), slides, folder."""
+    from manhwatok.domain.text import plain_title
+
+    where = post.chapter
+    if where is not None:
+        what = f"{where.manhwa_title} chapter {where.number} part {where.part}/{where.parts}"
+    else:
+        what = plain_title(post.title)
+    return f"{what} · {post.slide_count} slides → {posts.folder(post.id)}"
+
+
 @app.command()
 def edit(
     post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
@@ -381,9 +429,7 @@ def render(
     a title's characters leave.
     """
     from manhwatok.app import container
-    from manhwatok.app.art_options import fill_art
-    from manhwatok.app.quad_art import SceneSearch
-    from manhwatok.app.render_post import render_post, restyle, set_cover
+    from manhwatok.app.render_post import render_from_source, render_post, restyle, set_cover
 
     if source is None:
         given = [
@@ -419,31 +465,13 @@ def render(
             with container.build_store(settings) as store:
                 sources = container.build_art_sources(settings, store.cache)
                 try:
-                    if saved.art is ArtStyle.QUAD:
-                        # A quad slide keeps its picked art; the search fills its squares.
-                        search = SceneSearch(
-                            sources[source],
-                            tag,
-                            order or ArtOrder.POPULAR,
-                            pick or 1,
-                            replace,
-                            fill=True,
-                        )
-                        slides = render_post(post_id, tools, search)
-                    else:
-                        filled = fill_art(
-                            post_id,
-                            tools,
-                            sources[source],
-                            tag,
-                            order or ArtOrder.RELEVANCE,
-                            pick or 1,
-                            replace,
-                        )
+                    filled, slides = render_from_source(
+                        post_id, tools, sources[source], tag, order, pick or 1, replace
+                    )
+                    if filled is not None:
                         typer.echo(
                             f"new {source.value} for {filled} of {len(saved.items)} titles"
                         )
-                        slides = render_post(post_id, tools)
                 finally:
                     for built in sources.values():
                         getattr(built, "close", lambda: None)()
@@ -876,6 +904,23 @@ ACCOUNT_ART = typer.Option(
 REPEAT_DAYS = typer.Option(
     None, "--repeat-days", min=1, max=3650, help="Don't suggest titles exported this recently."
 )
+ROTATION = typer.Option(
+    None,
+    "--rotation",
+    help="What `manhwatok next` posts, in turn, comma-separated: chapter:<title> (its next "
+    "part, as `chapter build`) or theme:<name> (a list post of the theme's first picks), e.g. "
+    '"chapter:Solo Leveling,theme:isekai". Repeat an item to post it more often. Setting it '
+    'starts the rotation over; "" clears it.',
+)
+TIMEZONE = typer.Option(
+    None, "--timezone", help="The account's time zone, e.g. Europe/Paris (the default)."
+)
+ART_SOURCE = typer.Option(
+    None,
+    "--art-source",
+    help="Where `manhwatok next` fills a list post's art from, as `render --source`: covers, "
+    'fanart, pins or reddit. "" (the default) keeps each style\'s own art.',
+)
 
 
 def _account_fields(
@@ -890,6 +935,9 @@ def _account_fields(
     art: Optional[ArtStyle],
     emojis: Optional[str] = None,
     sounds: Optional[list[str]] = None,
+    rotation: Optional[str] = None,
+    time_zone: Optional[str] = None,
+    art_source: Optional[str] = None,
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -907,6 +955,15 @@ def _account_fields(
     fields.update({k: v for k, v in scalars.items() if v is not None})
     if sounds:  # typer gives [] when --sound wasn't used
         fields["sounds"] = sounds
+    if rotation is not None:
+        # Not split_names: a rotation keeps its repeats. A new rotation starts from the top,
+        # since the old place in it means nothing in the new one.
+        fields["rotation"] = [item.strip() for item in rotation.split(",") if item.strip()]
+        fields["rotation_cursor"] = 0
+    if time_zone is not None:
+        fields["timezone"] = time_zone
+    if art_source is not None:
+        fields["art_source"] = art_source.strip() or None
     return fields
 
 
@@ -924,8 +981,21 @@ def _print_account(a) -> None:
         ("cta follow", a.cta_follow),
         ("repeat days", str(a.repeat_days)),
         ("art", a.art.value),
+        ("rotation", _rotation_text(a)),
+        ("timezone", a.timezone),
+        ("art source", a.art_source.value if a.art_source else "-"),
     ]:
         typer.echo(f"  {label:<13} {value}")
+
+
+def _rotation_text(a) -> str:
+    """The rotation, and the item `next` makes a post of next."""
+    from manhwatok.domain.plan import next_item
+
+    if not a.rotation:
+        return "-"
+    upcoming, _ = next_item(a.rotation, a.rotation_cursor)
+    return f"{', '.join(a.rotation)} (next: {upcoming})"
 
 
 def _save_account(action, verb: str, handle: str, fields: dict) -> None:
@@ -957,13 +1027,16 @@ def account_add(
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
     art: Optional[ArtStyle] = ACCOUNT_ART,
+    rotation: Optional[str] = ROTATION,
+    time_zone: Optional[str] = TIMEZONE,
+    art_source: Optional[str] = ART_SOURCE,
 ) -> None:
     """Add an account; unset options get the defaults."""
     from manhwatok.app.accounts import add_account
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound,
+        emojis, sound, rotation, time_zone, art_source,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -982,13 +1055,16 @@ def account_set(
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
     art: Optional[ArtStyle] = ACCOUNT_ART,
+    rotation: Optional[str] = ROTATION,
+    time_zone: Optional[str] = TIMEZONE,
+    art_source: Optional[str] = ART_SOURCE,
 ) -> None:
     """Change an account; only the given options change."""
     from manhwatok.app.accounts import update_account
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound,
+        emojis, sound, rotation, time_zone, art_source,
     )
     _save_account(update_account, "updated", handle, fields)
 

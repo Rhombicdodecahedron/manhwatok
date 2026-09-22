@@ -348,3 +348,35 @@ def test_fill_passes_over_pictures_with_words_on_them(tmp_path):
     fill_art("20260914-a3f9", tools, source)
     assert source.fetched[:2] == [VOL1.url, VOL2.url]
     assert tools.posts.get("20260914-a3f9").items[0].custom_art
+
+
+def test_render_from_source_fills_every_title_then_renders(tmp_path):
+    from manhwatok.app.render_post import render_from_source
+
+    tools = make_tools(tmp_path)
+    _saved(tmp_path, tools)
+    source = FakeArtSource({1: [VOL1], 2: [VOL2]})
+
+    filled, slides = render_from_source("20260914-a3f9", tools, source)
+
+    assert filled == 2
+    assert [p.name for p in slides] == [f"0{n}.png" for n in range(1, 6)]
+    assert source.fetched == [VOL1.url, VOL2.url]
+    saved = tools.posts.get("20260914-a3f9")
+    assert [bool(i.custom_art) for i in saved.items] == [True, True, False]
+
+
+def test_render_from_source_fills_a_quad_posts_squares_instead(tmp_path):
+    from manhwatok.app.render_post import render_from_source
+    from manhwatok.domain.models import ArtStyle
+
+    tools = make_tools(tmp_path)
+    tools.posts.save(post(art=ArtStyle.QUAD))
+    source = FakeArtSource({1: [VOL1, VOL2]})
+
+    filled, slides = render_from_source("20260914-a3f9", tools, source)
+
+    assert filled is None  # a quad post keeps its picked art; the scenes go in its squares
+    assert len(slides) == 5
+    saved = tools.posts.get("20260914-a3f9")
+    assert saved.items[0].scenes and not saved.items[0].custom_art

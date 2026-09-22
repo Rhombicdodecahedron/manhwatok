@@ -343,3 +343,76 @@ def test_theme_set_without_options_asks_for_one(tmp_path):
     out = runner.invoke(app, ["theme", "set", "murim"])
     assert out.exit_code == 1
     assert "nothing to change" in out.output
+
+
+# --- the posting plan ------------------------------------------------------------------------
+
+
+def test_account_plan_defaults(tmp_path):
+    out = _ok(["account", "add", "reads"])
+    assert "  rotation      -\n" in out
+    assert "  timezone      Europe/Paris\n" in out
+    assert "  art source    -\n" in out
+
+
+def test_account_add_stores_the_plan(tmp_path):
+    out = _ok(
+        ["account", "add", "reads", "--rotation", "chapter:Solo Leveling, Theme:Isekai,",
+         "--timezone", "America/New_York", "--art-source", "pins"]
+    )
+    with _store(tmp_path) as store:
+        a = store.accounts.get("reads")
+    assert a.rotation == ["chapter:Solo Leveling", "theme:isekai"]
+    assert a.timezone == "America/New_York"
+    assert a.art_source == "pins"
+    assert "  rotation      chapter:Solo Leveling, theme:isekai (next: chapter:Solo Leveling)\n" in out
+    assert "  timezone      America/New_York\n" in out
+    assert "  art source    pins\n" in out
+
+
+def test_account_set_rotation_starts_it_over_and_keeps_the_rest(tmp_path):
+    _ok(["account", "add", "reads", "--rotation", "theme:a,theme:b", "--art-source", "fanart"])
+    with _store(tmp_path) as store:
+        a = store.accounts.get("reads")
+        store.accounts.update(a.model_copy(update={"rotation_cursor": 1}))
+    out = _ok(["account", "set", "reads", "--rotation", "theme:c,theme:a,theme:c"])
+    with _store(tmp_path) as store:
+        a = store.accounts.get("reads")
+    assert a.rotation == ["theme:c", "theme:a", "theme:c"]  # repeats are the plan's own
+    assert a.rotation_cursor == 0
+    assert a.art_source == "fanart"
+    assert "(next: theme:c)" in out
+
+
+def test_account_set_timezone_keeps_the_rotations_place(tmp_path):
+    _ok(["account", "add", "reads", "--rotation", "theme:a,theme:b"])
+    with _store(tmp_path) as store:
+        a = store.accounts.get("reads")
+        store.accounts.update(a.model_copy(update={"rotation_cursor": 1}))
+    _ok(["account", "set", "reads", "--timezone", "Asia/Seoul"])
+    with _store(tmp_path) as store:
+        a = store.accounts.get("reads")
+    assert (a.timezone, a.rotation_cursor) == ("Asia/Seoul", 1)
+
+
+def test_account_set_empty_rotation_and_art_source_clear_them(tmp_path):
+    _ok(["account", "add", "reads", "--rotation", "theme:a", "--art-source", "pins"])
+    out = _ok(["account", "set", "reads", "--rotation", "", "--art-source", ""])
+    with _store(tmp_path) as store:
+        a = store.accounts.get("reads")
+    assert (a.rotation, a.art_source) == ([], None)
+    assert "  rotation      -\n" in out and "  art source    -\n" in out
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["--rotation", "isekai"], "not a rotation item"),
+        (["--timezone", "Mars/Olympus"], "not a time zone"),
+        (["--art-source", "instagram"], "not an art source"),
+    ],
+)
+def test_account_plan_options_are_checked(tmp_path, args, message):
+    assert message in _err(["account", "add", "reads", *args])
+    with _store(tmp_path) as store:
+        assert store.accounts.list() == []

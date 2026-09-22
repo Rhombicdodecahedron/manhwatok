@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Callable
 
+from manhwatok.app.art_options import fill_art
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.quad_art import SceneSearch, kept_scenes, prepare_quad
 from manhwatok.domain.caption import build_caption
@@ -16,8 +17,9 @@ from manhwatok.domain.errors import (
     NotRendered,
     StorageError,
 )
-from manhwatok.domain.models import QUAD_PICTURES, ArtStyle, CoverStyle, Manhwa
+from manhwatok.domain.models import QUAD_PICTURES, ArtOrder, ArtStyle, CoverStyle, Manhwa
 from manhwatok.domain.post import ListPost, PostItem
+from manhwatok.ports.art import ArtSource
 from manhwatok.ports.posts import PostRepository, SlideArt
 
 CAPTION_FILE = "caption.txt"
@@ -219,3 +221,23 @@ def render_post(
     except OSError as e:
         raise StorageError(f"could not write caption for {post_id}: {e}") from e
     return slides
+
+
+def render_from_source(
+    post_id: str,
+    tools: PostTools,
+    source: ArtSource,
+    tag: str | None = None,
+    order: ArtOrder | None = None,
+    pick: int = 1,
+    replace: bool = False,
+) -> tuple[int | None, list[Path]]:
+    """`render --source`: give every title a picture from `source`, then render. A quad post
+    keeps its picked art and the search fills its squares instead (most liked first, unless
+    `order` says otherwise). Returns how many titles got a picture (None for a quad post)
+    and the slides."""
+    if tools.posts.get(post_id).art is ArtStyle.QUAD:
+        search = SceneSearch(source, tag, order or ArtOrder.POPULAR, pick, replace, fill=True)
+        return None, render_post(post_id, tools, search)
+    filled = fill_art(post_id, tools, source, tag, order or ArtOrder.RELEVANCE, pick, replace)
+    return filled, render_post(post_id, tools)

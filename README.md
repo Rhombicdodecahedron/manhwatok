@@ -477,6 +477,35 @@ uv run manhwatok posts --account @manhwa.daily
 - `account remove` keeps the account's posting history, so re-adding the handle keeps its repeat
   protection. `--cta-title` / `--cta-follow` set the end slide's texts (`*word*` = accent colour).
 
+## Next post
+
+An account can keep a rotation of what it posts, and `next` makes its next post from it without
+asking anything: built, art filled and rendered, ready for you to look over before it goes out.
+
+```bash
+uv run manhwatok account set @manhwa.daily \
+    --rotation "chapter:Solo Leveling,theme:regression-revenge,theme:isekai" \
+    --art-source pins --timezone Europe/Paris
+uv run manhwatok next -a @manhwa.daily              # the next item's post
+uv run manhwatok next -a @manhwa.daily --count 3    # the next three, in turn
+```
+
+- `chapter:<title>` (a title or its AniList id) builds the title's next part, as `chapter build
+  --account` does. When every listed chapter is built, the source is asked for new ones first;
+  if there are none, `next` warns and moves on to the following item (and gives up after one
+  full turn with nothing to make).
+- `theme:<name>` builds a list post from a saved theme for the account, as `build --account
+  --theme` does, keeping the picks and hooks the editor would open with. With `--art-source`
+  (covers, fanart, pins or reddit) every title then gets a picture from there, as `render
+  --source` gives it; without, each art style draws its own.
+- Items are taken in order and the rotation starts over after the last; repeat an item to post
+  it more often. The account remembers its place, and moves on only once a post is made, so a
+  failure tries the same item again next time. Setting `--rotation` starts it over; `account
+  show` prints it with the item that comes next.
+- `next` prints each post's id; check it in `manhwatok tui`, or with `edit <id>` and `render
+  <id>` (`render --source ... --replace` picks the art again), then `export` or `upload` it.
+- `--timezone` (default `Europe/Paris`) is the account's time zone, for posting times.
+
 ## Uploading to TikTok (assisted)
 
 `upload` takes the manual steps out of posting but leaves the decision to you: it opens a real,

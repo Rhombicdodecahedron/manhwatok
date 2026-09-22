@@ -89,3 +89,42 @@ def test_json_round_trip():
 def test_an_account_saved_with_a_song_note_still_loads():
     data = {"handle": "reads", "song": "Die For You"}  # the song note was dropped
     assert Account.model_validate(data) == Account(handle="reads")
+
+
+def test_plan_fields_default_so_accounts_saved_before_them_load():
+    old = Account.model_validate_json('{"handle": "reads"}')
+    assert old.rotation == []
+    assert old.rotation_cursor == 0
+    assert old.timezone == "Europe/Paris"
+    assert old.art_source is None
+
+
+def test_rotation_items_are_checked_and_written_the_one_way():
+    account = Account(handle="reads", rotation=["Chapter: Solo Leveling", "theme:Isekai"])
+    assert account.rotation == ["chapter:Solo Leveling", "theme:isekai"]
+
+
+def test_a_bad_rotation_item_is_refused():
+    with pytest.raises(ManhwatokError, match="not a rotation item"):
+        Account(handle="reads", rotation=["isekai"])
+
+
+def test_the_rotation_cursor_is_never_negative():
+    with pytest.raises(ManhwatokError, match="rotation cursor"):
+        Account(handle="reads", rotation_cursor=-1)
+
+
+def test_the_time_zone_is_an_iana_name():
+    assert Account(handle="reads", timezone=" America/New_York ").timezone == "America/New_York"
+    with pytest.raises(ManhwatokError, match="not a time zone"):
+        Account(handle="reads", timezone="Mars/Olympus")
+    with pytest.raises(ManhwatokError, match="not a time zone"):
+        Account(handle="reads", timezone="")
+
+
+def test_the_art_source_is_one_render_source_takes():
+    from manhwatok.domain.models import ArtSourceName
+
+    assert Account(handle="reads", art_source="pins").art_source is ArtSourceName.PINS
+    with pytest.raises(ManhwatokError, match="covers, fanart, pins or reddit"):
+        Account(handle="reads", art_source="instagram")

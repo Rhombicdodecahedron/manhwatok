@@ -90,13 +90,33 @@ def save_new_post(
 ) -> tuple[ListPost, list[Path]]:
     """Check the picks, save them as a new post and render it. Nothing is written if the
     picks or the style are invalid."""
+    post = store_new_post(
+        candidates, title, items, account, hashtags, accent, tools.posts, now, art, emojis, theme
+    )
+    return post, render_post(post.id, tools)
+
+
+def store_new_post(
+    candidates: list[Manhwa],
+    title: str,
+    items: list[PostItem],
+    account: Account | None,
+    hashtags: str | None,
+    accent: str | None,
+    posts: PostRepository,
+    now: datetime,
+    art: ArtStyle | None = None,
+    emojis: str | None = None,
+    theme: str | None = None,
+) -> ListPost:
+    """`save_new_post` short of rendering, for a caller with more to do first (art to fill)."""
     check_picks(title, items)
     post = create_post(
         "", now, candidates, title, items, account, hashtags, accent, art, emojis, theme
     )
-    post = post.model_copy(update={"id": tools.posts.new_id(now.astimezone().date())})
-    _save_new(post, tools.posts)
-    return post, render_post(post.id, tools)
+    post = post.model_copy(update={"id": posts.new_id(now.astimezone().date())})
+    _save_new(post, posts)
+    return post
 
 
 def build_post(

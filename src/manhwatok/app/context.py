@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from manhwatok.app import container
 from manhwatok.app.chapter_post import ChapterTools
 from manhwatok.app.names import AniListNames
-from manhwatok.app.post_tools import PostTools
+from manhwatok.app.post_tools import PostTools, ProgressFn
 from manhwatok.config import Settings
 from manhwatok.domain.models import ArtSourceName
 from manhwatok.ports.art import ArtSource
@@ -57,14 +57,20 @@ class AppContext:
                 close()
 
 
-def open_context(settings: Settings) -> AppContext:
+def _quiet(_: str) -> None:
+    pass
+
+
+def open_context(settings: Settings, progress: ProgressFn = _quiet) -> AppContext:
+    """`progress`: where the post tools report what they do (the TUI's workers pass their
+    own per job; a command passes its progress line)."""
     store = container.build_store(settings)
     metadata = container.build_metadata(settings)
     chapters = container.build_chapter_source(settings, store.cache)
     art_sources = container.build_art_sources(settings, store.cache)
     chapter_tools = container.build_chapter_tools(settings, store)
     tools = container.build_post_tools(
-        settings, _no_editor, lambda _: None, metadata, art_sources[ArtSourceName.PINS]
+        settings, _no_editor, progress, metadata, art_sources[ArtSourceName.PINS]
     )
     return AppContext(
         settings=settings,

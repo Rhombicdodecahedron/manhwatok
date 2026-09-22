@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator
 
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.errors import InvalidName, ManhwatokError
-from manhwatok.domain.models import ArtStyle
+from manhwatok.domain.models import ArtSourceName, ArtStyle
+from manhwatok.domain.plan import clean_rotation
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
@@ -18,6 +20,7 @@ from manhwatok.domain.post import (
 from manhwatok.domain.text import clean_names, clean_sounds
 
 DEFAULT_REPEAT_DAYS = 30
+DEFAULT_TIMEZONE = "Europe/Paris"
 MAX_REPEAT_DAYS = 3650
 _HANDLE = re.compile(r"[a-z0-9._]{2,24}")
 
@@ -47,6 +50,13 @@ class Account(BaseModel):
     cta_follow: str = DEFAULT_CTA_FOLLOW
     repeat_days: int = DEFAULT_REPEAT_DAYS
     art: ArtStyle = ArtStyle.NONE  # default for this account's new posts
+    # The posting plan. `rotation` is what its posts are about, in turn ("chapter:<title>",
+    # "theme:<name>"); `rotation_cursor` is the item `next` makes a post of next.
+    rotation: list[str] = Field(default_factory=list)
+    rotation_cursor: int = 0
+    timezone: str = DEFAULT_TIMEZONE  # IANA name; what the plan's times are read in
+    # Where `next` fills a list post's art from, as `render --source`; None keeps the style's own.
+    art_source: ArtSourceName | None = None
 
     @field_validator("handle")
     @classmethod
@@ -86,6 +96,43 @@ class Account(BaseModel):
         if not 1 <= value <= MAX_REPEAT_DAYS:
             raise ManhwatokError(f"repeat days must be 1–{MAX_REPEAT_DAYS}, got {value}")
         return value
+
+    @field_validator("rotation")
+    @classmethod
+    def _rotation(cls, value: list[str]) -> list[str]:
+        return clean_rotation(value)
+
+    @field_validator("rotation_cursor")
+    @classmethod
+    def _cursor(cls, value: int) -> int:
+        if value < 0:
+            raise ManhwatokError(f"the rotation cursor can't be negative, got {value}")
+        return value
+
+    @field_validator("timezone")
+    @classmethod
+    def _timezone(cls, value: str) -> str:
+        name = value.strip()
+        try:
+            ZoneInfo(name)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ManhwatokError(
+                f"{value!r} is not a time zone — use an IANA name like Europe/Paris"
+            ) from None
+        return name
+
+    @field_validator("art_source", mode="before")
+    @classmethod
+    def _art_source(cls, value: object) -> object:
+        if value is None or isinstance(value, ArtSourceName):
+            return value
+        try:
+            return ArtSourceName(str(value).strip().lower())
+        except ValueError:
+            names = [s.value for s in ArtSourceName]
+            raise ManhwatokError(
+                f"{value!r} is not an art source — use {', '.join(names[:-1])} or {names[-1]}"
+            ) from None
 
     @property
     def display(self) -> str:
