@@ -36,6 +36,13 @@ def scheduled_text(post: ListPost, zone: str) -> str:
     return f"{post.scheduled_at.astimezone(ZoneInfo(zone)):%a %H:%M}"
 
 
+def sent_text(post: ListPost, zone: str) -> str:
+    """The day the post went out, short ("18 Sep"), in time zone `zone`; "-" when unsent."""
+    if post.sent_at is None:
+        return "-"
+    return f"{post.sent_at.astimezone(ZoneInfo(zone)):%d %b}"
+
+
 def caption_text(post: ListPost, posts: PostRepository) -> tuple[str, bool]:
     """(caption, rendered): caption.txt as rendered, else the caption the post would get."""
     try:

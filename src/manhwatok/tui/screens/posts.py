@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import DataTable, Static
 
+from manhwatok.app.context import AppContext
 from manhwatok.app.delete_post import delete_post
 from manhwatok.app.edit_post import update_picks
 from manhwatok.app.export_post import export_post
@@ -21,7 +24,7 @@ from manhwatok.domain.text import plain_title
 from manhwatok.tui.screens.art import ArtScreen
 from manhwatok.tui.screens.browser import BrowserScreen
 from manhwatok.tui.screens.picks import PicksScreen
-from manhwatok.tui.text import clip, post_details, post_status, scheduled_text
+from manhwatok.tui.text import clip, post_details, post_status, scheduled_text, sent_text
 from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal
 from manhwatok.tui.widgets.headed_table import HeadedTable
 from manhwatok.tui.widgets.slide_preview import SlidePreview
@@ -29,6 +32,10 @@ from manhwatok.tui.widgets.slide_preview import SlidePreview
 ALL = "*"
 HEADING = "account:"  # row key prefix of an account's heading row
 NO_ACCOUNT = "no account"
+MARK = "●"  # what the leading column shows on a marked row
+
+# What a bulk action does to one post; what it returns is the line shown for that post.
+BulkFn = Callable[[AppContext, ListPost], str]
 
 
 class PostTable(HeadedTable):
@@ -56,6 +63,10 @@ def _by_account(posts: list[ListPost]) -> list[tuple[str, list[ListPost]]]:
     )
 
 
+def _render_one(ctx: AppContext, post: ListPost) -> str:
+    return f"post {post.id} · {len(render_post(post.id, ctx.tools))} slides"
+
+
 class PostsPane(Vertical):
     DEFAULT_CSS = """
     PostsPane #posts-table { height: 2fr; }
@@ -76,12 +87,16 @@ class PostsPane(Vertical):
         Binding("U", "upload(True)", "Upload (debug)", show=False),
         Binding("d", "delete", "Delete"),
         Binding("f", "filter", "Filter"),
+        Binding("space", "mark", "Mark"),
+        Binding("ctrl+a", "mark_all", "Mark all", show=False),
+        Binding("escape", "unmark_all", "Clear marks", show=False),
     ]
 
     def __init__(self) -> None:
         super().__init__()
         self.account_filter: str | None = None
         self.posts: dict[str, ListPost] = {}
+        self.marked: set[str] = set()  # the ids `r`, `x` and `U` act on, when there are any
 
     def compose(self) -> ComposeResult:
         yield PostTable(id="posts-table", cursor_type="row", zebra_stripes=True)
@@ -92,7 +107,10 @@ class PostsPane(Vertical):
 
     def on_mount(self) -> None:
         table = self.query_one(PostTable)
-        table.add_columns("id", "account", "title", "status", "scheduled", "slides")
+        columns = table.add_columns(
+            "", "id", "account", "title", "status", "scheduled", "sent", "slides"
+        )
+        self.mark_column = columns[0]
         self.reload()
 
     def focus_main(self) -> None:
@@ -114,18 +132,22 @@ class PostsPane(Vertical):
             self.app.fail(e)
             posts, zones = [], {}
         self.posts = {p.id: p for p in posts}
+        self.marked &= set(self.posts)  # a mark lives only as long as its post is listed
         table = self.query_one(PostTable)
         table.clear()
         for who, theirs in _by_account(posts):
             heading = Text(f"── {who} ──", style="bold")
-            table.add_row(heading, "", "", "", "", "", key=HEADING + who)
+            table.add_row("", heading, "", "", "", "", "", "", key=HEADING + who)
             for p in theirs:
+                zone = zones.get(p.account or "", DEFAULT_TIMEZONE)
                 table.add_row(
+                    MARK if p.id in self.marked else "",
                     p.id,
                     f"@{p.account}" if p.account else "-",
                     Text(clip(plain_title(p.title) or "(untitled)", 40)),
                     post_status(p, ctx.tools.posts),
-                    scheduled_text(p, zones.get(p.account or "", DEFAULT_TIMEZONE)),
+                    scheduled_text(p, zone),
+                    sent_text(p, zone),
                     "-" if p.is_unfinished else str(p.slide_count),
                     key=p.id,
                 )
@@ -207,7 +229,70 @@ class PostsPane(Vertical):
 
         self.app.push_screen(ChoiceModal("Show the posts of", choices), chosen)
 
-    # --- actions on the highlighted post ------------------------------------------------
+    # --- marks --------------------------------------------------------------------------
+
+    def action_mark(self) -> None:
+        """Mark (or unmark) the post under the cursor: `r`, `x` and `U` then act on the marks
+        instead of the cursor. A heading is no post, so it can't be marked."""
+        post = self._selected()
+        if post is None:
+            return
+        if post.id in self.marked:
+            self.marked.remove(post.id)
+        else:
+            self.marked.add(post.id)
+        self._show_mark(post.id)
+
+    def action_mark_all(self) -> None:
+        """Mark every post the filter shows."""
+        self.marked = set(self.posts)
+        for post_id in self.posts:
+            self._show_mark(post_id)
+
+    def action_unmark_all(self) -> None:
+        was, self.marked = self.marked, set()
+        for post_id in was:
+            self._show_mark(post_id)
+
+    def _show_mark(self, post_id: str) -> None:
+        mark = MARK if post_id in self.marked else ""
+        self.query_one(PostTable).update_cell(post_id, self.mark_column, mark)
+
+    def _marked(self) -> list[ListPost]:
+        """The marked posts, in the order the table shows them; empty when nothing is marked."""
+        table = self.query_one(PostTable)
+        keys = (table.row_key_at(row) for row in range(table.row_count))
+        return [self.posts[key] for key in keys if key in self.marked]
+
+    def _bulk(self, doing: str, did: str, posts: list[ListPost], one: BulkFn) -> None:
+        """Run `one` over `posts` in one render job, in the order shown: a notification per post
+        as it lands, a failure noted and the rest carried on with, and one summary at the end
+        ("rendered 2, 1 failed: <id> <why>")."""
+        app = self.app
+
+        def job(ctx: AppContext) -> tuple[str, int]:
+            count, failed = 0, []
+            for post in posts:
+                try:
+                    ctx.tools.progress(one(ctx, post))
+                    count += 1
+                except ManhwatokError as e:
+                    failed.append(f"{post.id} {e}")
+                    ctx.tools.progress(f"post {post.id} failed: {e}")
+            summary = f"{did} {count}"
+            if failed:
+                summary += f", {len(failed)} failed: " + "; ".join(failed)
+            return summary, len(failed)
+
+        def finished(result) -> None:
+            summary, failures = result
+            app.notify(summary, severity="warning" if failures else "information", timeout=8)
+            self.reload()
+
+        if app.start_render_in_context(job, finished):
+            app.notify(f"{doing} {len(posts)} posts…")
+
+    # --- actions on the marked posts, or on the highlighted one --------------------------
 
     def _refuse_chapter(self, post: ListPost, why: str) -> bool:
         """True when this action makes no sense for a chapter post, having said so."""
@@ -246,6 +331,10 @@ class PostsPane(Vertical):
         self.app.push_screen(screen, picked)
 
     def action_render(self) -> None:
+        marked = self._marked()
+        if marked:
+            self._bulk("rendering", "rendered", marked, _render_one)
+            return
         post = self._selected()
         if post is None:
             return
@@ -259,26 +348,33 @@ class PostsPane(Vertical):
             self.app.notify(f"rendering {pid}…")
 
     def action_export(self) -> None:
+        marked = self._marked()
+        if marked:
+            self._bulk("exporting", "exported", marked, self._export_one)
+            return
         post = self._selected()
         if post is None:
             return
         if self.app.refuse_while_rendering():
             return
-        ctx = self.app.ctx
         try:
-            dest = export_post(
-                post.id,
-                ctx.tools.posts,
-                ctx.store.history,
-                ctx.settings.export_dir,
-                now=self.app.clock(),
-                chapters=ctx.store.chapters,
-            )
+            line = self._export_one(self.app.ctx, post)
         except ManhwatokError as e:
             self.app.fail(e)
             return
-        self.app.notify(f"exported → {dest}")
+        self.app.notify(line)
         self.reload()
+
+    def _export_one(self, ctx: AppContext, post: ListPost) -> str:
+        dest = export_post(
+            post.id,
+            ctx.tools.posts,
+            ctx.store.history,
+            ctx.settings.export_dir,
+            now=self.app.clock(),
+            chapters=ctx.store.chapters,
+        )
+        return f"exported → {dest}"
 
     def action_art(self) -> None:
         post = self._selected()
@@ -338,15 +434,43 @@ class PostsPane(Vertical):
         self.app.push_screen(ChoiceModal(f"Cover for post {pid}", choices), chosen)
 
     def action_upload(self, debug: bool = False) -> None:
+        """`u` uploads the post under the cursor, with its log screen; `U` does the same in
+        debug, and over every marked post in turn when there are marks."""
+        marked = self._marked() if debug else []
+        if marked:
+            if self._refuse_browser():
+                return
+            self._bulk("uploading", "uploaded", marked, self._upload_marked)
+            return
         post = self._selected()
         if post is None:
             return
-        if self.app.refuse_while_rendering():
-            return
-        if self.app.browser_open:
-            self.app.notify("a browser is already open — finish there first", severity="warning")
+        if self.app.refuse_while_rendering() or self._refuse_browser():
             return
         app, pid = self.app, post.id
+
+        def job(progress) -> str:
+            posted = self._upload_one(app.ctx, post, progress, debug)
+            return f"recorded post {pid} as sent" if posted else "nothing recorded"
+
+        heading = f"Upload post {pid}" + (" (debug)" if debug else "")
+        app.push_screen(BrowserScreen(heading, job), lambda _: self.reload(select=pid))
+
+    def _refuse_browser(self) -> bool:
+        """True (and warns) while a browser window is already open for another post."""
+        if self.app.browser_open:
+            self.app.notify("a browser is already open — finish there first", severity="warning")
+            return True
+        return False
+
+    def _upload_marked(self, ctx: AppContext, post: ListPost) -> str:
+        sent = self._upload_one(ctx, post, ctx.tools.progress, debug=True)
+        return f"post {post.id} " + ("sent" if sent else "not recorded")
+
+    def _upload_one(self, ctx: AppContext, post: ListPost, progress, debug: bool) -> bool:
+        """Drive the browser for one post — its sound asked for first — and answer whether the
+        user confirmed it went out. Runs in a worker: the questions come back from the app."""
+        app = self.app
 
         def choose_sound(sounds: list[str]) -> str | None:
             choices = [(sound, sound) for sound in sounds] + [("no sound", "")]
@@ -355,26 +479,20 @@ class PostsPane(Vertical):
                 raise ManhwatokError("upload cancelled — the app is closing")
             return answer or None
 
-        def job(progress) -> str:
-            ctx = app.ctx
-            posted = upload_post(
-                pid,
-                ctx.tools.posts,
-                ctx.store.accounts,
-                ctx.store.history,
-                ctx.uploader(),
-                app.ask_from_thread,
-                progress,
-                now=app.clock(),
-                debug=debug,
-                choose_sound=choose_sound,
-                themes=ctx.store.themes,
-                chapters=ctx.store.chapters,
-            )
-            return f"recorded post {pid} as sent" if posted else "nothing recorded"
-
-        heading = f"Upload post {pid}" + (" (debug)" if debug else "")
-        app.push_screen(BrowserScreen(heading, job), lambda _: self.reload(select=pid))
+        return upload_post(
+            post.id,
+            ctx.tools.posts,
+            ctx.store.accounts,
+            ctx.store.history,
+            ctx.uploader(),
+            app.ask_from_thread,
+            progress,
+            now=app.clock(),
+            debug=debug,
+            choose_sound=choose_sound,
+            themes=ctx.store.themes,
+            chapters=ctx.store.chapters,
+        )
 
     def action_delete(self) -> None:
         post = self._selected()

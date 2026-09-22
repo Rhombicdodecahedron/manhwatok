@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 
 pytest.importorskip("textual")
@@ -13,6 +15,7 @@ from tests.tui.helpers import NOW, make_ctx, notes, run_app, wait_for  # noqa: E
 from tests.unit.fakes import FakeUploader, post  # noqa: E402
 
 PID = "20260914-a3f9"
+OTHER = "20260913-b1c2"
 
 
 def _ctx(tmp_path, uploader, sounds=(), **fields):
@@ -51,7 +54,7 @@ def test_yes_records_the_post_as_sent(tmp_path):
         await pilot.press("escape")
         await pilot.pause()
         table = app.query_one(PostTable)
-        assert str(table.get_row_at(1)[3]) == "sent"  # row 0 is the account heading
+        assert str(table.get_row_at(1)[4]) == "sent"  # row 0 is the account heading
 
     run_app(ctx, scenario)
     assert uploader.events == ["upload", "close"]
@@ -143,6 +146,34 @@ def test_a_post_without_an_account_never_opens_the_browser(tmp_path):
 
     run_app(ctx, scenario)
     assert uploader.events == []  # checked before any browser was opened
+
+
+def test_U_uploads_every_marked_post_in_turn(tmp_path):
+    """The bulk variant of `U`: one job through the marked posts, a question each, and a
+    summary; an answer of "no" records nothing but isn't a failure."""
+    uploader = FakeUploader()
+    ctx = _ctx(tmp_path, uploader)
+    made = datetime(2026, 9, 13, tzinfo=timezone.utc)  # older, so it comes second
+    ctx.tools.posts.save(post(id=OTHER, account="reads", created_at=made))
+    render_post(OTHER, ctx.tools)
+
+    async def scenario(app, pilot):
+        await pilot.press("ctrl+a", "U")
+        await wait_for(pilot, lambda: isinstance(app.screen, ConfirmModal))
+        await pilot.press("y")
+        await wait_for(pilot, lambda: f"post {PID} sent" in notes(app))
+        await wait_for(pilot, lambda: isinstance(app.screen, ConfirmModal))
+        await pilot.press("n")
+        await wait_for(pilot, lambda: notes(app)[-1].startswith("uploaded "))
+        assert notes(app)[0] == "uploading 2 posts…"
+        assert notes(app)[-1] == "uploaded 2"
+        assert f"post {OTHER} not recorded" in notes(app)
+
+    run_app(ctx, scenario)
+    assert uploader.events == ["upload", "close", "upload", "close"]
+    assert [u[5] for u in uploader.uploads] == [True, True]  # the debug variant, as single U
+    assert ctx.tools.posts.get(PID).sent_at == NOW
+    assert ctx.tools.posts.get(OTHER).sent_at is None
 
 
 # --- picking the sound ------------------------------------------------------------------------

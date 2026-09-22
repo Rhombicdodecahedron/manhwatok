@@ -611,7 +611,10 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   picks, `r` render, `a` art, `c` cover version (fan, quad or
   hero; swapped in at once when already rendered), `x` export, `u` upload (`U` with `--debug`),
   `d` delete, `f` show one account's posts. The scheduled column is when a post goes out, in
-  its account's time zone.
+  its account's time zone; the sent one is the day it did. `space` marks the post under the
+  cursor (`●` in the first column), `ctrl+a` marks every post shown, `esc` clears the marks;
+  with marks, `r`, `x` and `U` work through all of them in one run, in the order shown, going
+  on past a failure and ending with one summary (`rendered 3, 1 failed: <id> <why>`).
 - **Art** (`a` on a post) — the post's titles on the left, with the picture each one is drawn
   with. `enter` on a title lists MangaDex's volume covers for it, `enter` on one of those
   downloads it and re-renders; `s` steps through the sources (covers, fan art, pins), `u` takes
@@ -645,8 +648,9 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
 Slides show as real pictures in terminals with image support (kitty, WezTerm, Konsole, foot and
 other sixel terminals); elsewhere as coloured blocks. Uploading works as with `manhwatok upload`:
 if the account has sounds, a dialog first asks which one to add (or "no sound"; `esc` adds
-none), the log shows what the browser did, and a dialog asks whether you posted it. Only one
-render and one browser run at a time; quitting waits for both. The TUI and the commands can be
+none), the log shows what the browser did, and a dialog asks whether you posted it. A bulk `U`
+asks the same questions, post after post, without the log screen. Only one render and one
+browser run at a time (a bulk run counts as the render); quitting waits for both. The TUI and the commands can be
 used at the same time.
 
 ## Upgrading from earlier versions
