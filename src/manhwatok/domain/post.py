@@ -40,6 +40,9 @@ class ListPost(BaseModel):
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
     sent_at: AwareDatetime | None = None  # Phase 4: when the user confirmed it was posted
+    # When it's planned to go out: one of its account's slots (`plan fill`) or a time set with
+    # `schedule`. It keeps its slot once sent, so the slot isn't filled again.
+    scheduled_at: AwareDatetime | None = None
     # Phase 5: a post keeps the art style it was built with, as it keeps its CTA texts.
     art: ArtStyle = ArtStyle.NONE
     cover: CoverStyle = CoverStyle.FAN  # which cover version render makes 01.png

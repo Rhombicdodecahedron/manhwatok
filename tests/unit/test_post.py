@@ -1,4 +1,5 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
@@ -103,6 +104,7 @@ def test_phase2_post_json_loads_with_new_defaults():
     assert p.cta_title == DEFAULT_CTA_TITLE == "Which one have you *read?*"
     assert p.cta_follow == DEFAULT_CTA_FOLLOW == "Follow for part 2"
     assert p.sent_at is None
+    assert p.scheduled_at is None
     assert p.art is ArtStyle.NONE  # an older post keeps the look it was built with
     assert p.items[0].custom_art == ""  # no hand-picked art until you set one
 
@@ -115,6 +117,14 @@ def test_exported_at_must_be_timezone_aware():
 def test_sent_at_must_be_timezone_aware():
     with pytest.raises(ValidationError):
         post(sent_at=datetime(2026, 9, 15, 12, 0))
+
+
+def test_scheduled_at_must_be_timezone_aware_and_survives_json():
+    with pytest.raises(ValidationError):
+        post(scheduled_at=datetime(2026, 9, 24, 19, 0))
+    when = datetime(2026, 9, 24, 19, 0, tzinfo=ZoneInfo("Europe/Paris"))
+    saved = ListPost.model_validate_json(post(scheduled_at=when).model_dump_json())
+    assert saved.scheduled_at == when
 
 
 def test_post_item_carries_hand_picked_art():

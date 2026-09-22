@@ -506,6 +506,38 @@ uv run manhwatok next -a @manhwa.daily --count 3    # the next three, in turn
   <id>` (`render --source ... --replace` picks the art again), then `export` or `upload` it.
 - `--timezone` (default `Europe/Paris`) is the account's time zone, for posting times.
 
+## Posting plan
+
+Give an account weekly slots, and `plan fill` makes a post for every slot of the days ahead
+from its rotation, as `next` makes them, and schedules each one there.
+
+```bash
+uv run manhwatok account set @manhwa.daily --slots "mon 19:00,thu 19:00,daily 12:30"
+uv run manhwatok plan fill -a @manhwa.daily          # the next 7 days
+uv run manhwatok plan fill --days 10                 # every account with slots, 10 days ahead
+uv run manhwatok plan show                           # the week ahead, by day
+uv run manhwatok schedule 20260922-a3f9 "thu 19:00"  # one post, by hand
+uv run manhwatok schedule 20260922-a3f9 --clear
+```
+
+- A slot is `<day> HH:MM`, with the day `mon`…`sun` or `daily`, in the account's `--timezone`.
+  `--slots ""` clears them; `account show` lists them. A slot inside the hour the clocks skip in
+  spring (02:30 on the last Sunday of March in Paris) goes out an hour later, at 03:30; one
+  inside the hour they repeat in autumn goes out on its first pass.
+- `plan fill` only fills slots nothing is scheduled at yet, so running it twice makes nothing
+  new, and a post you've sent keeps its slot. It looks 7 days ahead by default and 10 at most,
+  as far as TikTok schedules. It stops at the first post it can't make (a rotation with nothing
+  left, say); the ones made before stay made and scheduled.
+- `plan show` lists each slot with its post's id, title and state (not rendered, rendered,
+  exported, sent), or `— empty`, in the account's time zone. `-a` shows one account, `--days`
+  looks further. A post scheduled at a time that isn't one of its account's slots is listed
+  too, marked `(not a slot)`.
+- `schedule <id> <when>` takes `YYYY-MM-DD HH:MM` or `<day> HH:MM` (the next such time), in the
+  post's account's time zone (`Europe/Paris` for a post without one); `--clear` unschedules it.
+  `posts` shows each scheduled post's time (in this computer's time zone).
+- The plan is yours to follow: nothing is uploaded at its time. Upload each post with `upload`
+  when its slot comes.
+
 ## Uploading to TikTok (assisted)
 
 `upload` takes the manual steps out of posting but leaves the decision to you: it opens a real,

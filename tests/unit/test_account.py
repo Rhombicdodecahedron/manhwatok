@@ -97,6 +97,7 @@ def test_plan_fields_default_so_accounts_saved_before_them_load():
     assert old.rotation_cursor == 0
     assert old.timezone == "Europe/Paris"
     assert old.art_source is None
+    assert old.slots == []
 
 
 def test_rotation_items_are_checked_and_written_the_one_way():
@@ -128,3 +129,13 @@ def test_the_art_source_is_one_render_source_takes():
     assert Account(handle="reads", art_source="pins").art_source is ArtSourceName.PINS
     with pytest.raises(ManhwatokError, match="covers, fanart, pins or reddit"):
         Account(handle="reads", art_source="instagram")
+
+
+def test_slots_are_checked_and_written_the_one_way():
+    account = Account(handle="reads", slots=["Mon 9:00", "daily 12:30", "mon 09:00"])
+    assert account.slots == ["mon 09:00", "daily 12:30"]
+
+
+def test_a_bad_slot_is_refused():
+    with pytest.raises(ManhwatokError, match="is not a slot"):
+        Account(handle="reads", slots=["monday at seven"])

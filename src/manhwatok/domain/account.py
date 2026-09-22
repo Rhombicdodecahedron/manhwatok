@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.errors import InvalidName, ManhwatokError
 from manhwatok.domain.models import ArtSourceName, ArtStyle
-from manhwatok.domain.plan import clean_rotation
+from manhwatok.domain.plan import clean_rotation, clean_slots
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
@@ -55,6 +55,8 @@ class Account(BaseModel):
     rotation: list[str] = Field(default_factory=list)
     rotation_cursor: int = 0
     timezone: str = DEFAULT_TIMEZONE  # IANA name; what the plan's times are read in
+    # When its posts go out, each week: "<day> HH:MM" (mon..sun, or "daily"), in `timezone`.
+    slots: list[str] = Field(default_factory=list)
     # Where `next` fills a list post's art from, as `render --source`; None keeps the style's own.
     art_source: ArtSourceName | None = None
 
@@ -101,6 +103,11 @@ class Account(BaseModel):
     @classmethod
     def _rotation(cls, value: list[str]) -> list[str]:
         return clean_rotation(value)
+
+    @field_validator("slots")
+    @classmethod
+    def _slots(cls, value: list[str]) -> list[str]:
+        return clean_slots(value)
 
     @field_validator("rotation_cursor")
     @classmethod

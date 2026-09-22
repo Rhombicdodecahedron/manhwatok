@@ -83,6 +83,11 @@ def _fail(e: Exception) -> NoReturn:
     raise typer.Exit(code=1)
 
 
+def _now() -> datetime:
+    """The time the plan's commands work from (tests set their own)."""
+    return datetime.now(timezone.utc)
+
+
 # Search options shared by `suggest` and `build`. Sort and min tag rank default to None so an
 # explicit value can override a theme's; plain searches fall back to score / 60.
 TAG = typer.Option(
@@ -547,7 +552,8 @@ def posts(
         None, "--account", "-a", help="Only this account's posts."
     ),
 ) -> None:
-    """List saved posts, newest first; `sent` marks posts confirmed after `upload`."""
+    """List saved posts, newest first; `for <time>` is when one is scheduled to go out (in
+    this computer's time zone), `sent` marks posts confirmed after `upload`."""
     from manhwatok.app import container
     from manhwatok.domain.account import normalize_handle
     from manhwatok.domain.text import plain_title
@@ -566,12 +572,19 @@ def posts(
     who = {p.id: f"@{p.account}" if p.account else "-" for p in saved}
     width = max(len(w) for w in who.values())
     any_sent = any(p.sent_at for p in saved)
+    any_planned = any(p.scheduled_at for p in saved)
     for post in saved:
         when = post.created_at.astimezone().strftime("%Y-%m-%d %H:%M")
         size = "draft" if post.is_unfinished else f"{post.slide_count} slides"
+        planned = ""
+        if any_planned:
+            at = post.scheduled_at
+            planned = f"{f'for {at.astimezone():%Y-%m-%d %H:%M}' if at else '':<20}  "
         sent = f"{'sent' if post.sent_at else '':<4}  " if any_sent else ""
         title = plain_title(post.title) or "(untitled)"
-        typer.echo(f"{post.id}  {when}  {who[post.id]:<{width}}  {size:>9}  {sent}{title}")
+        typer.echo(
+            f"{post.id}  {when}  {who[post.id]:<{width}}  {size:>9}  {planned}{sent}{title}"
+        )
 
 
 @app.command()
@@ -915,6 +928,13 @@ ROTATION = typer.Option(
 TIMEZONE = typer.Option(
     None, "--timezone", help="The account's time zone, e.g. Europe/Paris (the default)."
 )
+SLOTS = typer.Option(
+    None,
+    "--slots",
+    help="When this account's posts go out each week, in its --timezone, comma-separated: "
+    '<day> HH:MM with day mon..sun or daily, e.g. "mon 19:00,thu 19:00". `manhwatok plan '
+    'fill` makes a post for each. "" clears them.',
+)
 ART_SOURCE = typer.Option(
     None,
     "--art-source",
@@ -938,6 +958,7 @@ def _account_fields(
     rotation: Optional[str] = None,
     time_zone: Optional[str] = None,
     art_source: Optional[str] = None,
+    slots: Optional[str] = None,
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -964,6 +985,8 @@ def _account_fields(
         fields["timezone"] = time_zone
     if art_source is not None:
         fields["art_source"] = art_source.strip() or None
+    if slots is not None:
+        fields["slots"] = [slot.strip() for slot in slots.split(",") if slot.strip()]
     return fields
 
 
@@ -983,6 +1006,7 @@ def _print_account(a) -> None:
         ("art", a.art.value),
         ("rotation", _rotation_text(a)),
         ("timezone", a.timezone),
+        ("slots", ", ".join(a.slots) or "-"),
         ("art source", a.art_source.value if a.art_source else "-"),
     ]:
         typer.echo(f"  {label:<13} {value}")
@@ -1030,13 +1054,14 @@ def account_add(
     rotation: Optional[str] = ROTATION,
     time_zone: Optional[str] = TIMEZONE,
     art_source: Optional[str] = ART_SOURCE,
+    slots: Optional[str] = SLOTS,
 ) -> None:
     """Add an account; unset options get the defaults."""
     from manhwatok.app.accounts import add_account
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound, rotation, time_zone, art_source,
+        emojis, sound, rotation, time_zone, art_source, slots,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -1058,13 +1083,14 @@ def account_set(
     rotation: Optional[str] = ROTATION,
     time_zone: Optional[str] = TIMEZONE,
     art_source: Optional[str] = ART_SOURCE,
+    slots: Optional[str] = SLOTS,
 ) -> None:
     """Change an account; only the given options change."""
     from manhwatok.app.accounts import update_account
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound, rotation, time_zone, art_source,
+        emojis, sound, rotation, time_zone, art_source, slots,
     )
     _save_account(update_account, "updated", handle, fields)
 
@@ -1443,3 +1469,161 @@ def chapter_build(
         f"{tools.posts.folder(post.id)}"
     )
     typer.echo(f"export with: manhwatok export {post.id}")
+
+
+# --- the posting plan ------------------------------------------------------------------------
+
+plan_app = typer.Typer(
+    help="The posting plan: each account's slots over the days ahead and the posts in them.",
+    no_args_is_help=True,
+)
+app.add_typer(plan_app, name="plan")
+
+PLAN_ACCOUNT = typer.Option(
+    None, "--account", "-a", help="Only this account (default: every account)."
+)
+NO_SLOTS = (
+    'give an account slots with: manhwatok account set <handle> --slots "mon 19:00,thu 19:00"'
+)
+
+
+@plan_app.command("show")
+def plan_show(
+    account: Optional[str] = PLAN_ACCOUNT,
+    days: int = typer.Option(7, "--days", min=1, max=60, help="How many days ahead."),
+) -> None:
+    """The slots of the days ahead, by day, each with the post going out then or `— empty`.
+
+    Times are in each account's time zone. A post scheduled at a time that isn't one of its
+    account's slots is listed too, marked `(not a slot)`."""
+    from manhwatok.app import container
+    from manhwatok.app.fill_plan import plan_rows
+
+    settings = Settings()
+    try:
+        with container.build_store(settings) as store:
+            accounts = [_account(store, account)] if account else store.accounts.list()
+        posts = container.build_posts(settings)
+        rows = plan_rows(accounts, posts.list(), _now(), days)
+        lines = _plan_lines(rows, posts)
+    except ManhwatokError as e:
+        _fail(e)
+    if not lines:
+        typer.echo(f"nothing planned in the next {days} days — {NO_SLOTS}")
+    for line in lines:
+        typer.echo(line)
+
+
+def _plan_lines(rows, posts) -> list[str]:
+    """`plan show`'s table: a line per day, then a line per row under it."""
+    from manhwatok.domain.text import plain_title
+    from manhwatok.tui.text import post_status
+
+    if not rows:
+        return []
+    width = max(len(row.account.display) for row in rows)
+    titles = {
+        row.post.id: plain_title(row.post.title) or "(untitled)" for row in rows if row.post
+    }
+    title_width = max(map(len, titles.values()), default=0)
+    lines, day = [], None
+    for row in rows:
+        if row.at.date() != day:
+            day = row.at.date()
+            lines.append(f"{row.at:%a %d %b}")
+        start = f"  {row.at:%H:%M}  {row.account.display:<{width}}"
+        if row.post is None:
+            lines.append(f"{start}  — empty")
+            continue
+        status = post_status(row.post, posts)
+        line = f"{start}  {row.post.id}  {titles[row.post.id]:<{title_width}}  {status}"
+        lines.append(line + ("" if row.on_slot else "  (not a slot)"))
+    return lines
+
+
+@plan_app.command("fill")
+def plan_fill(
+    account: Optional[str] = typer.Option(
+        None, "--account", "-a", help="Only this account (default: every account with slots)."
+    ),
+    days: int = typer.Option(
+        7, "--days", help="How many days ahead, 1–10 (TikTok schedules at most 10 days out)."
+    ),
+) -> None:
+    """Make a post for each empty slot of the days ahead, as `next` makes them, and schedule
+    it there.
+
+    Running it again makes nothing new, and a sent post keeps its slot. It stops at the first
+    failure; the posts made before it stay made and scheduled."""
+    from manhwatok.app.context import open_context
+    from manhwatok.app.fill_plan import fill
+    from manhwatok.domain.account import normalize_handle
+
+    settings = Settings()
+    now = _now()
+    try:
+        ctx = open_context(settings, _progress)
+        try:
+            handles = (
+                [account] if account else [a.handle for a in ctx.store.accounts.list() if a.slots]
+            )
+            if not handles:
+                typer.echo(f"no account has slots yet — {NO_SLOTS}")
+                return
+            for handle in handles:
+                made = fill(
+                    ctx, handle, now, days, _warn, lambda p: _echo_filled(p, ctx.tools.posts)
+                )
+                if not made:
+                    typer.echo(
+                        f"every slot of @{normalize_handle(handle)} in the next {days} days "
+                        "has a post"
+                    )
+        finally:
+            ctx.close()
+    except ManhwatokError as e:
+        _fail(e)
+    typer.echo("see the plan with `manhwatok plan show`; review the posts in `manhwatok tui`")
+
+
+def _echo_filled(post, posts) -> None:
+    _progress.close()
+    typer.echo(
+        f"{post.scheduled_at:%a %d %b %H:%M}  @{post.account}  post {post.id} · "
+        f"{_next_summary(post, posts)}"
+    )
+
+
+@app.command()
+def schedule(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    when: Optional[str] = typer.Argument(
+        None,
+        help='"YYYY-MM-DD HH:MM", or "<day> HH:MM" (mon..sun or daily) for the next such time, '
+        "in the post's account's time zone (Europe/Paris without one).",
+    ),
+    clear: bool = typer.Option(False, "--clear", help="Unschedule the post."),
+) -> None:
+    """Set when a post goes out, e.g. `schedule 20260922-a3f9 "thu 19:00"`, or --clear it.
+
+    The time is the post's place in `plan show`; a post scheduled at one of its account's slots
+    takes that slot, so `plan fill` leaves it alone."""
+    from manhwatok.app import container
+    from manhwatok.app.fill_plan import schedule_post
+
+    if (when is None) != clear:
+        _fail(ManhwatokError("give a time or --clear" + (", not both" if clear else "")))
+    settings = Settings()
+    try:
+        with container.build_store(settings) as store:
+            post = schedule_post(
+                container.build_posts(settings), store.accounts, post_id, when, _now()
+            )
+    except ManhwatokError as e:
+        _fail(e)
+    at = post.scheduled_at
+    if at is None:
+        typer.echo(f"post {post.id} is no longer scheduled")
+    else:
+        zone = getattr(at.tzinfo, "key", None) or f"{at:%Z}"
+        typer.echo(f"post {post.id} goes out {at:%a %d %b %Y %H:%M} ({zone})")
