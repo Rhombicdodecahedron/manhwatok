@@ -29,7 +29,7 @@ from manhwatok.domain.chapter import chapter_sort_key
 from manhwatok.domain.errors import ManhwatokError, MetadataError
 from manhwatok.domain.models import Manhwa
 from manhwatok.ports.cache import Cache
-from manhwatok.ports.chapters import ChapterInfo
+from manhwatok.ports.chapters import ChapterInfo, PageCount
 
 API = "https://api.asurascans.com"
 SITE = "https://asurascans.com/"
@@ -131,8 +131,6 @@ class AsuraChapters:
         for n, url in enumerate(urls, 1):
             path = folder / f"{n:02d}{_suffix(url)}"
             if not _usable(path):
-                if progress:
-                    progress(f"chapter {chapter.number}: page {n} of {len(urls)}")
                 folder.mkdir(parents=True, exist_ok=True)
                 self._wait_turn()
                 try:
@@ -147,6 +145,8 @@ class AsuraChapters:
                     raise MetadataError(
                         f"chapter {chapter.number}: page {n} could not be downloaded — {e}"
                     ) from e
+                if progress:
+                    progress(PageCount(f"chapter {chapter.number}", "page", n, len(urls)))
             kept.append(path)
         return kept
 

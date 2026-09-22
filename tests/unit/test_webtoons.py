@@ -159,6 +159,15 @@ def test_downloads_an_episodes_strips_in_reading_order(tmp_path):
     assert all(p.read_bytes() == IMAGE for p in pages)
 
 
+
+def test_progress_counts_strips_as_they_land(tmp_path):
+    site = Site(cards=[_card(2027, "The Boxer")], images=3)
+    counts = []
+    _source(tmp_path, site).pages(CHAPTER, counts.append)
+    assert [(c.done, c.total) for c in counts] == [(1, 3), (2, 3), (3, 3)]
+    assert counts[-1] == "episode 1: strip 3 of 3"
+
+
 def test_the_strips_are_asked_for_as_the_site_itself_would(tmp_path):
     """Naver's CDN answers 403 without the site as referer."""
     site = Site(cards=[_card(2027, "The Boxer")])

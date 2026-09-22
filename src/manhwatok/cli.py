@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import NoReturn, Optional, TextIO
 
 import typer
 
 from manhwatok.config import Settings
 from manhwatok.domain.errors import ManhwatokError
+from manhwatok.ports.chapters import PageCount
 from manhwatok.domain.models import (
     ArtOrder,
     ArtSourceName,
@@ -28,11 +30,55 @@ def main() -> None:
     """Themed manhwa recommendation slideshows for TikTok."""
 
 
-def _progress(msg: str) -> None:
-    typer.secho(f"  {msg}", fg=typer.colors.CYAN, err=True)
+class ProgressLine:
+    """Progress messages on stderr. A page count redraws one line as a bar in a terminal;
+    anywhere else, and for every other message, each is a line of its own."""
+
+    def __init__(
+        self, stream: TextIO | None = None, tty: bool | None = None, width: int = 24
+    ) -> None:
+        # stderr is looked up on each write unless given, so a test runner that swaps it
+        # still sees the messages
+        self._given, self._given_tty, self._width = stream, tty, width
+        self._open = False
+
+    @property
+    def _stream(self) -> TextIO:
+        return self._given or sys.stderr
+
+    @property
+    def _tty(self) -> bool:
+        return self._given_tty if self._given_tty is not None else self._stream.isatty()
+
+    def __call__(self, msg: str) -> None:
+        if self._tty and isinstance(msg, PageCount):
+            filled = self._width * msg.done // msg.total
+            bar = "█" * filled + "░" * (self._width - filled)
+            self._open = msg.done < msg.total
+            line = f"  {msg.label}  {bar}  {msg.done}/{msg.total}"
+            self._write(line, start="\r\x1b[2K", end=not self._open)
+            return
+        self.close()
+        self._write(f"  {msg}", end=True)
+
+    def close(self) -> None:
+        """End a bar left unfinished, so what follows starts on its own line."""
+        if self._open:
+            self._write("", end=True)
+            self._open = False
+
+    def _write(self, text: str, start: str = "", end: bool = False) -> None:
+        if self._tty and text:
+            text = typer.style(text, fg=typer.colors.CYAN)
+        self._stream.write(start + text + ("\n" if end else ""))
+        self._stream.flush()
+
+
+_progress = ProgressLine()
 
 
 def _fail(e: Exception) -> NoReturn:
+    _progress.close()
     typer.secho(f"error: {e}", fg=typer.colors.RED, err=True)
     raise typer.Exit(code=1)
 
@@ -1312,6 +1358,7 @@ def chapter_build(
                 _close(reader)
     except ManhwatokError as e:
         _fail(e)
+    _progress.close()
     where = post.chapter
     typer.echo(
         f"post {post.id} · {where.source.value} chapter {where.number} "

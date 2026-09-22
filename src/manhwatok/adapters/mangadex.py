@@ -26,7 +26,7 @@ from manhwatok.domain.errors import ManhwatokError, MetadataError
 from manhwatok.domain.models import Manhwa
 from manhwatok.ports.art import ArtOption
 from manhwatok.ports.cache import Cache
-from manhwatok.ports.chapters import ChapterInfo
+from manhwatok.ports.chapters import ChapterInfo, PageCount
 
 API = "https://api.mangadex.org"
 UPLOADS = "https://uploads.mangadex.org/covers"
@@ -291,8 +291,6 @@ class MangaDexChapters(_MangaDexApi):
         for n, name in enumerate(names, 1):
             path = folder / f"{n:02d}{_suffix(name)}"
             if not _usable(path):
-                if progress:
-                    progress(f"chapter {chapter.number}: page {n} of {len(names)}")
                 folder.mkdir(parents=True, exist_ok=True)
                 self._wait_turn()
                 try:
@@ -307,6 +305,8 @@ class MangaDexChapters(_MangaDexApi):
                     raise MetadataError(
                         f"chapter {chapter.number}: page {n} could not be downloaded — {e}"
                     ) from e
+                if progress:
+                    progress(PageCount(f"chapter {chapter.number}", "page", n, len(names)))
             found.append(path)
         return found
 

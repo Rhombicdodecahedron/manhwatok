@@ -3,7 +3,7 @@ import pytest
 
 from manhwatok.adapters.mangadex import MangaDexChapters, pick_chapters
 from manhwatok.domain.errors import MetadataError
-from manhwatok.ports.chapters import ChapterInfo
+from manhwatok.ports.chapters import ChapterInfo, PageCount
 from tests.unit.fakes import manhwa
 
 BOXER = manhwa(anilist_id=119174, title="The Boxer")
@@ -235,6 +235,13 @@ def test_progress_says_which_page_is_being_fetched(tmp_path):
     messages: list[str] = []
     _chapters(tmp_path, Api()).pages(CHAPTER, messages.append)
     assert any("1" in m and "2" in m for m in messages)
+
+
+def test_progress_counts_pages_as_they_land(tmp_path):
+    counts: list[PageCount] = []
+    _chapters(tmp_path, Api()).pages(CHAPTER, counts.append)
+    assert [(c.done, c.total) for c in counts] == [(1, 2), (2, 2)]
+    assert all(c.label == "chapter 1" for c in counts)
 
 
 # --- what other languages have ------------------------------------------------------------------

@@ -147,6 +147,13 @@ def test_downloads_a_chapters_pages_in_reading_order(tmp_path):
     assert all(p.read_bytes() == IMAGE for p in pages)
 
 
+def test_progress_counts_pages_as_they_land(tmp_path):
+    counts = []
+    _source(tmp_path, Api(pages=3)).pages(CHAPTER, counts.append)
+    assert [(c.done, c.total) for c in counts] == [(1, 3), (2, 3), (3, 3)]
+    assert counts[-1] == "chapter 1: page 3 of 3"
+
+
 def test_pages_already_on_disk_are_not_downloaded_again(tmp_path):
     api = Api()
     source = _source(tmp_path, api)

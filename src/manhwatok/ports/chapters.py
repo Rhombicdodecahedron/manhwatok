@@ -14,6 +14,20 @@ class ChapterInfo(NamedTuple):
     pages: int
 
 
+class PageCount(str):
+    """A progress message that is also a count — "chapter 13: page 12 of 37" — so a terminal
+    can draw it as a bar, while anything that only wants text reads it as the message."""
+
+    label: str
+    done: int
+    total: int
+
+    def __new__(cls, label: str, unit: str, done: int, total: int) -> "PageCount":
+        count = super().__new__(cls, f"{label}: {unit} {done} of {total}")
+        count.label, count.done, count.total = label, done, total
+        return count
+
+
 class ChapterPagesSource(Protocol):
     def chapters(self, manhwa: Manhwa, language: str = "en") -> list[ChapterInfo]:
         """Every chapter this source has in `language`, in chapter-number order. Empty when it
