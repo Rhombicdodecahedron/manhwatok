@@ -36,6 +36,9 @@ class FakeLocator:
     def set_input_files(self, files):
         pass
 
+    def inner_text(self) -> str:
+        return "Everyone"
+
     def click(self):
         if self.page.click_error:
             self.page.closed = self.page.click_closes

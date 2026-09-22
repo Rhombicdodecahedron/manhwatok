@@ -349,8 +349,9 @@ class PlaywrightUploader:
             steps.append(("add the sound", "add one yourself", self._sound_step))
         if schedule_at is not None:
             steps.append(("fill in the schedule", SCHEDULE_FIX, self._schedule_step))
-        if visibility is not Visibility.EVERYONE:  # TikTok already opens on Everyone
-            steps.append(("choose who can see it", VISIBILITY_FIX, self._visibility_step))
+        # Always: TikTok may open on the last choice this account made, so even an Everyone
+        # post has to be looked at, or a post meant for everyone quietly stays hidden.
+        steps.append(("choose who can see it", VISIBILITY_FIX, self._visibility_step))
         text = {
             "title": title,
             "description": description,
@@ -575,14 +576,16 @@ class PlaywrightUploader:
     # --- who can see the post -------------------------------------------------------------
 
     def _visibility_step(self, page, report: UploadReport, text: dict, fix: str) -> None:
-        """Set TikTok's "Who can see this post". It opens on Everyone, so this only runs for
-        another one, and a list already showing it is left alone — there is nothing to click.
-        The button's own text is read back afterwards: a click that landed elsewhere would
-        otherwise leave the post open to everyone without anyone noticing."""
+        """Set TikTok's "Who can see this post". A list already showing the wanted one is left
+        alone — there is nothing to click. The button's own text is read back afterwards: a
+        click that landed elsewhere would otherwise leave the post open to everyone without
+        anyone noticing. A missing list is only worth saying when something other than
+        TikTok's own default was asked for."""
         wanted, timeout = text["visibility"], self._page.visibility_timeout
         button = self._find(page, [self._page.visibility_trigger], timeout)
         if button is None:
-            report.problems.append(f'TikTok\'s "Who can see this post" wasn\'t there — {fix}')
+            if wanted is not Visibility.EVERYONE:
+                report.problems.append(f'TikTok\'s "Who can see this post" wasn\'t there — {fix}')
             return
         if self._shown_visibility(button) is wanted:
             report.visibility = wanted

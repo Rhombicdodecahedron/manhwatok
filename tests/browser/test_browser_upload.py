@@ -139,6 +139,7 @@ def test_attaches_the_slides_in_order_and_fills_in_the_post(tmp_path, site):
         problems=[],
         titled=True,
         sound="solo leveling 1 (00:31 · Fixture)",
+        visibility=Visibility.EVERYONE,  # read back, never clicked
     )
     assert (tmp_path / "browser" / "reads").is_dir()
     assert not (tmp_path / "debug").exists()  # nothing was missing
@@ -182,6 +183,7 @@ def test_a_missing_caption_box_is_a_problem_not_a_crash(tmp_path, site):
         problems=["description box not found — paste it from caption.txt yourself"],
         titled=True,
         sound="solo leveling 1 (00:31 · Fixture)",
+        visibility=Visibility.EVERYONE,  # read back, never clicked
     )
 
 
@@ -437,7 +439,20 @@ def test_a_list_already_showing_what_is_wanted_is_never_opened(tmp_path, site):
     assert (report.visibility, report.problems) == (Visibility.FRIENDS, [])
 
 
+def test_a_list_remembering_another_choice_is_put_back_to_everyone(tmp_path, site):
+    """TikTok may open on the last choice this account made. A post meant for everyone has to
+    say so, or it goes out hidden."""
+    uploader = _uploader(tmp_path, site, "fake_upload.html?visible-to=Only you")
+    try:
+        report = _upload(uploader, _slides(tmp_path))  # everyone, the default
+        assert _shown(_window(uploader)) == "Everyone"
+    finally:
+        uploader.close()
+    assert (report.visibility, report.problems) == (Visibility.EVERYONE, [])
+
+
 def test_everyone_leaves_tiktoks_own_default_alone(tmp_path, site):
+    """Read, don't click: TikTok may open on the last choice, so even Everyone is checked."""
     uploader = _uploader(tmp_path, site)
     try:
         report = _upload(uploader, _slides(tmp_path))
@@ -446,7 +461,7 @@ def test_everyone_leaves_tiktoks_own_default_alone(tmp_path, site):
         assert "visibilityOpened" not in window.evaluate("({...document.body.dataset})")
     finally:
         uploader.close()
-    assert (report.visibility, report.problems) == (None, [])
+    assert (report.visibility, report.problems) == (Visibility.EVERYONE, [])
 
 
 def test_a_button_that_doesnt_read_back_is_a_problem(tmp_path, site):

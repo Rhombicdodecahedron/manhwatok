@@ -585,8 +585,9 @@ uv run manhwatok upload <id> --visibility friends      # who can see this one (s
 
 ### Who can see a post
 
-TikTok's "Who can see this post" opens on **Everyone**, and manhwatok leaves it there unless
-something asks for otherwise — it is the one thing on the page it touches only when it has to.
+TikTok's "Who can see this post" starts on **Everyone**, but the page can open on whatever that
+account last chose, so every upload reads the list and puts it back to what the post asks for.
+A list already showing it is left alone.
 
 ```bash
 uv run manhwatok account set @manhwa.daily --visibility friends   # every post of this account
