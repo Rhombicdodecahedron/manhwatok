@@ -3,9 +3,14 @@
      src/manhwatok/adapters/tiktok_page.py. Query-string flags: ?no-input (no file input),
      ?no-editor (the editor never opens), ?no-caption (the editor has no description box),
      ?no-title (no title box), ?no-hashtags (a typed hashtag is never suggested as such),
-     ?no-sounds (a sound search finds nothing). -->
+     ?no-sounds (a sound search finds nothing), ?no-schedule (no "When to post" at all),
+     ?consent (the one-time "allow scheduled posting" modal opens and the radio stays on Now),
+     ?month-only (the calendar shows one month at a time, so the next-month arrow is needed),
+     ?stuck-date (picking a day leaves the date box as it was).
+     "Today" for the calendar is 2026-09-22, as on the day the real page was read. -->
 <html lang="en">
-<head><meta charset="utf-8"><title>Upload</title></head>
+<head><meta charset="utf-8"><title>Upload</title>
+<style>.tiktok-timepicker-invisible { display: none; }</style></head>
 <body>
   <!-- Hidden editable text before the editor, as real pages have; it must not count. -->
   <div contenteditable="true" hidden>not the caption</div>
@@ -27,8 +32,58 @@
       </div>
       <div id="results"></div>
     </div>
+    <!-- "When to post": the radio pair, then the two readonly pickers once Schedule is on. -->
+    <div data-e2e="schedule_container">
+      <div class="scheduled-container new-form">
+        <div class="title-v2 scheduled-title-container"><span class="TUXText">When to post</span></div>
+        <div class="schedule-radio-container">
+          <label class="Radio__root Radio__root--disabled-false">
+            <span class="Radio__circle Radio__circle--checked-true">
+              <input type="radio" class="Radio__input" name="postSchedule" value="post_now" aria-checked="true" checked>
+              <span class="Radio__innerCircle Radio__innerCircle--checked-true"></span>
+            </span>
+            <span class="TUXText">Now</span>
+          </label>
+          <label class="Radio__root Radio__root--disabled-false">
+            <span class="Radio__circle Radio__circle--checked-false">
+              <input type="radio" class="Radio__input" name="postSchedule" value="schedule" aria-checked="false">
+              <span class="Radio__innerCircle Radio__innerCircle--checked-false"></span>
+            </span>
+            <span class="TUXText">Schedule</span>
+          </label>
+        </div>
+        <div class="scheduled-picker" hidden>
+          <div class="TUXFormField TUXTextInput">
+            <input class="TUXTextInputCore-input" type="text" readonly value="23:20">
+          </div>
+          <div class="tiktok-timepicker-time-picker-container tiktok-timepicker-invisible">
+            <div class="tiktok-timepicker-option-list" id="hours"></div>
+            <div class="tiktok-timepicker-option-list" id="minutes"></div>
+          </div>
+          <div class="TUXFormField TUXTextInput">
+            <input class="TUXTextInputCore-input" type="text" readonly value="2026-09-22">
+          </div>
+          <div class="calendar-wrapper" hidden>
+            <div class="calendar-header">
+              <span class="arrow" id="previous-month">‹</span>
+              <span class="month-title"></span>
+              <span class="year-title"></span>
+              <span class="arrow" id="next-month">›</span>
+            </div>
+            <div class="calendar-days" id="days"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Reads "Schedule" once the radio moved; manhwatok never clicks either. -->
     <button type="button" data-e2e="post_video_button" onclick="document.body.dataset.posted = 'yes'">Post</button>
   </section>
+  <div id="consent" hidden>
+    <p>Allow your video to be saved for scheduled posting? When you schedule a video, the video
+      is saved on our servers before it is posted.</p>
+    <button type="button" id="cancel">Cancel</button>
+    <button type="button" id="allow">Allow</button>
+  </div>
   <script>
     const flags = new URLSearchParams(location.search);
     if (flags.has("no-input")) document.querySelector("input[type=file]").remove();
@@ -99,6 +154,120 @@
         }
       }, 100);
     });
+
+    // --- "When to post" ------------------------------------------------------------------
+    // TikTok's own radio is driven by React: the browser's label behaviour is turned off here
+    // too, and only a click on the label's text switches it.
+    const schedule = document.querySelector('[data-e2e="schedule_container"]');
+    if (flags.has("no-schedule")) schedule.remove();
+    const TODAY = new Date(2026, 8, 22);          // 22 September 2026, as the page was read
+    const WINDOW_DAYS = 11;                        // today plus 11 days are pickable
+    const picker = schedule?.querySelector(".scheduled-picker");
+    const boxes = schedule?.querySelectorAll(".TUXTextInputCore-input");
+    const timeBox = boxes?.[0], dateBox = boxes?.[1];
+    const times = schedule?.querySelector(".tiktok-timepicker-time-picker-container");
+    const calendar = schedule?.querySelector(".calendar-wrapper");
+    const consent = document.getElementById("consent");
+    let allowed = !flags.has("consent");
+    let view = new Date(TODAY.getFullYear(), TODAY.getMonth(), 1);
+
+    const pad = (n) => String(n).padStart(2, "0");
+    const isoDay = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
+    function setChecked(value) {
+      for (const input of schedule.querySelectorAll('input[name="postSchedule"]')) {
+        const on = input.value === value;
+        input.setAttribute("aria-checked", String(on));
+        input.checked = on;
+        input.parentElement.className = `Radio__circle Radio__circle--checked-${on}`;
+      }
+      picker.hidden = value !== "schedule";
+      document.querySelector('[data-e2e="post_video_button"]').textContent =
+        value === "schedule" ? "Schedule" : "Post";
+    }
+
+    for (const label of schedule?.querySelectorAll("label") ?? []) {
+      label.addEventListener("click", (event) => {
+        event.preventDefault();                    // React decides, not the browser
+        if (!event.target.classList.contains("TUXText")) return;  // only the label's text works
+        const value = label.querySelector("input").value;
+        if (value === "schedule" && !allowed) { consent.hidden = false; return; }
+        setChecked(value);
+      });
+    }
+    document.getElementById("allow")?.addEventListener("click", () => {
+      allowed = true;
+      consent.hidden = true;
+      document.body.dataset.allowed = "yes";
+      setChecked("schedule");
+    });
+
+    // The time picker: hours, then minutes in 5-minute steps. Like TikTok, the boxes keep
+    // their value attribute — only the live value changes.
+    const options = (list, values) => {
+      list.replaceChildren(...values.map((value) => {
+        const item = document.createElement("span");
+        item.className = "tiktok-timepicker-option-item";
+        item.textContent = value;
+        item.onclick = () => {
+          const [hour, minute] = timeBox.value.split(":");
+          timeBox.value = list.id === "hours" ? `${value}:${minute}` : `${hour}:${value}`;
+        };
+        return item;
+      }));
+    };
+    if (schedule) {
+      options(document.getElementById("hours"), [...Array(24).keys()].map(pad));
+      options(document.getElementById("minutes"), [...Array(12).keys()].map((n) => pad(n * 5)));
+      timeBox.addEventListener("click", () => {
+        times.classList.remove("tiktok-timepicker-invisible");
+      });
+      dateBox.addEventListener("click", () => { calendar.hidden = false; drawDays(); });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") times.classList.add("tiktok-timepicker-invisible");
+      });
+      document.getElementById("previous-month").onclick = () => { stepMonth(-1); };
+      document.getElementById("next-month").onclick = () => { stepMonth(1); };
+    }
+
+    function stepMonth(by) {
+      view = new Date(view.getFullYear(), view.getMonth() + by, 1);
+      drawDays();
+    }
+
+    function drawDays() {
+      const shown = [];
+      const days = new Date(view.getFullYear(), view.getMonth() + 1, 0).getDate();
+      for (let day = 1; day <= days; day++) {
+        shown.push(new Date(view.getFullYear(), view.getMonth(), day));
+      }
+      if (!flags.has("month-only")) {
+        // TikTok's grid runs on into the next month, so a day just after it is pickable too.
+        for (let day = 1; day <= 6; day++) {
+          shown.push(new Date(view.getFullYear(), view.getMonth() + 1, day));
+        }
+      }
+      const last = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate() + WINDOW_DAYS);
+      calendar.querySelector(".month-title").textContent =
+        view.toLocaleString("en-US", { month: "long" });
+      calendar.querySelector(".year-title").textContent = String(view.getFullYear());
+      document.getElementById("days").replaceChildren(...shown.map((date) => {
+        const cell = document.createElement("div");
+        cell.className = "day-span-container";
+        const span = document.createElement("span");
+        const valid = date >= TODAY && date <= last;
+        span.className = valid ? "day valid" : "day";
+        span.textContent = String(date.getDate());
+        if (valid) {
+          span.onclick = () => {
+            if (!flags.has("stuck-date")) dateBox.value = isoDay(date);
+            calendar.hidden = true;
+          };
+        }
+        cell.append(span);
+        return cell;
+      }));
+    }
   </script>
 </body>
 </html>

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
 
 @dataclass
 class UploadReport:
-    """What the browser managed to do; `problems` are steps the user has to finish by hand."""
+    """What the browser managed to do; `problems` are steps the user has to finish by hand,
+    `notes` things it did that the user should know about but needn't act on."""
 
     attached: bool
     captioned: bool  # the description
@@ -17,6 +19,10 @@ class UploadReport:
     debug_dir: Path | None = None
     titled: bool = False
     sound: str | None = None  # the sound TikTok found and used, as it lists it
+    # The time TikTok's own schedule fields now hold, read back from them; None when the post
+    # was not scheduled — because none was asked for, or because the browser couldn't set it.
+    scheduled_at: datetime | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 class Uploader(Protocol):
@@ -33,10 +39,13 @@ class Uploader(Protocol):
         description: str,
         sound: str | None,
         debug: bool,
+        schedule_at: datetime | None = None,
     ) -> UploadReport:
         """Open the upload page as `handle`, attach `slides` in order, type `title` and
-        `description`, and use the first sound a search for `sound` finds (none if None), then
-        leave the window open for the user to review and post. Raises NotLoggedIn,
+        `description`, and use the first sound a search for `sound` finds (none if None). With
+        `schedule_at`, also switch TikTok to "Schedule" and fill in that date and time (rounded
+        to what its picker takes), then leave the window open for the user to review and post
+        — the final button is never clicked here. Raises NotLoggedIn,
         UploadUnavailable, or ManhwatokError if the browser is gone before the slides are
         attached; anything not found later is reported in `problems`."""
         ...

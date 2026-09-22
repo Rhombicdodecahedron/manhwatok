@@ -6,13 +6,17 @@ import pytest
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import InvalidName, ManhwatokError
 from manhwatok.domain.plan import (
+    MAX_FILL_DAYS,
     RotationItem,
+    check_schedule,
     clean_rotation,
     clean_slots,
     is_slot,
     next_item,
     parse_slot,
     parse_when,
+    schedulable,
+    schedule_step,
     upcoming_slots,
 )
 
@@ -222,3 +226,45 @@ def test_a_time_already_past_is_refused():
 def test_anything_else_is_refused(raw):
     with pytest.raises(ManhwatokError, match="YYYY-MM-DD HH:MM"):
         parse_when(raw, "Europe/Paris", NOW)
+
+
+# --- TikTok's own schedule -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("minute", "rounded"),
+    [(0, 0), (4, 0), (5, 5), (9, 5), (23, 20), (59, 55)],
+)
+def test_the_minute_is_rounded_down_to_tiktoks_five_minute_steps(minute, rounded):
+    when = datetime(2026, 9, 24, 19, minute, 41, 7, tzinfo=PARIS)
+    assert schedule_step(when) == datetime(2026, 9, 24, 19, rounded, tzinfo=PARIS)
+
+
+def test_a_time_in_the_window_is_taken_as_it_was_given():
+    when = NOW + timedelta(hours=2)
+    assert check_schedule(when, NOW) == when  # the uploader rounds it, and says it did
+
+
+@pytest.mark.parametrize("minutes", [15, 16, 19, 20])
+def test_fifteen_minutes_ahead_is_close_enough(minutes):
+    # 19 minutes ahead rounds down to 15: still far enough away.
+    check_schedule(NOW + timedelta(minutes=minutes), NOW)
+
+
+@pytest.mark.parametrize("minutes", [-30, 0, 5, 14])
+def test_too_soon_is_refused(minutes):
+    with pytest.raises(ManhwatokError, match="15 minutes"):
+        check_schedule(NOW + timedelta(minutes=minutes), NOW)
+
+
+def test_further_off_than_tiktok_schedules_is_refused():
+    check_schedule(NOW + timedelta(days=MAX_FILL_DAYS), NOW)
+    with pytest.raises(ManhwatokError, match="10 days"):
+        check_schedule(NOW + timedelta(days=MAX_FILL_DAYS, minutes=5), NOW)
+
+
+def test_schedulable_is_the_same_question_without_the_error():
+    assert schedulable(NOW + timedelta(hours=1), NOW) is True
+    assert schedulable(NOW + timedelta(minutes=5), NOW) is False
+    assert schedulable(NOW + timedelta(days=11), NOW) is False
+    assert schedulable(None, NOW) is False

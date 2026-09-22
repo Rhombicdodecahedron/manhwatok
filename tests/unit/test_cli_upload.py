@@ -1,4 +1,6 @@
 import sys
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 import typer
@@ -61,6 +63,7 @@ def test_upload_then_yes_records_the_post_as_sent(tmp_path, monkeypatch):
         "#manhwatiktok",
         None,  # the account has no sounds: nothing asked
         False,  # no --debug
+        None,  # not scheduled: the post has no time of its own
     )
     assert posts.get(POST_ID).sent_at is not None
     with _store(tmp_path) as store:
@@ -208,6 +211,7 @@ def test_upload_asks_which_sound(tmp_path, monkeypatch, answers, expected):
     result = runner.invoke(app, ["upload", POST_ID], input=answers + "n\n")
     assert result.exit_code == 0, result.output
     assert result.output.startswith(
+        f"post {POST_ID} → @reads, posting now\n"
         "Sound for this post:\n  1. solo leveling\n  2. dark aria\n  0. no sound\nPick [1]: "
     )
     assert browser.uploads[0][4] == expected
@@ -262,3 +266,141 @@ def test_upload_then_yes_marks_a_chapter_posts_part_published(tmp_path, monkeypa
     assert result.exit_code == 0, result.output
     with _store(tmp_path) as store:
         assert store.chapters.parts(1)[0].published_at is not None
+
+
+# --- TikTok's own schedule -------------------------------------------------------------------
+
+
+def _soon(**delta) -> datetime:
+    """A time relative to the real clock: the command reads its own."""
+    return datetime.now(timezone.utc) + timedelta(**delta)
+
+
+def _scheduled_browser(monkeypatch, at):
+    return _browser(
+        monkeypatch, report=UploadReport(True, True, [], titled=True, scheduled_at=at)
+    )
+
+
+def test_a_post_planned_for_later_is_scheduled_on_tiktok(tmp_path, monkeypatch):
+    at = _soon(hours=2).replace(second=0, microsecond=0)
+    posts = _account_post(tmp_path, scheduled_at=at)
+    browser = _scheduled_browser(monkeypatch, at)
+    result = runner.invoke(app, ["upload", POST_ID], input="y\n")
+    assert result.exit_code == 0, result.output
+    local = at.astimezone(ZoneInfo("Europe/Paris"))
+    assert result.output.startswith(
+        f"post {POST_ID} → @reads, scheduled for {local:%a %d %b %H:%M} (Europe/Paris)\n"
+    )
+    assert browser.uploads[0][6] == at
+    assert "Scheduled on @reads? [y/N]" in result.output
+    assert posts.get(POST_ID).tiktok_scheduled_at == at
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [{}, {"scheduled_at": _soon(minutes=5)}, {"scheduled_at": _soon(days=11)}],
+    ids=["unscheduled", "too soon", "too far off"],
+)
+def test_a_post_tiktok_wouldnt_schedule_goes_out_now(tmp_path, monkeypatch, fields):
+    _account_post(tmp_path, **fields)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith(f"post {POST_ID} → @reads, posting now\n")
+    assert browser.uploads[0][6] is None
+    assert "Posted on @reads? [y/N]" in result.output
+
+
+def test_at_takes_a_time_in_the_accounts_zone(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    browser = _browser(monkeypatch)
+    when = _soon(hours=3).astimezone(ZoneInfo("Europe/Paris"))
+    result = runner.invoke(
+        app, ["upload", POST_ID, "--at", f"{when:%Y-%m-%d %H:%M}"], input="n\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert browser.uploads[0][6] == when.replace(second=0, microsecond=0)
+
+
+def test_at_slot_takes_the_posts_own_time(tmp_path, monkeypatch):
+    at = _soon(days=2).replace(second=0, microsecond=0)
+    _account_post(tmp_path, scheduled_at=at)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, "--at", "slot"], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert browser.uploads[0][6] == at
+
+
+def test_at_slot_without_a_time_says_so(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, "--at", "slot"])
+    assert result.exit_code == 1
+    assert f"error: post {POST_ID} has no time of its own" in result.output
+    assert browser.events == []
+
+
+def test_no_schedule_uploads_a_planned_post_now(tmp_path, monkeypatch):
+    _account_post(tmp_path, scheduled_at=_soon(hours=2))
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, "--no-schedule"], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert browser.uploads[0][6] is None
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["--at", "2020-01-01 10:00"], "already past"),
+        (["--at", "not a time"], "YYYY-MM-DD HH:MM"),
+        (["--at", "slot", "--no-schedule"], "give --at or --no-schedule, not both"),
+    ],
+    ids=["past", "nonsense", "both"],
+)
+def test_a_time_tiktok_wont_take_never_opens_the_browser(tmp_path, monkeypatch, args, message):
+    _account_post(tmp_path, scheduled_at=_soon(hours=2))
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, *args])
+    assert result.exit_code == 1
+    assert message in result.output
+    assert browser.events == []
+
+
+def test_at_too_far_off_is_refused_with_tiktoks_limit(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    browser = _browser(monkeypatch)
+    when = _soon(days=12).astimezone(ZoneInfo("Europe/Paris"))
+    result = runner.invoke(app, ["upload", POST_ID, "--at", f"{when:%Y-%m-%d %H:%M}"])
+    assert result.exit_code == 1
+    assert "at most 10 days ahead" in result.output
+    assert browser.events == []
+
+
+# --- a sound that needs no question ----------------------------------------------------------
+
+
+def test_a_default_sound_is_used_without_asking(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    with _store(tmp_path) as store:
+        store.accounts.update(
+            Account(handle="reads", sounds=["dark aria"], default_sound="night drive")
+        )
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert "Sound for this post" not in result.output
+    assert browser.uploads[0][4] == "night drive"
+
+
+def test_ask_sound_brings_the_question_back(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    with _store(tmp_path) as store:
+        store.accounts.update(
+            Account(handle="reads", sounds=["dark aria"], default_sound="night drive")
+        )
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, "--ask-sound"], input="2\nn\n")
+    assert result.exit_code == 0, result.output
+    assert "  1. night drive\n  2. dark aria\n" in result.output
+    assert browser.uploads[0][4] == "dark aria"

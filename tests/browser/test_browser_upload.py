@@ -8,6 +8,8 @@ import functools
 import re
 import sys
 import threading
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -95,8 +97,8 @@ def _slides(tmp_path) -> list[Path]:
     return slides
 
 
-def _upload(uploader, slides, debug=False, handle="reads", sound="solo leveling"):
-    return uploader.upload(handle, slides, TITLE, DESCRIPTION, sound, debug)
+def _upload(uploader, slides, debug=False, handle="reads", sound="solo leveling", at=None):
+    return uploader.upload(handle, slides, TITLE, DESCRIPTION, sound, debug, at)
 
 
 def _window(uploader):
@@ -258,3 +260,129 @@ def test_debug_saves_a_screenshot_and_the_page_when_something_is_missing(tmp_pat
     assert re.fullmatch(r"20260914-a3f9-\d{8}-\d{6}", folder.name)  # <post id>-<local time>
     assert (folder / "screenshot.png").read_bytes().startswith(b"\x89PNG")
     assert 'data-e2e="post_video_button"' in (folder / "page.html").read_text()
+
+
+# --- TikTok's own schedule -------------------------------------------------------------------
+
+PARIS = ZoneInfo("Europe/Paris")
+# The fixture calendar's "today" is 22 September 2026, and it takes 11 days more.
+AT = datetime(2026, 9, 24, 21, 47, tzinfo=PARIS)
+
+
+def _fields(window) -> tuple[str, str]:
+    """What TikTok's two readonly boxes now read: (time, date)."""
+    boxes = window.locator(".scheduled-picker .TUXTextInputCore-input")
+    return boxes.nth(0).input_value(), boxes.nth(1).input_value()
+
+
+def _checked(window) -> str:
+    return window.locator('input[name="postSchedule"][value="schedule"]').get_attribute(
+        "aria-checked"
+    )
+
+
+def test_it_switches_to_schedule_and_fills_in_the_date_and_time(tmp_path, site):
+    uploader = _uploader(tmp_path, site)
+    try:
+        report = _upload(uploader, _slides(tmp_path), at=AT)
+        window = _window(uploader)
+        assert _checked(window) == "true"
+        assert _fields(window) == ("21:45", "2026-09-24")
+        assert window.locator('button[data-e2e="post_video_button"]').inner_text() == "Schedule"
+        # The user clicks Schedule, not manhwatok.
+        assert "posted" not in window.evaluate("({...document.body.dataset})")
+    finally:
+        uploader.close()
+    assert report.problems == []
+    assert report.scheduled_at == datetime(2026, 9, 24, 21, 45, tzinfo=PARIS)
+    assert report.notes == ["TikTok schedules on 5 minutes: 21:47 → 21:45"]
+
+
+def test_a_time_already_on_five_minutes_is_not_worth_a_note(tmp_path, site):
+    uploader = _uploader(tmp_path, site)
+    try:
+        report = _upload(uploader, _slides(tmp_path), at=AT.replace(minute=30))
+        assert _fields(_window(uploader)) == ("21:30", "2026-09-24")
+    finally:
+        uploader.close()
+    assert (report.notes, report.problems) == ([], [])
+
+
+def test_the_one_time_consent_is_left_for_the_user(tmp_path, site):
+    """TikTok asks to allow scheduling once per account. manhwatok never clicks Allow: it says
+    so, leaves the window open and reports the post as not scheduled."""
+    uploader = _uploader(tmp_path, site, "fake_upload.html?consent", schedule_timeout=0.5)
+    try:
+        report = _upload(uploader, _slides(tmp_path), at=AT)
+        window = _window(uploader)
+        assert _checked(window) == "false"  # still "Now"
+        assert window.locator("#consent button#allow").is_visible()  # still open, for the user
+        assert "allowed" not in window.evaluate("({...document.body.dataset})")
+    finally:
+        uploader.close()
+    assert report.scheduled_at is None
+    assert report.problems == [
+        "TikTok asks @reads to allow scheduled posting once — it saves the slides on its "
+        "servers. Click Allow in the window, then set the time yourself (or upload again)."
+    ]
+
+
+def test_a_day_in_the_next_month_takes_one_click_on_the_arrow(tmp_path, site):
+    uploader = _uploader(tmp_path, site, "fake_upload.html?month-only")
+    at = datetime(2026, 10, 1, 9, 0, tzinfo=PARIS)
+    try:
+        report = _upload(uploader, _slides(tmp_path), at=at)
+        assert _fields(_window(uploader)) == ("09:00", "2026-10-01")
+    finally:
+        uploader.close()
+    assert (report.problems, report.scheduled_at) == ([], at)
+
+
+def test_a_day_tiktok_wont_take_is_a_problem_not_a_silent_miss(tmp_path, site):
+    uploader = _uploader(tmp_path, site, schedule_timeout=0.5)
+    at = datetime(2026, 11, 20, 9, 0, tzinfo=PARIS)  # long outside the calendar's window
+    try:
+        report = _upload(uploader, _slides(tmp_path), at=at)
+    finally:
+        uploader.close()
+    assert report.scheduled_at is None
+    assert report.problems == [
+        "TikTok's calendar wouldn't take 2026-11-20 (it shows October 2026) — set the date "
+        "and time in the browser yourself"
+    ]
+
+
+def test_boxes_that_dont_read_back_the_wanted_time_are_a_problem(tmp_path, site):
+    uploader = _uploader(tmp_path, site, "fake_upload.html?stuck-date")
+    try:
+        report = _upload(uploader, _slides(tmp_path), at=AT)
+        assert _fields(_window(uploader)) == ("21:45", "2026-09-22")  # the time took, not the day
+    finally:
+        uploader.close()
+    assert report.scheduled_at is None
+    assert report.problems == [
+        "TikTok's date box reads 2026-09-22, not 2026-09-24 — set the date and time in the "
+        "browser yourself"
+    ]
+
+
+def test_a_page_without_the_schedule_widget_is_a_problem(tmp_path, site):
+    uploader = _uploader(tmp_path, site, "fake_upload.html?no-schedule", schedule_timeout=0.5)
+    try:
+        report = _upload(uploader, _slides(tmp_path), at=AT)
+    finally:
+        uploader.close()
+    assert (report.attached, report.captioned, report.scheduled_at) == (True, True, None)
+    assert report.problems == [
+        "TikTok's Schedule option wasn't there — set the date and time in the browser yourself"
+    ]
+
+
+def test_nothing_is_scheduled_when_no_time_is_asked_for(tmp_path, site):
+    uploader = _uploader(tmp_path, site)
+    try:
+        report = _upload(uploader, _slides(tmp_path))
+        assert _checked(_window(uploader)) == "false"
+    finally:
+        uploader.close()
+    assert (report.scheduled_at, report.notes, report.problems) == (None, [], [])

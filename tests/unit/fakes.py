@@ -250,8 +250,10 @@ class FakeUploader:
         self.error = error
         self.events: list[str] = []
         self.logins: list[str] = []
-        # (handle, slides, title, description, sound, debug)
-        self.uploads: list[tuple[str, list[Path], str, str, str | None, bool]] = []
+        # (handle, slides, title, description, sound, debug, schedule_at)
+        self.uploads: list[
+            tuple[str, list[Path], str, str, str | None, bool, datetime | None]
+        ] = []
 
     def login(self, handle: str) -> None:
         self.events.append("login")
@@ -259,9 +261,11 @@ class FakeUploader:
         if self.error:
             raise self.error
 
-    def upload(self, handle, slides, title, description, sound, debug):
+    def upload(self, handle, slides, title, description, sound, debug, schedule_at=None):
         self.events.append("upload")
-        self.uploads.append((handle, list(slides), title, description, sound, debug))
+        self.uploads.append(
+            (handle, list(slides), title, description, sound, debug, schedule_at)
+        )
         if self.error:
             raise self.error
         return self.report

@@ -451,3 +451,19 @@ def test_account_fields_posting_plan():
     assert account_fields({**sourced, "art_source": " "}, sourced) == {"art_source": None}
     new = {name: "" for name in before} | {"rotation": "theme:a"}
     assert account_fields(new, None) == {"rotation": ["theme:a"], "rotation_cursor": 0}
+
+
+def test_the_form_edits_the_default_sound(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.store.accounts.add(Account(handle="reads", sounds=["Dark Aria", "night drive"]))
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.screen.query_one("#field-default_sound").value == ""
+        await _fill(app, pilot, default_sound=" night   drive ")
+        await wait_for(pilot, lambda: "saved @reads" in notes(app))
+
+    run_app(ctx, scenario)
+    assert ctx.store.accounts.get("reads").default_sound == "night drive"

@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -58,7 +58,8 @@ def test_yes_records_the_post_as_sent(tmp_path):
 
     run_app(ctx, scenario)
     assert uploader.events == ["upload", "close"]
-    assert uploader.uploads[0][4:] == (None, False)  # no sounds to pick from, no debug
+    # no sounds to pick from, no debug, and the post has no time of its own to schedule
+    assert uploader.uploads[0][4:] == (None, False, None)
     assert ctx.tools.posts.get(PID).sent_at == NOW
     assert ctx.store.history.recent("reads", NOW) == {1, 2, 3}
 
@@ -254,3 +255,36 @@ def test_quitting_while_the_sound_choice_is_open_cancels_the_upload(tmp_path):
     run_app(ctx, scenario)
     assert uploader.events == []
     assert ctx.tools.posts.get(PID).sent_at is None
+
+
+def test_u_fills_in_tiktoks_schedule_from_the_posts_own_slot(tmp_path):
+    """As `manhwatok upload` does by default: a post planned for later is scheduled on TikTok,
+    and the question then asks about the schedule."""
+    at = NOW + timedelta(hours=3)
+    report = UploadReport(True, True, [], titled=True, scheduled_at=at)
+    uploader = FakeUploader(report)
+    ctx = _ctx(tmp_path, uploader, scheduled_at=at)
+
+    async def scenario(app, pilot):
+        await pilot.press("u")
+        await wait_for(pilot, lambda: isinstance(app.screen, ConfirmModal))
+        assert str(app.screen.query_one("#question").render()) == "Scheduled on @reads?"
+        await pilot.press("y")
+        await wait_for(pilot, lambda: "done — press escape to go back" in _log(app))
+
+    run_app(ctx, scenario)
+    assert uploader.uploads[0][6] == at
+    assert ctx.tools.posts.get(PID).tiktok_scheduled_at == at
+
+
+def test_a_post_planned_for_too_soon_is_uploaded_as_todays(tmp_path):
+    uploader = FakeUploader()
+    ctx = _ctx(tmp_path, uploader, scheduled_at=NOW + timedelta(minutes=5))
+
+    async def scenario(app, pilot):
+        await _upload_until_asked(app, pilot)
+        await pilot.press("n")
+        await wait_for(pilot, lambda: "nothing recorded" in _log(app))
+
+    run_app(ctx, scenario)
+    assert uploader.uploads[0][6] is None

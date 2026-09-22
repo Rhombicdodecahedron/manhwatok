@@ -15,13 +15,12 @@ from manhwatok.app.context import AppContext
 from manhwatok.app.next_post import WarnFn, make_next_post
 from manhwatok.domain.account import DEFAULT_TIMEZONE, Account, normalize_handle
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError
-from manhwatok.domain.plan import is_slot, parse_when, upcoming_slots
+from manhwatok.domain.plan import MAX_FILL_DAYS, is_slot, parse_when, upcoming_slots
 from manhwatok.domain.post import ListPost
 from manhwatok.ports.posts import PostRepository
 from manhwatok.ports.store import AccountRepository
 
-DEFAULT_DAYS = 7
-MAX_FILL_DAYS = 10  # TikTok schedules a post at most 10 days ahead
+DEFAULT_DAYS = 7  # MAX_FILL_DAYS is TikTok's own limit, in domain/plan.py with the rest of it
 
 
 class PlanRow(NamedTuple):

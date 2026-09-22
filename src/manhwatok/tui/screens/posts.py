@@ -15,7 +15,7 @@ from manhwatok.app.delete_post import delete_post
 from manhwatok.app.edit_post import update_picks
 from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import choose_cover, render_post, rendered_files
-from manhwatok.app.upload_post import sounds_for, upload_post
+from manhwatok.app.upload_post import schedule_for, sounds_for, upload_post
 from manhwatok.domain.account import DEFAULT_TIMEZONE
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered
 from manhwatok.domain.models import CoverStyle
@@ -65,6 +65,37 @@ def _by_account(posts: list[ListPost]) -> list[tuple[str, list[ListPost]]]:
 
 def _render_one(ctx: AppContext, post: ListPost) -> str:
     return f"post {post.id} · {len(render_post(post.id, ctx.tools))} slides"
+
+
+def upload_in_app(app, ctx: AppContext, post: ListPost, progress, debug: bool) -> bool:
+    """Drive the browser for one post — its sound asked for first, and its own planned time
+    filled into TikTok's schedule when TikTok would still take it — and answer whether the user
+    confirmed it went out. Runs in a worker: the questions come back from the app. The Queue
+    tab uploads through this too, so both tabs upload the same way."""
+
+    def choose_sound(sounds: list[str]) -> str | None:
+        choices = [(sound, sound) for sound in sounds] + [("no sound", "")]
+        answer = app.choose_from_thread(f"Sound for @{post.account}", choices)
+        if app.quitting:
+            raise ManhwatokError("upload cancelled — the app is closing")
+        return answer or None
+
+    now = app.clock()
+    return upload_post(
+        post.id,
+        ctx.tools.posts,
+        ctx.store.accounts,
+        ctx.store.history,
+        ctx.uploader(),
+        app.ask_from_thread,
+        progress,
+        now=now,
+        debug=debug,
+        choose_sound=choose_sound,
+        themes=ctx.store.themes,
+        chapters=ctx.store.chapters,
+        schedule_at=schedule_for(post, now),
+    )
 
 
 class PostsPane(Vertical):
@@ -468,31 +499,7 @@ class PostsPane(Vertical):
         return f"post {post.id} " + ("sent" if sent else "not recorded")
 
     def _upload_one(self, ctx: AppContext, post: ListPost, progress, debug: bool) -> bool:
-        """Drive the browser for one post — its sound asked for first — and answer whether the
-        user confirmed it went out. Runs in a worker: the questions come back from the app."""
-        app = self.app
-
-        def choose_sound(sounds: list[str]) -> str | None:
-            choices = [(sound, sound) for sound in sounds] + [("no sound", "")]
-            answer = app.choose_from_thread(f"Sound for @{post.account}", choices)
-            if app.quitting:
-                raise ManhwatokError("upload cancelled — the app is closing")
-            return answer or None
-
-        return upload_post(
-            post.id,
-            ctx.tools.posts,
-            ctx.store.accounts,
-            ctx.store.history,
-            ctx.uploader(),
-            app.ask_from_thread,
-            progress,
-            now=app.clock(),
-            debug=debug,
-            choose_sound=choose_sound,
-            themes=ctx.store.themes,
-            chapters=ctx.store.chapters,
-        )
+        return upload_in_app(self.app, ctx, post, progress, debug)
 
     def action_delete(self) -> None:
         post = self._selected()

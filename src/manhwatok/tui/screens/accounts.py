@@ -22,7 +22,7 @@ from manhwatok.tui.widgets.dialogs import ConfirmModal
 from manhwatok.tui.widgets.form import FormModal
 
 LISTS = ("genres", "block_genres", "block_tags")
-TEXTS = ("hashtags", "emojis", "accent", "cta_title", "cta_follow")
+TEXTS = ("hashtags", "emojis", "default_sound", "accent", "cta_title", "cta_follow")
 ART_CHOICES = ", ".join(style.value for style in ArtStyle)
 SOURCE_CHOICES = ", ".join(source.value for source in ArtSourceName)
 LABELS = {
@@ -34,6 +34,9 @@ LABELS = {
     "sounds": (
         "TikTok sounds to pick from when uploading (separate with | ; "
         "a sound can't contain | ; empty = none)"
+    ),
+    "default_sound": (
+        "The sound uploads use without asking (empty = ask which of the sounds above to use)"
     ),
     "accent": "Accent colour",
     "art": f"Slide art for new posts: {ART_CHOICES} (empty = none)",

@@ -318,6 +318,17 @@ def test_account_emojis_and_sounds(tmp_path):
     assert "  emojis        -\n  sounds        -\n" in out
 
 
+def test_account_default_sound_is_saved_shown_and_cleared(tmp_path):
+    out = _ok(["account", "add", "reads", "--default-sound", "  night   drive "])
+    assert "  default sound night drive\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").default_sound == "night drive"
+    out = _ok(["account", "set", "reads", "--default-sound", ""])
+    assert "  default sound -\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").default_sound == ""
+
+
 def test_theme_sounds_are_saved_shown_and_changed(tmp_path):
     added = runner.invoke(
         app,

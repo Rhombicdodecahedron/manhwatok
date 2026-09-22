@@ -11,7 +11,7 @@ from manhwatok.tui.screens.posts import PostsPane  # noqa: E402
 from manhwatok.tui.screens.queue import QueuePane, QueueTable  # noqa: E402
 from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal  # noqa: E402
 from tests.tui.helpers import make_ctx, notes, run_app, wait_for  # noqa: E402
-from tests.unit.fakes import FakeMetadata, manhwa, post  # noqa: E402
+from tests.unit.fakes import FakeMetadata, FakeUploader, manhwa, post  # noqa: E402
 
 # The app's clock: Wednesday 16 September 2026, 14:00 in Paris.
 THU = datetime(2026, 9, 17, 17, 0, tzinfo=timezone.utc)  # 19:00 in Paris
@@ -335,3 +335,81 @@ def test_fill_move_and_clear_wait_for_a_render(tmp_path):
     run_app(ctx, scenario)
     assert len(ctx.tools.posts.list()) == 4  # nothing made
     assert ctx.tools.posts.get(ON_THU).scheduled_at == THU
+
+
+# --- uploading from the queue ----------------------------------------------------------------
+
+
+def _ready(tmp_path, uploader):
+    """@reads with a rendered post in its thursday slot, and a browser that answers."""
+    from manhwatok.app.render_post import render_post
+
+    ctx = make_ctx(tmp_path, uploader=uploader)
+    ctx.store.accounts.add(Account(handle="reads", slots=["thu 19:00"]))
+    ctx.tools.posts.save(post(id=ON_THU, account="reads", scheduled_at=THU))
+    render_post(ON_THU, ctx.tools)
+    return ctx
+
+
+def test_u_uploads_the_selected_post_with_its_slot_as_the_schedule(tmp_path):
+    from manhwatok.ports.uploader import UploadReport
+
+    uploader = FakeUploader(UploadReport(True, True, [], titled=True, scheduled_at=THU))
+    ctx = _ready(tmp_path, uploader)
+
+    async def scenario(app, pilot):
+        pane = await _open(app, pilot)
+        await _select(pilot, pane, f"post:{ON_THU}")
+        await pilot.press("u")
+        await wait_for(pilot, lambda: isinstance(app.screen, ConfirmModal))
+        assert str(app.screen.query_one("#question").render()) == "Scheduled on @reads?"
+        await pilot.press("y")
+        await wait_for(pilot, lambda: f"recorded post {ON_THU} as sent" in _log(app))
+        await pilot.press("escape")
+        await pilot.pause()
+        assert [r[4] for r in _rows(app) if r[2] == ON_THU] == ["sent"]
+
+    run_app(ctx, scenario)
+    assert uploader.uploads[0][6] == THU  # TikTok's own schedule gets the slot
+    assert ctx.tools.posts.get(ON_THU).tiktok_scheduled_at == THU
+
+
+def test_u_on_an_empty_slot_says_to_fill_it_first(tmp_path):
+    uploader = FakeUploader()
+    ctx = make_ctx(tmp_path, uploader=uploader)
+    ctx.store.accounts.add(Account(handle="reads", slots=["thu 19:00"]))
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        await pilot.press("u")
+        await pilot.pause()
+        assert "no post in that slot — press f to fill it" in notes(app)
+
+    run_app(ctx, scenario)
+    assert uploader.events == []
+
+
+def test_u_is_refused_while_another_browser_is_open(tmp_path):
+    release = threading.Event()
+    uploader = FakeUploader()
+    ctx = _ready(tmp_path, uploader)
+
+    async def scenario(app, pilot):
+        pane = await _open(app, pilot)
+        await _select(pilot, pane, f"post:{ON_THU}")
+        assert app.start_browser(lambda: release.wait(5))
+        await wait_for(pilot, lambda: app.browser_open)
+        try:
+            await pilot.press("u")
+            await pilot.pause()
+            assert "a browser is already open — finish there first" in notes(app)
+        finally:
+            release.set()
+        await wait_for(pilot, lambda: not app.browser_open)
+
+    run_app(ctx, scenario)
+    assert uploader.events == []
+
+
+def _log(app) -> list[str]:
+    return list(app.screen.query_one("Log").lines)

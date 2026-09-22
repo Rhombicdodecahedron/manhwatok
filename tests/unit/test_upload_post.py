@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -49,7 +49,7 @@ class Answer:
         return self.yes
 
 
-def _upload(posts, store, uploader, yes=True, messages=None, debug=False, **sound):
+def _upload(posts, store, uploader, yes=True, messages=None, debug=False, **extra):
     answer = Answer(uploader, yes)
     posted = upload_post(
         POST_ID,
@@ -62,7 +62,7 @@ def _upload(posts, store, uploader, yes=True, messages=None, debug=False, **soun
         now=NOW,
         debug=debug,
         themes=store.themes,
-        **sound,
+        **extra,
     )
     return posted, answer
 
@@ -74,7 +74,7 @@ def test_yes_records_the_titles_and_marks_the_post_sent(tmp_path, store):
     posted, answer = _upload(posts, store, uploader, messages=messages)
     assert posted is True
     folder = posts.folder(POST_ID)
-    [(handle, slides, title, description, sound, debug)] = uploader.uploads
+    [(handle, slides, title, description, sound, debug, when)] = uploader.uploads
     assert handle == "reads"
     assert slides == [folder / f"0{n}.png" for n in range(1, 6)]
     assert title == "Manhwa where the MC regresses"
@@ -82,7 +82,7 @@ def test_yes_records_the_titles_and_marks_the_post_sent(tmp_path, store):
         "1. Title 1\n2. Title 2\n3. Title 3\n\n#manhwa #manhwarecommendation #webtoon "
         "#manhwatiktok"
     )
-    assert (sound, debug) == (None, False)
+    assert (sound, debug, when) == (None, False, None)
     assert uploader.events == ["upload", "confirm", "close"]  # window open while asking
     assert answer.questions == ["Posted on @reads?"]
     assert store.history.recent("reads", NOW) == {1, 2, 3}
@@ -256,17 +256,19 @@ def test_a_theme_removed_since_the_post_was_built_is_not_an_error(tmp_path, stor
 
 
 def test_a_sound_on_both_the_theme_and_the_account_is_offered_once(tmp_path, store):
-    posts = _themed(tmp_path, store, ["shared song"], account_sounds=("shared song", "other"))
+    # Two theme sounds, so there is something to choose between and the question is asked.
+    theme = ["shared song", "phonk two"]
+    posts = _themed(tmp_path, store, theme, account_sounds=("shared song", "other"))
     offered = []
     _upload(posts, store, FakeUploader(), choose_sound=lambda s: (offered.append(s), None)[1])
-    assert offered == [["shared song", "other"]]
+    assert offered == [["shared song", "phonk two", "other"]]
 
 
 def test_a_theme_with_sounds_and_an_account_without_still_offers_them(tmp_path, store):
-    posts = _themed(tmp_path, store, ["phonk one"], account_sounds=())
+    posts = _themed(tmp_path, store, ["phonk one", "phonk two"], account_sounds=())
     offered = []
     _upload(posts, store, FakeUploader(), choose_sound=lambda s: (offered.append(s), s[0])[1])
-    assert offered == [["phonk one"]]
+    assert offered == [["phonk one", "phonk two"]]
 
 
 def _chapter_posts(tmp_path, store):
@@ -307,3 +309,125 @@ def test_no_leaves_a_chapter_posts_part_unpublished(tmp_path, store):
     posts = _chapter_posts(tmp_path, store)
     _upload(posts, store, FakeUploader(), yes=False, chapters=store.chapters)
     assert store.chapters.parts(1)[0].published_at is None
+
+
+# --- TikTok's own schedule ---------------------------------------------------------------
+
+
+LATER = datetime(2026, 9, 15, 19, 0, tzinfo=timezone.utc)  # an hour after NOW
+
+
+def _scheduled_report(at=LATER, **fields):
+    return UploadReport(True, True, [], titled=True, scheduled_at=at, **fields)
+
+
+def test_a_schedule_is_passed_on_and_asked_about_as_a_schedule(tmp_path, store):
+    posts = _posts(tmp_path)
+    uploader = FakeUploader(_scheduled_report())
+    messages = []
+    posted, answer = _upload(
+        posts, store, uploader, messages=messages, schedule_at=LATER
+    )
+    assert posted is True
+    assert uploader.uploads[0][6] == LATER
+    assert answer.questions == ["Scheduled on @reads?"]
+    assert posts.get(POST_ID).tiktok_scheduled_at == LATER
+    assert posts.get(POST_ID).sent_at == NOW  # it has left for TikTok
+    assert store.history.recent("reads", NOW) == {1, 2, 3}
+    assert f"TikTok will post it on {LATER.astimezone():%a %d %b %H:%M}" in messages
+    assert "check the post in the browser and click Schedule yourself" in messages
+
+
+def test_a_schedule_the_browser_couldnt_set_asks_about_posting_it_now(tmp_path, store):
+    posts = _posts(tmp_path)
+    problem = "TikTok asked to allow scheduling for @reads"
+    uploader = FakeUploader(UploadReport(True, True, [problem], titled=True))
+    messages = []
+    posted, answer = _upload(posts, store, uploader, messages=messages, schedule_at=LATER)
+    assert posted is True
+    assert answer.questions == ["Posted on @reads?"]
+    assert posts.get(POST_ID).tiktok_scheduled_at is None
+    assert posts.get(POST_ID).sent_at == NOW
+    assert problem in messages
+    assert "TikTok is still set to post now — nothing is scheduled" in messages
+
+
+def test_the_rounding_note_is_shown(tmp_path, store):
+    posts = _posts(tmp_path)
+    note = "TikTok schedules on 5 minutes: 19:03 → 19:00"
+    uploader = FakeUploader(_scheduled_report(notes=[note]))
+    messages = []
+    _upload(posts, store, uploader, messages=messages, yes=False, schedule_at=LATER)
+    assert note in messages
+
+
+def test_no_records_nothing_of_a_schedule_either(tmp_path, store):
+    posts = _posts(tmp_path)
+    _upload(posts, store, FakeUploader(_scheduled_report()), yes=False, schedule_at=LATER)
+    assert posts.get(POST_ID).tiktok_scheduled_at is None
+    assert posts.get(POST_ID).sent_at is None
+
+
+@pytest.mark.parametrize(
+    ("when", "match"),
+    [
+        (NOW + timedelta(minutes=5), "at least 15 minutes"),
+        (NOW + timedelta(days=11), "at most 10 days"),
+    ],
+)
+def test_a_time_tiktok_wont_take_never_opens_the_browser(tmp_path, store, when, match):
+    posts = _posts(tmp_path)
+    uploader = FakeUploader()
+    with pytest.raises(ManhwatokError, match=match):
+        _upload(posts, store, uploader, schedule_at=when)
+    assert uploader.events == []
+
+
+def test_a_scheduled_chapter_post_counts_as_published(tmp_path, store):
+    posts = _chapter_posts(tmp_path, store)
+    _upload(
+        posts, store, FakeUploader(_scheduled_report()), chapters=store.chapters,
+        schedule_at=LATER,
+    )
+    assert store.chapters.parts(1)[0].published_at == NOW
+
+
+# --- a sound that needs no question ---------------------------------------------------------
+
+
+def test_the_accounts_default_sound_is_used_without_asking(tmp_path, store):
+    store.accounts.update(
+        Account(handle="reads", sounds=["dark aria"], default_sound="night drive")
+    )
+    posts = _posts(tmp_path)
+    uploader = FakeUploader()
+    _upload(posts, store, uploader, choose_sound=lambda s: pytest.fail("should not ask"))
+    assert uploader.uploads[0][4] == "night drive"
+
+
+def test_ask_sound_asks_anyway_and_offers_the_default_first(tmp_path, store):
+    store.accounts.update(
+        Account(handle="reads", sounds=["dark aria"], default_sound="night drive")
+    )
+    posts = _posts(tmp_path)
+    uploader = FakeUploader()
+    offered = []
+    _upload(
+        posts, store, uploader, ask_sound=True,
+        choose_sound=lambda s: (offered.append(s), s[0])[1],
+    )
+    assert offered == [["night drive", "dark aria"]]
+
+
+def test_a_theme_with_one_sound_needs_no_question(tmp_path, store):
+    posts = _themed(tmp_path, store, ["phonk one"], account_sounds=())
+    uploader = FakeUploader()
+    _upload(posts, store, uploader, choose_sound=lambda s: pytest.fail("should not ask"))
+    assert uploader.uploads[0][4] == "phonk one"
+
+
+def test_a_theme_with_two_sounds_is_still_a_question(tmp_path, store):
+    posts = _themed(tmp_path, store, ["phonk one", "phonk two"], account_sounds=())
+    uploader = FakeUploader()
+    _upload(posts, store, uploader, choose_sound=lambda s: s[1])
+    assert uploader.uploads[0][4] == "phonk two"

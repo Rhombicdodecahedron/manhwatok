@@ -43,6 +43,9 @@ class ListPost(BaseModel):
     # When it's planned to go out: one of its account's slots (`plan fill`) or a time set with
     # `schedule`. It keeps its slot once sent, so the slot isn't filled again.
     scheduled_at: AwareDatetime | None = None
+    # Phase D: the time TikTok's own schedule was filled in with, once the user confirmed they
+    # clicked Schedule. TikTok posts it then, without manhwatok.
+    tiktok_scheduled_at: AwareDatetime | None = None
     # Phase 5: a post keeps the art style it was built with, as it keeps its CTA texts.
     art: ArtStyle = ArtStyle.NONE
     cover: CoverStyle = CoverStyle.FAN  # which cover version render makes 01.png

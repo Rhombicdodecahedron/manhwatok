@@ -18,6 +18,8 @@ from manhwatok.domain.account import Account
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
+from manhwatok.tui.screens.browser import BrowserScreen
+from manhwatok.tui.screens.posts import upload_in_app
 from manhwatok.tui.text import clip, post_status
 from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal
 from manhwatok.tui.widgets.headed_table import HeadedTable
@@ -68,6 +70,7 @@ class QueuePane(Vertical):
         Binding("f", "fill", "Fill account"),
         Binding("F", "fill_all", "Fill all"),
         Binding("m", "move", "Move"),
+        Binding("u", "upload", "Upload"),
         Binding("x", "clear", "Unschedule"),
         Binding("r", "reload", "Refresh"),
     ]
@@ -287,6 +290,27 @@ class QueuePane(Vertical):
 
         question = f"Unschedule post {pid}? The post is kept."
         self.app.push_screen(ConfirmModal(question), answered)
+
+    # --- upload --------------------------------------------------------------------------
+
+    def action_upload(self) -> None:
+        """`u` uploads the highlighted post, its slot filled into TikTok's own schedule, as
+        `u` does in the Posts tab (and `manhwatok upload` in the terminal). One post at a
+        time, and only when no other browser window is open."""
+        chosen = self._selected_post()
+        if chosen is None or self.app.refuse_while_rendering():
+            return
+        app, post = self.app, chosen[1]
+        if app.browser_open:
+            app.notify("a browser is already open — finish there first", severity="warning")
+            return
+
+        def job(progress) -> str:
+            posted = upload_in_app(app, app.ctx, post, progress, debug=False)
+            return f"recorded post {post.id} as sent" if posted else "nothing recorded"
+
+        screen = BrowserScreen(f"Upload post {post.id}", job)
+        app.push_screen(screen, lambda _: self.reload(select=f"post:{post.id}"))
 
     def _schedule(self, post_id: str, when: str | None, done: str) -> None:
         """`when` is read in the post's account's zone — the zone its slot was shown in."""

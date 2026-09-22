@@ -45,6 +45,8 @@ class Account(BaseModel):
     emojis: str = ""  # after the title in TikTok's title field; never drawn on a slide
     # TikTok sound searches (e.g. "SOLO LEVELING RaijinLofi"); `upload` asks which one to use.
     sounds: list[str] = Field(default_factory=list)
+    # The one `upload` uses without asking, when set (`--ask-sound` asks anyway).
+    default_sound: str = ""
     accent: str = DEFAULT_ACCENT
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
@@ -79,6 +81,12 @@ class Account(BaseModel):
     @classmethod
     def _sounds(cls, value: list[str]) -> list[str]:
         return clean_sounds(value)
+
+    @field_validator("default_sound")
+    @classmethod
+    def _default_sound(cls, value: str) -> str:
+        kept = clean_sounds([value])
+        return kept[0] if kept else ""
 
     @field_validator("accent")
     @classmethod

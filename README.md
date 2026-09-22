@@ -535,15 +535,16 @@ uv run manhwatok schedule 20260922-a3f9 --clear
 - `schedule <id> <when>` takes `YYYY-MM-DD HH:MM` or `<day> HH:MM` (the next such time), in the
   post's account's time zone (`Europe/Paris` for a post without one); `--clear` unschedules it.
   `posts` shows each scheduled post's time (in this computer's time zone).
-- The plan is yours to follow: nothing is uploaded at its time. Upload each post with `upload`
-  when its slot comes.
+- The plan is yours to follow: nothing is uploaded at its time. Run `upload <id>` when you are
+  ready and it fills the post's slot into TikTok's own schedule, so TikTok posts it then (see
+  below). You still click the button.
 
 ## Uploading to TikTok (assisted)
 
 `upload` takes the manual steps out of posting but leaves the decision to you: it opens a real,
 visible Google Chrome window logged in as the post's account, attaches the slides in order, types
-the title and description and adds a sound. You check the post (pick the cover) and click **Post**
-yourself.
+the title and description, adds a sound and — for a post planned for later — fills in TikTok's
+own schedule. You check the post (pick the cover) and click **Post** (or **Schedule**) yourself.
 
 ```bash
 uv sync --extra upload                    # once: Playwright (uses your installed Google Chrome)
@@ -552,6 +553,8 @@ uv run manhwatok login @manhwa.daily      # once per account: log in by hand, th
 uv run manhwatok account set @manhwa.daily --emojis "🔥📚" \
   --sound "SOLO LEVELING RaijinLofi" --sound "Dark Aria SawanoHiroyuki"   # optional
 uv run manhwatok upload <id>              # an account's post with up-to-date slides
+uv run manhwatok upload <id> --at "2026-09-24 19:00"   # fill TikTok's schedule in with this
+uv run manhwatok upload <id> --no-schedule             # post it now, whatever the plan says
 ```
 
 - TikTok's title field gets the post title plus the post's emojis (`build --emojis`, default:
@@ -570,11 +573,37 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
 - Each `--sound` is a search in TikTok's sound library. `upload` asks which sound to use
   (Enter: the first, 0: none) and adds the first result TikTok finds.
   `upload --sound "..."` searches for something else; `--no-sound` adds none.
+- `account add/set --default-sound "..."` is the one sound to use without asking; a post whose
+  theme has exactly one sound uses that one the same way. `upload --ask-sound` brings the
+  question back (the default sound is offered first then), and `--default-sound ""` clears it.
 - Sounds live on themes as well as accounts, so a post is offered what suits it: phonk for a
   murim list, something softer for a romance one. A post remembers the theme it was built from,
   and `upload` offers that theme's sounds first, then the account's (a sound on both is listed
   once). Posts built without a theme, or whose theme has been removed since, are offered the
   account's. Set them with `theme add/set --sound "..."`, repeated for several.
+
+### TikTok's own schedule
+
+- By default `upload` schedules a post that is planned for later: if its scheduled time (from
+  `plan fill` or `schedule`) is between 15 minutes and 10 days away, the browser switches
+  TikTok's "When to post" to **Schedule** and fills that date and time in. Anything else is an
+  ordinary upload, to go out now. `upload` says which one it is doing before the window opens.
+- `--at "YYYY-MM-DD HH:MM"` or `--at "thu 19:00"` (the next such time) schedules another time,
+  read in the account's time zone; `--at slot` is the post's own planned time. `--no-schedule`
+  posts it now whatever the plan says. A time under 15 minutes or over 10 days away is refused
+  before the browser opens — TikTok takes neither.
+- TikTok's time picker only has 5-minute steps, so the minute is rounded **down** (19:23 →
+  19:20) and `upload` says so. Both boxes are read back afterwards, and anything that doesn't
+  match is reported as a problem for you to fix in the window.
+- **Scheduling means TikTok saves the slides on its servers** before it posts them, and it asks
+  each account to allow that once: "Allow your video to be saved for scheduled posting?".
+  manhwatok never clicks Allow for you — the first scheduled upload of an account stops there,
+  says so and leaves the window open, with the post unscheduled. Click **Allow** yourself, set
+  the time (or run `upload` again), and that account is never asked again.
+- manhwatok never clicks **Schedule** either: answer `y` to `Scheduled on @x?` once you have,
+  and the post is recorded as sent, with the time TikTok will publish it (`tiktok_scheduled_at`
+  in its `post.json`). When the schedule couldn't be set, the question is the usual
+  `Posted on @x?` instead, so nothing untrue is recorded.
 
 - Each account gets its own browser profile in `$XDG_DATA_HOME/manhwatok/browser/<handle>/`;
   manhwatok never sees your password. Captchas and login checks are yours to answer in the
@@ -592,7 +621,8 @@ uv run manhwatok upload <id>              # an account's post with up-to-date sl
   saved `page.html` comes from a logged-in TikTok page and can contain account details (IDs,
   nickname, tokens) — check it before sharing it with anyone.
 - `account remove` asks whether to delete the account's saved login too (`--yes` does).
-- manhwatok never clicks Post, schedules or batch-uploads, and does nothing to hide that the
+- manhwatok never clicks Post or Schedule (it only fills the schedule's fields in), never
+  posts by itself at a planned time and never batch-uploads, and it does nothing to hide that the
   browser is automated. Automating TikTok's website is against TikTok's Terms of Service and may
   trigger captchas or account checks — use it at your own risk.
 
@@ -609,7 +639,8 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   opens the slide in your image viewer), the sounds it would be offered, its art style and emojis (when
   set), caption and picks — or, for a chapter post, which chapter and part it is. `e` edit
   picks, `r` render, `a` art, `c` cover version (fan, quad or
-  hero; swapped in at once when already rendered), `x` export, `u` upload (`U` with `--debug`),
+  hero; swapped in at once when already rendered), `x` export, `u` upload — filling TikTok's
+  schedule from the post's slot, as `manhwatok upload` does — (`U` with `--debug`),
   `d` delete, `f` show one account's posts. The scheduled column is when a post goes out, in
   its account's time zone; the sent one is the day it did. `space` marks the post under the
   cursor (`●` in the first column), `ctrl+a` marks every post shown, `esc` clears the marks;
@@ -633,8 +664,9 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
 - **Accounts** / **Themes** — `a` add, `e` or `enter` edit, `d` remove; `l` logs an account in
   to TikTok. The account form also edits its emojis (`auto` = from each post's genres), its art
   style (`none`, `background`,
-  `panel`, `character` or `scene`; blank = none) and its sounds, one line separated by ` | ` (e.g.
-  `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none). The theme form edits its
+  `panel`, `character` or `scene`; blank = none), its sounds, one line separated by ` | ` (e.g.
+  `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none), and the default sound
+  uploads use without asking (blank = ask). The theme form edits its
   sounds the same way, and those are offered before the account's. The posting plan is there
   too: slots (`mon 19:00, daily 12:30`), rotation (`theme:isekai, chapter:Solo Leveling`; a
   changed rotation starts over), time zone and art source.
@@ -642,8 +674,9 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   with its post (or `empty`), posts scheduled off the slots marked `not a slot`, and posts whose
   time has passed without being sent on top, marked `overdue`. `f` fills the highlighted
   account's empty slots (as `plan fill`), `F` every account's, `enter` opens the post in Posts,
-  `m` moves it to another empty slot of its account, `x` unschedules it (the post is kept), `r`
-  refreshes.
+  `m` moves it to another empty slot of its account, `u` uploads it with its slot filled into
+  TikTok's schedule (one post at a time, and not while another browser window is open), `x`
+  unschedules it (the post is kept), `r` refreshes.
 
 Slides show as real pictures in terminals with image support (kitty, WezTerm, Konsole, foot and
 other sixel terminals); elsewhere as coloured blocks. Uploading works as with `manhwatok upload`:

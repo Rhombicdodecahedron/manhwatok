@@ -818,6 +818,46 @@ def login(handle: str = typer.Argument(..., help="TikTok handle, e.g. @manhwa.da
     typer.echo(f"browser closed — once logged in, `manhwatok upload` posts as {account.display}")
 
 
+SLOT = "slot"  # `--at slot`: the post's own place in the plan
+
+
+def _upload_schedule(
+    post, account, at: Optional[str], no_schedule: bool, now
+) -> Optional[datetime]:
+    """When TikTok should post it: `--at`, or — by default — the post's own planned time,
+    when TikTok would still take it. None means an ordinary upload, to go out now."""
+    from manhwatok.app.upload_post import schedule_for
+    from manhwatok.domain.plan import check_schedule, parse_when
+
+    if no_schedule:
+        if at is not None:
+            raise ManhwatokError("give --at or --no-schedule, not both")
+        return None
+    if at is None:
+        return schedule_for(post, now)
+    if at.strip().lower() == SLOT:
+        if post.scheduled_at is None:
+            raise ManhwatokError(
+                f'post {post.id} has no time of its own — give --at "YYYY-MM-DD HH:MM", or '
+                f"set one with: manhwatok schedule {post.id} <when>"
+            )
+        return check_schedule(post.scheduled_at, now)
+    return check_schedule(parse_when(at, account.timezone, now), now)
+
+
+def _upload_line(post_id: str, account, when: Optional[datetime]) -> str:
+    """What the upload is about to do, said before the browser opens."""
+    from zoneinfo import ZoneInfo
+
+    if when is None:
+        return f"post {post_id} → {account.display}, posting now"
+    local = when.astimezone(ZoneInfo(account.timezone))
+    return (
+        f"post {post_id} → {account.display}, scheduled for {local:%a %d %b %H:%M} "
+        f"({account.timezone})"
+    )
+
+
 @app.command()
 def upload(
     post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
@@ -827,34 +867,60 @@ def upload(
     sound: Optional[str] = typer.Option(
         None,
         "--sound",
-        help="Search TikTok's sounds for this and use the first one found (default: ask which "
-        "of the account's sounds to use).",
+        help="Search TikTok's sounds for this and use the first one found (default: the "
+        "account's --default-sound, or the post's theme's sound when it has one, else ask).",
     ),
     no_sound: bool = typer.Option(False, "--no-sound", help="Add no sound, don't ask."),
+    ask_sound: bool = typer.Option(
+        False, "--ask-sound", help="Ask which sound to use, even with a default one set."
+    ),
+    at: Optional[str] = typer.Option(
+        None,
+        "--at",
+        metavar="WHEN",
+        help="Fill TikTok's own schedule in with this time instead of posting now: "
+        '"YYYY-MM-DD HH:MM" or "<day> HH:MM" (the next such time) in the account\'s time '
+        'zone, or "slot" for the post\'s own planned time. TikTok takes 15 minutes to 10 '
+        "days ahead, on 5 minutes.",
+    ),
+    no_schedule: bool = typer.Option(
+        False, "--no-schedule", help="Post it now, even if the post is planned for later."
+    ),
 ) -> None:
     """Open TikTok's upload page as the post's account with the slides, title, description and
-    sound filled in. You check it and click Post yourself, then answer y here to record the post
-    as sent."""
+    sound filled in. A post planned for later (`plan fill`, `schedule`) also gets TikTok's own
+    schedule filled in. You check it and click Post — or Schedule — yourself, then answer y
+    here to record the post as sent."""
     from manhwatok.app import container
     from manhwatok.app.upload_post import upload_post
 
     settings = Settings()
+    now = datetime.now(timezone.utc)
     try:
         with container.build_store(settings) as store:
+            posts = container.build_posts(settings)
+            when = None
+            post = posts.get(post_id)
+            if post.account:  # without one, upload_post says what to do about it
+                account = store.accounts.get(post.account)
+                when = _upload_schedule(post, account, at, no_schedule, now)
+                typer.echo(_upload_line(post_id, account, when))
             posted = upload_post(
                 post_id,
-                container.build_posts(settings),
+                posts,
                 store.accounts,
                 store.history,
                 container.build_uploader(settings),
                 _ask,
                 typer.echo,
-                now=datetime.now(timezone.utc),
+                now=now,
                 debug=debug,
                 sound="" if no_sound else sound,
                 choose_sound=_choose_sound,
                 themes=store.themes,
                 chapters=store.chapters,
+                schedule_at=when,
+                ask_sound=ask_sound,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -908,6 +974,12 @@ ACCOUNT_SOUNDS = typer.Option(
     help="A TikTok sound search, e.g. \"SOLO LEVELING RaijinLofi\"; repeat for several. "
     "Replaces the account's list; --sound \"\" clears it. `upload` asks which one to use.",
 )
+DEFAULT_SOUND = typer.Option(
+    None,
+    "--default-sound",
+    help="The sound `upload` uses for this account without asking, e.g. \"SOLO LEVELING "
+    'RaijinLofi". "" clears it and brings the question back; `upload --ask-sound` asks once.',
+)
 ACCOUNT_ACCENT = typer.Option(None, "--accent", help="Accent colour, e.g. #43c9e4.")
 CTA_TITLE = typer.Option(None, "--cta-title", help="End-slide title; *word* = accent colour.")
 CTA_FOLLOW = typer.Option(None, "--cta-follow", help="End-slide follow line.")
@@ -955,6 +1027,7 @@ def _account_fields(
     art: Optional[ArtStyle],
     emojis: Optional[str] = None,
     sounds: Optional[list[str]] = None,
+    default_sound: Optional[str] = None,
     rotation: Optional[str] = None,
     time_zone: Optional[str] = None,
     art_source: Optional[str] = None,
@@ -967,6 +1040,7 @@ def _account_fields(
     scalars = {
         "hashtags": hashtags,
         "emojis": emojis,
+        "default_sound": default_sound,
         "accent": accent,
         "cta_title": cta_title,
         "cta_follow": cta_follow,
@@ -999,6 +1073,7 @@ def _print_account(a) -> None:
         ("hashtags", a.hashtags or "-"),
         ("emojis", a.emojis or "-"),
         ("sounds", " | ".join(a.sounds) or "-"),
+        ("default sound", a.default_sound or "-"),
         ("accent", a.accent),
         ("cta title", a.cta_title),
         ("cta follow", a.cta_follow),
@@ -1046,6 +1121,7 @@ def account_add(
     hashtags: Optional[str] = ACCOUNT_HASHTAGS,
     emojis: Optional[str] = ACCOUNT_EMOJIS,
     sound: Optional[list[str]] = ACCOUNT_SOUNDS,
+    default_sound: Optional[str] = DEFAULT_SOUND,
     accent: Optional[str] = ACCOUNT_ACCENT,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
@@ -1061,7 +1137,7 @@ def account_add(
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound, rotation, time_zone, art_source, slots,
+        emojis, sound, default_sound, rotation, time_zone, art_source, slots,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -1075,6 +1151,7 @@ def account_set(
     hashtags: Optional[str] = ACCOUNT_HASHTAGS,
     emojis: Optional[str] = ACCOUNT_EMOJIS,
     sound: Optional[list[str]] = ACCOUNT_SOUNDS,
+    default_sound: Optional[str] = DEFAULT_SOUND,
     accent: Optional[str] = ACCOUNT_ACCENT,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
@@ -1090,7 +1167,7 @@ def account_set(
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound, rotation, time_zone, art_source, slots,
+        emojis, sound, default_sound, rotation, time_zone, art_source, slots,
     )
     _save_account(update_account, "updated", handle, fields)
 

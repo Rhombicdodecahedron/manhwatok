@@ -5,8 +5,9 @@ in to TikTok by hand once (`manhwatok login`). TikTok never completes a login in
 is being automated, so `login` starts Chrome on its own, with nothing attached to it, and waits
 for the user to quit it. `upload` then opens TikTok's upload page in that profile with
 Playwright, attaches the slides, types the title and description (picking each hashtag from
-TikTok's suggestions), picks a sound, and leaves the window open: the user
-reviews the post and clicks Post. This adapter never clicks Post, never sees a password and does
+TikTok's suggestions), picks a sound, fills in TikTok's own schedule when the post is planned
+for later, and leaves the window open: the user reviews the post and clicks Post (or Schedule).
+This adapter never clicks Post or Schedule, never sees a password and does
 nothing to hide that the browser is automated — no stealth plugins, no extra launch arguments,
 no fingerprint, proxy or captcha tricks; it only waits between steps like a person would.
 Every TikTok URL and selector lives in `tiktok_page.py`."""
@@ -29,6 +30,7 @@ from manhwatok.domain.errors import (
     StorageError,
     UploadUnavailable,
 )
+from manhwatok.domain.plan import schedule_step
 from manhwatok.ports.uploader import UploadReport
 
 INSTALL_HINT = "upload needs: uv sync --extra upload"
@@ -37,6 +39,7 @@ CHROME_HINT = "upload needs Google Chrome: https://www.google.com/chrome/"
 CHROME_PATHS = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",)
 CHROME_NAMES = ("google-chrome", "google-chrome-stable")
 POLL_MS = 200  # how often to look again for an element that isn't there yet
+SCHEDULE_FIX = "set the date and time in the browser yourself"
 
 
 def _load_playwright():
@@ -148,9 +151,10 @@ class PlaywrightUploader:
         description: str,
         sound: str | None,
         debug: bool,
+        schedule_at: datetime | None = None,
     ) -> UploadReport:
         with self._noting_ctrl_c():
-            return self._upload(handle, slides, title, description, sound, debug)
+            return self._upload(handle, slides, title, description, sound, debug, schedule_at)
 
     def close(self) -> None:
         """Best effort, never raises. A Ctrl-C in the terminal also stops Playwright's driver
@@ -193,6 +197,7 @@ class PlaywrightUploader:
         description: str,
         sound: str | None,
         debug: bool,
+        schedule_at: datetime | None = None,
     ) -> UploadReport:
         page = self._open(handle)
         problems: list[str] = []
@@ -218,7 +223,7 @@ class PlaywrightUploader:
         if not report.attached:
             problems.append("title and description not typed — paste caption.txt yourself")
         else:
-            self._fill_editor(page, report, title, description, sound)
+            self._fill_editor(page, report, handle, title, description, sound, schedule_at)
         if debug and problems:
             report.debug_dir = self._save_debug(page, slides, problems)
         return report
@@ -309,9 +314,11 @@ class PlaywrightUploader:
             return f"couldn't attach the slides ({_first_line(e)}) — drag them in yourself"
         return None
 
-    def _fill_editor(self, page, report: UploadReport, title, description, sound) -> None:
-        """Title, description, sound: each step that fails is a problem for the user to finish;
-        once the window is gone, the rest is skipped."""
+    def _fill_editor(
+        self, page, report: UploadReport, handle, title, description, sound, schedule_at=None
+    ) -> None:
+        """Title, description, sound and TikTok's own schedule: each step that fails is a
+        problem for the user to finish; once the window is gone, the rest is skipped."""
         if self._find(page, [self._page.editor_ready], self._page.editor_timeout) is None:
             report.problems.append("the post editor didn't open — check the browser window")
         steps = []
@@ -322,7 +329,15 @@ class PlaywrightUploader:
         )
         if sound:
             steps.append(("add the sound", "add one yourself", self._sound_step))
-        text = {"title": title, "description": description, "sound": sound}
+        if schedule_at is not None:
+            steps.append(("fill in the schedule", SCHEDULE_FIX, self._schedule_step))
+        text = {
+            "title": title,
+            "description": description,
+            "sound": sound,
+            "schedule_at": schedule_at,
+            "handle": handle,
+        }
         for what, fix, step in steps:
             try:
                 step(page, report, text, fix)
@@ -395,6 +410,146 @@ class PlaywrightUploader:
         self._pause(page)
         result.locator(self._page.sound_use).first.click()
         report.sound = name
+
+    # --- TikTok's own schedule ------------------------------------------------------------
+
+    def _schedule_step(self, page, report: UploadReport, text: dict, fix: str) -> None:
+        """Switch TikTok to "Schedule" and fill its date and time in — the user still clicks
+        the button. Anything that doesn't work leaves an ordinary "post it now" page and is
+        said so, and the report stays unscheduled, so the caller can tell the user."""
+        wanted = schedule_step(text["schedule_at"])
+        if wanted != text["schedule_at"]:
+            report.notes.append(
+                f"TikTok schedules on 5 minutes: {text['schedule_at']:%H:%M} → {wanted:%H:%M}"
+            )
+        if not self._start_scheduling(page, report, text["handle"], fix):
+            return
+        if not self._pick_time(page, report, wanted, fix):
+            return
+        if not self._pick_date(page, report, wanted, fix):
+            return
+        if self._reads_back(page, report, wanted, fix):
+            report.scheduled_at = wanted
+
+    def _start_scheduling(self, page, report: UploadReport, handle: str, fix: str) -> bool:
+        """Turn the "Schedule" radio on. Only a click on the label's own text moves it: the
+        input is covered, and TikTok ignores a forced click on it."""
+        radio = self._find(page, [self._page.schedule_radio], self._page.schedule_timeout)
+        if radio is None:
+            report.problems.append(f"TikTok's Schedule option wasn't there — {fix}")
+            return False
+        self._pause(page)
+        radio.click()
+        if self._scheduling(page):
+            return True
+        report.problems.append(self._consent_problem(page, handle, fix))
+        return False
+
+    def _scheduling(self, page) -> bool:
+        """Whether the radio really went on, read back from its aria-checked. TikTok takes a
+        moment over it, and never moves it at all while its consent modal is up."""
+        deadline = time.monotonic() + self._page.schedule_timeout
+        while True:
+            radio = self._find(page, [self._page.schedule_input], 0, visible=False)
+            if radio is not None and radio.get_attribute("aria-checked") == "true":
+                return True
+            if self._find(page, [self._page.consent_allow], 0) is not None:
+                return False  # waiting on the user's consent; it won't move by itself
+            if time.monotonic() >= deadline:
+                return False
+            page.wait_for_timeout(POLL_MS)
+
+    def _consent_problem(self, page, handle: str, fix: str) -> str:
+        """What to say when the radio stayed on "Now". The first time an account schedules
+        anything, TikTok asks to allow the slides to be saved on its servers ("Allow your video
+        to be saved for scheduled posting?") and won't move until Allow is clicked. That is the
+        user's call, not manhwatok's: the modal is left open and this says what to do. Asking
+        the user instead of telling them is a change to this one method."""
+        if self._find(page, [self._page.consent_allow], 0) is not None:
+            return (
+                f"TikTok asks @{handle} to allow scheduled posting once — it saves the slides "
+                "on its servers. Click Allow in the window, then set the time yourself (or "
+                "upload again)."
+            )
+        return f'TikTok stayed on "Now" — {fix}'
+
+    def _pick_time(self, page, report: UploadReport, when: datetime, fix: str) -> bool:
+        """The hour, then the minute, each picked from the list the time box opens."""
+        page_, timeout = self._page, self._page.schedule_timeout
+        box = self._find(page, [page_.time_input], timeout)
+        if box is None:
+            report.problems.append(f"TikTok's time box wasn't there — {fix}")
+            return False
+        self._pause(page)
+        box.click()
+        for which, value in ((0, f"{when:%H}"), (1, f"{when:%M}")):
+            option = self._find(page, [page_.time_choice(which, value)], timeout)
+            if option is None:
+                report.problems.append(f"TikTok's time picker has no {value} — {fix}")
+                return False
+            self._pause(page)
+            option.click()
+        page.keyboard.press("Escape")  # close the picker, as a person would
+        return True
+
+    def _pick_date(self, page, report: UploadReport, when: datetime, fix: str) -> bool:
+        """The day, picked from the calendar the date box opens — only its `valid` cells can
+        be picked, and a day number shows once among them (the window is 10 days long)."""
+        page_, timeout = self._page, self._page.schedule_timeout
+        box = self._find(page, [page_.date_input], timeout)
+        if box is None:
+            report.problems.append(f"TikTok's date box wasn't there — {fix}")
+            return False
+        self._pause(page)
+        box.click()
+        if self._find(page, [page_.calendar], timeout) is None:
+            report.problems.append(f"TikTok's calendar didn't open — {fix}")
+            return False
+        cell = self._find(page, [page_.day_choice(when.day)], 0)
+        shown = self._shown_month(page)
+        if cell is None and shown != page_.month_title(when):
+            # The view holds the next month's first days too, so this is rare; and the window
+            # is 10 days, so one step forward is as far as it could ever need to go.
+            arrow = self._find(page, [page_.calendar_next], 0)
+            if arrow is not None:
+                self._pause(page)
+                arrow.click()
+                cell = self._find(page, [page_.day_choice(when.day)], timeout)
+                shown = self._shown_month(page)
+        if cell is None:
+            report.problems.append(
+                f"TikTok's calendar wouldn't take {when:%Y-%m-%d} (it shows {shown}) — {fix}"
+            )
+            return False
+        self._pause(page)
+        cell.click()
+        return True
+
+    def _shown_month(self, page) -> str:
+        """The month the calendar is on, as its header writes it ("September 2026")."""
+        month = self._find(page, [self._page.calendar_month], 0)
+        year = self._find(page, [self._page.calendar_year], 0)
+        if month is None or year is None:
+            return "no month"
+        return f"{month.inner_text().strip()} {year.inner_text().strip()}"
+
+    def _reads_back(self, page, report: UploadReport, when: datetime, fix: str) -> bool:
+        """Both boxes hold what was asked for. They are readonly, so the widgets are the only
+        way in: a click that landed elsewhere would otherwise schedule the post for some other
+        time without anyone noticing."""
+        right = True
+        for what, selector, wanted in (
+            ("time", self._page.time_input, f"{when:%H:%M}"),
+            ("date", self._page.date_input, f"{when:%Y-%m-%d}"),
+        ):
+            box = self._find(page, [selector], self._page.schedule_timeout)
+            got = box.input_value().strip() if box is not None else ""
+            if got != wanted:
+                report.problems.append(
+                    f"TikTok's {what} box reads {got or 'nothing'}, not {wanted} — {fix}"
+                )
+                right = False
+        return right
 
     def _clear(self, page, box) -> None:
         """Click into `box` and empty it: TikTok may prefill it."""

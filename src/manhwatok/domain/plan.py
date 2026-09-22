@@ -19,6 +19,12 @@ if TYPE_CHECKING:
 CHAPTER = "chapter"  # the next part of a tracked title's chapters
 THEME = "theme"  # a list post built from a saved theme
 
+# What TikTok's own schedule takes: its calendar offers 10 days, its time picker 5-minute
+# steps, and it won't schedule a post closer than a quarter of an hour away.
+MAX_FILL_DAYS = 10
+SCHEDULE_STEP_MINUTES = 5
+MIN_SCHEDULE_MINUTES = 15
+
 
 class RotationItem(BaseModel, frozen=True):
     """One step of a rotation. Written `chapter:<title>` (a title, or its AniList id, as
@@ -183,3 +189,46 @@ def parse_when(text: str, zone_name: str, now: datetime) -> datetime:
     if when <= now:
         raise ManhwatokError(f"{when:%Y-%m-%d %H:%M} ({zone_name}) is already past")
     return when
+
+
+# --- TikTok's own schedule -------------------------------------------------------------------
+
+
+def schedule_step(when: datetime) -> datetime:
+    """`when` as TikTok's time picker can hold it: the minute rounded down to a multiple of 5
+    (its list goes 00, 05, 10 … 55), seconds dropped. Rounding down never moves a post earlier
+    than `check_schedule` allowed, since that checks the rounded time."""
+    step = SCHEDULE_STEP_MINUTES
+    return when.replace(minute=when.minute // step * step, second=0, microsecond=0)
+
+
+def check_schedule(when: datetime, now: datetime) -> datetime:
+    """`when` unchanged, once TikTok would take it as a scheduled time: the time the picker
+    would really hold (see `schedule_step`) has to be at least 15 minutes and at most 10 days
+    away. The uploader does the rounding itself, and says that it did."""
+    at = schedule_step(when)
+    minutes = (at - now).total_seconds() / 60
+    local = at.astimezone()
+    if minutes < MIN_SCHEDULE_MINUTES:
+        raise ManhwatokError(
+            f"{local:%Y-%m-%d %H:%M} is too soon — TikTok schedules a post at least "
+            f"{MIN_SCHEDULE_MINUTES} minutes ahead (and on {SCHEDULE_STEP_MINUTES} minutes)"
+        )
+    if minutes > MAX_FILL_DAYS * 24 * 60:
+        raise ManhwatokError(
+            f"{local:%Y-%m-%d %H:%M} is too far off — TikTok schedules a post at most "
+            f"{MAX_FILL_DAYS} days ahead"
+        )
+    return when
+
+
+def schedulable(when: datetime | None, now: datetime) -> bool:
+    """Whether TikTok would take `when` (see `check_schedule`); False for no time at all. What
+    `upload` asks of a post's own slot before filling TikTok's schedule in with it."""
+    if when is None:
+        return False
+    try:
+        check_schedule(when, now)
+    except ManhwatokError:
+        return False
+    return True

@@ -49,7 +49,12 @@ def test_defaults():
     assert a.cta_follow == DEFAULT_CTA_FOLLOW
     assert a.repeat_days == DEFAULT_REPEAT_DAYS == 30
     assert a.art is ArtStyle.NONE
-    assert (a.emojis, a.sounds) == ("", [])
+    assert (a.emojis, a.sounds, a.default_sound) == ("", [], "")
+
+
+def test_a_default_sound_is_tidied_like_the_others():
+    a = Account(handle="ab", default_sound="  SOLO   LEVELING RaijinLofi ")
+    assert a.default_sound == "SOLO LEVELING RaijinLofi"
 
 
 def test_sounds_are_tidied_and_deduplicated_emojis_trimmed():
