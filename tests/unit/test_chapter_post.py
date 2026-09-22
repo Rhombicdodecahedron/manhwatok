@@ -465,3 +465,10 @@ def test_chosen_part_names_the_listed_chapters_for_one_that_is_missing(tmp_path)
     with pytest.raises(ManhwatokError) as caught:
         chosen_part(BOXER, ct, NOW, number="99")
     assert "has no chapter 99 in en — listed: 12, 13" in str(caught.value)
+
+
+def test_a_chapter_post_carries_its_accounts_byline(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    account = Account(handle="reads", byline="manhwa daily · @reads")
+    post, _ = build_chapter_post(BOXER, _tools(tmp_path), ct, account, NOW)
+    assert post.byline == "manhwa daily · @reads"

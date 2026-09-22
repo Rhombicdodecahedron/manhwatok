@@ -461,3 +461,14 @@ def test_account_add_and_set_take_a_visibility(tmp_path):
     with _store(tmp_path) as store:
         assert store.accounts.get("reads").visibility is Visibility.PRIVATE
     assert runner.invoke(app, ["account", "set", "reads", "--visibility", "nobody"]).exit_code == 2
+
+
+def test_account_byline_is_saved_shown_and_put_back(tmp_path):
+    out = _ok(["account", "add", "reads", "--byline", " manhwa daily · @reads "])
+    assert "byline        manhwa daily · @reads\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").byline == "manhwa daily · @reads"
+    out = _ok(["account", "set", "reads", "--byline", ""])
+    assert "byline        @reads\n" in out  # blank draws the handle alone
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").byline == ""

@@ -399,6 +399,7 @@ def create_chapter_post(
         account=account.handle if account else None,
         cta_title=cta_title,
         cta_follow=account.cta_follow if account else ListPost.model_fields["cta_follow"].default,
+        byline=account.byline if account else "",
         theme=theme,
     )
 

@@ -226,8 +226,11 @@ def _draw_text(draw: ImageDraw.ImageDraw, placed: Placed, color, accent) -> None
 
 
 def _byline(post: ListPost) -> str:
-    """Who the post is by, for the mark every slide carries; nothing without an account."""
-    return f"by @{post.account}" if post.account else ""
+    """The mark every slide carries: the post's own byline, else the account's handle alone;
+    nothing when a post has neither."""
+    if post.byline:
+        return post.byline
+    return f"@{post.account}" if post.account else ""
 
 
 def _draw_byline(canvas: Image.Image, placed: Placed | None) -> None:

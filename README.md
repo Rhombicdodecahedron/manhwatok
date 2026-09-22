@@ -130,8 +130,16 @@ Every render draws the cover slide three ways and keeps all three next to the sl
   without a character image gives its picked art or its cover; fewer than four titles repeat.
 - `cover-hero.png` — the first title's picked art (else its cover) filling the whole slide.
 
-The chosen one is also `01.png`, the slide that gets exported. An account's post says
-"by @handle" under the progress bar on every version.
+The chosen one is also `01.png`, the slide that gets exported. An account's post carries a mark
+under the progress bar on every version: `@handle`, or whatever the account's `--byline` says.
+
+```bash
+uv run manhwatok account set @manhwa.daily --byline "manhwa daily · @manhwa.daily"
+uv run manhwatok account set @manhwa.daily --byline ""    # back to "@manhwa.daily"
+```
+
+A post keeps the byline it was built with, the way it keeps its end-slide texts, so changing an
+account's byline shows on its next posts rather than rewriting the ones already rendered.
 
 ```bash
 uv run manhwatok cover <id>              # list the versions and which one is current

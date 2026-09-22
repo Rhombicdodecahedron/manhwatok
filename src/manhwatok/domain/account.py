@@ -50,6 +50,9 @@ class Account(BaseModel):
     # Pick one of the sounds on offer at random instead of asking, as `upload --random-sound`.
     # Defaulted, so accounts saved before it load.
     random_sound: bool = False
+    # The mark every slide carries. Blank draws "@handle"; anything else is drawn as written.
+    # Defaulted, so accounts saved before it load.
+    byline: str = ""
     accent: str = DEFAULT_ACCENT
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
@@ -93,6 +96,11 @@ class Account(BaseModel):
     def _default_sound(cls, value: str) -> str:
         kept = clean_sounds([value])
         return kept[0] if kept else ""
+
+    @field_validator("byline")
+    @classmethod
+    def _byline(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("accent")
     @classmethod

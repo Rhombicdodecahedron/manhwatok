@@ -22,7 +22,7 @@ from manhwatok.tui.widgets.dialogs import ConfirmModal
 from manhwatok.tui.widgets.form import FormModal
 
 LISTS = ("genres", "block_genres", "block_tags")
-TEXTS = ("hashtags", "emojis", "default_sound", "accent", "cta_title", "cta_follow")
+TEXTS = ("hashtags", "emojis", "default_sound", "accent", "byline", "cta_title", "cta_follow")
 ART_CHOICES = ", ".join(style.value for style in ArtStyle)
 SOURCE_CHOICES = ", ".join(source.value for source in ArtSourceName)
 VISIBILITY_CHOICES = ", ".join(who.value for who in Visibility)
@@ -45,6 +45,7 @@ LABELS = {
     ),
     "accent": "Accent colour",
     "art": f"Slide art for new posts: {ART_CHOICES} (empty = none)",
+    "byline": "Byline on every slide (blank = @handle)",
     "cta_title": "End-slide title (*word* = accent colour)",
     "cta_follow": "End-slide follow line",
     "repeat_days": f"Repeat window in days (1–{MAX_REPEAT_DAYS})",

@@ -39,6 +39,8 @@ class ListPost(BaseModel):
     exported_at: AwareDatetime | None = None  # first export; its titles count as posted
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW
+    # The mark drawn at the foot of every slide; blank draws "@account" (nothing without one).
+    byline: str = ""
     sent_at: AwareDatetime | None = None  # Phase 4: when the user confirmed it was posted
     # When it's planned to go out: one of its account's slots (`plan fill`) or a time set with
     # `schedule`. It keeps its slot once sent, so the slot isn't filled again.

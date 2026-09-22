@@ -1024,6 +1024,11 @@ RANDOM_SOUND = typer.Option(
     "asks, and `upload --sound`/`--no-sound` still decide for one post.",
 )
 ACCOUNT_ACCENT = typer.Option(None, "--accent", help="Accent colour, e.g. #43c9e4.")
+BYLINE = typer.Option(
+    None,
+    "--byline",
+    help='The mark at the foot of every slide (default: "@handle"); "" puts it back.',
+)
 CTA_TITLE = typer.Option(None, "--cta-title", help="End-slide title; *word* = accent colour.")
 CTA_FOLLOW = typer.Option(None, "--cta-follow", help="End-slide follow line.")
 ACCOUNT_ART = typer.Option(
@@ -1084,6 +1089,7 @@ def _account_fields(
     art_source: Optional[str] = None,
     slots: Optional[str] = None,
     visibility: Optional[Visibility] = None,
+    byline: Optional[str] = None,
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -1095,6 +1101,7 @@ def _account_fields(
         "default_sound": default_sound,
         "random_sound": random_sound,
         "accent": accent,
+        "byline": byline,
         "cta_title": cta_title,
         "cta_follow": cta_follow,
         "repeat_days": repeat_days,
@@ -1130,6 +1137,7 @@ def _print_account(a) -> None:
         ("default sound", a.default_sound or "-"),
         ("random sound", "yes" if a.random_sound else "no"),
         ("accent", a.accent),
+        ("byline", a.byline or f"@{a.handle}"),
         ("cta title", a.cta_title),
         ("cta follow", a.cta_follow),
         ("repeat days", str(a.repeat_days)),
@@ -1180,6 +1188,7 @@ def account_add(
     default_sound: Optional[str] = DEFAULT_SOUND,
     random_sound: Optional[bool] = RANDOM_SOUND,
     accent: Optional[str] = ACCOUNT_ACCENT,
+    byline: Optional[str] = BYLINE,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
@@ -1196,7 +1205,7 @@ def account_add(
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
         emojis, sound, default_sound, random_sound, rotation, time_zone, art_source,
-        slots, visibility,
+        slots, visibility, byline,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -1213,6 +1222,7 @@ def account_set(
     default_sound: Optional[str] = DEFAULT_SOUND,
     random_sound: Optional[bool] = RANDOM_SOUND,
     accent: Optional[str] = ACCOUNT_ACCENT,
+    byline: Optional[str] = BYLINE,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
     repeat_days: Optional[int] = REPEAT_DAYS,
@@ -1229,7 +1239,7 @@ def account_set(
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
         emojis, sound, default_sound, random_sound, rotation, time_zone, art_source,
-        slots, visibility,
+        slots, visibility, byline,
     )
     _save_account(update_account, "updated", handle, fields)
 

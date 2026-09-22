@@ -63,6 +63,7 @@ def create_post(
         account=account.handle if account else None,
         cta_title=account.cta_title if account else DEFAULT_CTA_TITLE,
         cta_follow=account.cta_follow if account else DEFAULT_CTA_FOLLOW,
+        byline=account.byline if account else "",
         art=art,
     )
 

@@ -162,3 +162,11 @@ def test_visibility_defaults_to_everyone_so_stored_accounts_load():
     assert Account(handle="reads", visibility="friends").visibility is Visibility.FRIENDS
     with pytest.raises(ValidationError):
         Account(handle="reads", visibility="nobody")
+
+
+def test_an_account_keeps_the_byline_its_slides_carry():
+    assert Account(handle="reads", byline=" manhwa daily · @reads ").byline == "manhwa daily · @reads"
+
+
+def test_an_accounts_byline_is_empty_by_default():
+    assert Account(handle="reads").byline == ""

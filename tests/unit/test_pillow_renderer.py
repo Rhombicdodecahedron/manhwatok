@@ -774,3 +774,22 @@ def test_a_chapter_post_writes_only_the_cover_version_it_uses(tmp_path):
     post, folder = _chapter_post(tmp_path)
     PillowRenderer().render(post, {}, folder)
     assert [p.name for p in sorted(folder.glob("cover-*.png"))] == ["cover-fan.png"]
+
+
+def test_the_mark_is_the_handle_alone_when_a_post_carries_no_byline(tmp_path):
+    from manhwatok.adapters.pillow_renderer import _byline
+
+    assert _byline(_post(1).model_copy(update={"account": "reads"})) == "@reads"
+
+
+def test_a_posts_own_byline_is_drawn_as_written(tmp_path):
+    from manhwatok.adapters.pillow_renderer import _byline
+
+    post = _post(1).model_copy(update={"account": "reads", "byline": "manhwa daily · @reads"})
+    assert _byline(post) == "manhwa daily · @reads"
+
+
+def test_a_byline_without_an_account_is_still_drawn(tmp_path):
+    from manhwatok.adapters.pillow_renderer import _byline
+
+    assert _byline(_post(1).model_copy(update={"byline": "manhwa daily"})) == "manhwa daily"
