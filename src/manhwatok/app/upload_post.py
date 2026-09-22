@@ -15,7 +15,12 @@ from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import clean_sounds
 from manhwatok.ports.posts import PostRepository
 from manhwatok.domain.account import Account
-from manhwatok.ports.store import AccountRepository, HistoryRepository, ThemeRepository
+from manhwatok.ports.store import (
+    AccountRepository,
+    ChapterRepository,
+    HistoryRepository,
+    ThemeRepository,
+)
 from manhwatok.ports.uploader import Uploader
 
 # Asks a yes/no question in the terminal; False for "no" and for no answer at all (EOF).
@@ -51,6 +56,7 @@ def upload_post(
     sound: str | None = None,
     choose_sound: ChooseSoundFn | None = None,
     themes: ThemeRepository | None = None,
+    chapters: ChapterRepository | None = None,
 ) -> bool:
     """True when the user confirmed the post went out (and it was recorded). `sound`: a TikTok
     sound search, "" for none; None asks `choose_sound` among the post's sounds."""
@@ -96,4 +102,8 @@ def upload_post(
         # History first, like export: if saving the post fails, the titles are still protected.
         history.record(account.handle, post.id, [i.manhwa.anilist_id for i in post.items], now)
         posts.save(post.model_copy(update={"sent_at": now}))
+        if post.chapter and chapters is not None:
+            # As on export: a chapter part counts as published once it leaves for TikTok. A
+            # part exported earlier keeps that first date.
+            chapters.mark_published(post.id, now)
     return posted

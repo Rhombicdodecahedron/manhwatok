@@ -230,3 +230,35 @@ def test_upload_says_which_sound_was_added(tmp_path, monkeypatch):
     _browser(monkeypatch, report=report)
     result = runner.invoke(app, ["upload", POST_ID, "--sound", "solo leveling"], input="n\n")
     assert "added the sound SOLO LEVELING (00:59 · RaijinLofi)\n" in result.output
+
+
+def test_upload_then_yes_marks_a_chapter_posts_part_published(tmp_path, monkeypatch):
+    from PIL import Image
+
+    from manhwatok.domain.chapter import PartRecord
+    from tests.unit.fakes import chapter_part, chapter_post
+
+    with _store(tmp_path) as store:
+        store.accounts.add(Account(handle="reads"))
+    tools = make_tools(tmp_path)
+    folder = tools.posts.folder(POST_ID)
+    folder.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (27, 48), (30, 60, 90)).save(folder / "panel-001.png")
+    tools.posts.save(
+        chapter_post(
+            chapter=chapter_part(panels=["panel-001.png"], to_panel=1), account="reads"
+        )
+    )
+    render_post(POST_ID, tools)
+    with _store(tmp_path) as store:
+        store.chapters.record_part(
+            PartRecord(
+                anilist_id=1, number="12", language="en", part=1, parts=2, post_id=POST_ID,
+                built_at=tools.posts.get(POST_ID).created_at,
+            )
+        )
+    _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID], input="y\n")
+    assert result.exit_code == 0, result.output
+    with _store(tmp_path) as store:
+        assert store.chapters.parts(1)[0].published_at is not None

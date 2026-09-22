@@ -267,3 +267,43 @@ def test_a_theme_with_sounds_and_an_account_without_still_offers_them(tmp_path, 
     offered = []
     _upload(posts, store, FakeUploader(), choose_sound=lambda s: (offered.append(s), s[0])[1])
     assert offered == [["phonk one"]]
+
+
+def _chapter_posts(tmp_path, store):
+    """A rendered chapter post of @reads, its part recorded as built and not yet published."""
+    from PIL import Image
+
+    from manhwatok.domain.chapter import PartRecord
+    from tests.unit.fakes import chapter_part, chapter_post
+
+    tools = make_tools(tmp_path)
+    folder = tools.posts.folder(POST_ID)
+    folder.mkdir(parents=True, exist_ok=True)
+    names = []
+    for n in (1, 2):
+        names.append(f"panel-{n:03d}.png")
+        Image.new("RGB", (27, 48), (30 * n, 60, 90)).save(folder / names[-1])
+    tools.posts.save(
+        chapter_post(chapter=chapter_part(panels=names, to_panel=2), account="reads")
+    )
+    render_post(POST_ID, tools)
+    store.chapters.record_part(
+        PartRecord(
+            anilist_id=1, number="12", language="en", part=1, parts=2, post_id=POST_ID,
+            built_at=NOW,
+        )
+    )
+    return tools.posts
+
+
+def test_yes_marks_a_chapter_posts_part_published(tmp_path, store):
+    posts = _chapter_posts(tmp_path, store)
+    posted, _ = _upload(posts, store, FakeUploader(), chapters=store.chapters)
+    assert posted is True
+    assert store.chapters.parts(1)[0].published_at == NOW
+
+
+def test_no_leaves_a_chapter_posts_part_unpublished(tmp_path, store):
+    posts = _chapter_posts(tmp_path, store)
+    _upload(posts, store, FakeUploader(), yes=False, chapters=store.chapters)
+    assert store.chapters.parts(1)[0].published_at is None

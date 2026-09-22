@@ -813,6 +813,7 @@ def upload(
                 sound="" if no_sound else sound,
                 choose_sound=_choose_sound,
                 themes=store.themes,
+                chapters=store.chapters,
             )
     except ManhwatokError as e:
         _fail(e)

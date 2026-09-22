@@ -389,6 +389,7 @@ class PostsPane(Vertical):
                 debug=debug,
                 choose_sound=choose_sound,
                 themes=ctx.store.themes,
+                chapters=ctx.store.chapters,
             )
             return f"recorded post {pid} as sent" if posted else "nothing recorded"
 
