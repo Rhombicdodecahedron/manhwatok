@@ -455,3 +455,81 @@ def test_page_counts_show_in_the_form_not_as_notifications(tmp_path):
         assert not any("page 1 of 3" in n for n in notes(app))
 
     run_app(ctx, scenario)
+
+
+# --- a chosen chapter and part -----------------------------------------------------------------
+
+
+def test_check_reports_the_chapter_and_part_asked_for(tmp_path):
+    ctx, pages = _ctx(tmp_path)
+    _track(ctx)
+    _built(ctx, "12", 1, 3)
+
+    async def scenario(app, pilot):
+        pane = await _chapter_mode(app, pilot)
+        await _set(pilot, pane, chapter_title=BOXER.anilist_id, chapter_number="13")
+        pane.check_chapter()
+        await wait_for(pilot, lambda: "chapter 13" in _next_text(pane))
+        assert _next_text(pane).endswith("asked for: chapter 13, part 1")
+
+    run_app(ctx, scenario)
+
+
+def test_check_reports_a_part_already_built_as_a_rebuild(tmp_path):
+    ctx, _ = _ctx(tmp_path)
+    _track(ctx)
+    _built(ctx, "12", 1, 3)
+
+    async def scenario(app, pilot):
+        pane = await _chapter_mode(app, pilot)
+        await _set(pilot, pane, chapter_title=BOXER.anilist_id, chapter_number="12", chapter_part="1")
+        pane.check_chapter()
+        await wait_for(pilot, lambda: "chapter 12" in _next_text(pane))
+        assert _next_text(pane).endswith("asked for: chapter 12, part 1 of 3 — built already")
+
+    run_app(ctx, scenario)
+
+
+def test_a_chosen_chapter_is_built_even_when_every_chapter_is_done(tmp_path):
+    ctx, pages = _ctx(tmp_path)
+    _track(ctx)
+    _built(ctx, "12", 1, 1)
+    _built(ctx, "13", 1, 1)
+
+    async def scenario(app, pilot):
+        pane = await _chapter_mode(app, pilot)
+        await _set(pilot, pane, chapter_title=BOXER.anilist_id, chapter_number="12", chapter_part="1")
+        pane.build_chapter()
+        await wait_for(pilot, lambda: "post " in _next_text(pane))
+        assert "chapter 12 part 1" in _next_text(pane)
+
+    run_app(ctx, scenario)
+    assert pages.listings == []  # the record had it: no need to ask the source for more
+
+
+def test_a_part_that_is_not_a_whole_number_is_refused(tmp_path):
+    ctx, _ = _ctx(tmp_path)
+    _track(ctx)
+
+    async def scenario(app, pilot):
+        pane = await _chapter_mode(app, pilot)
+        await _set(pilot, pane, chapter_title=BOXER.anilist_id, chapter_part="second")
+        pane.check_chapter()
+        await pilot.pause()
+        assert any("part must be a whole number" in n for n in notes(app))
+
+    run_app(ctx, scenario)
+
+
+def test_an_unlisted_chapter_says_what_is_listed(tmp_path):
+    ctx, _ = _ctx(tmp_path)
+    _track(ctx)
+
+    async def scenario(app, pilot):
+        pane = await _chapter_mode(app, pilot)
+        await _set(pilot, pane, chapter_title=BOXER.anilist_id, chapter_number="99")
+        pane.check_chapter()
+        await wait_for(pilot, lambda: bool(notes(app)))
+        assert any("has no chapter 99" in n for n in notes(app))
+
+    run_app(ctx, scenario)

@@ -218,6 +218,38 @@ def next_to_build(
     return next_part(refresh_chapters(manhwa, ct, now, language, progress), parts)
 
 
+class Chosen(NamedTuple):
+    """A chapter and part asked for by name rather than taken in turn."""
+
+    part: NextPart
+    built: bool  # this very part exists already, so building it makes it afresh
+
+
+def chosen_part(
+    manhwa: Manhwa,
+    ct: ChapterTools,
+    now: datetime,
+    number: str | None = None,
+    part: int | None = None,
+    language: str = "en",
+    progress: ProgressFn = _noop,
+) -> Chosen:
+    """Which chapter and part `build_chapter_post` would make for this `number` and `part`,
+    without downloading anything. Raises ManhwatokError for a chapter the source doesn't
+    list, naming the ones it does."""
+    known = ct.chapters.chapters(manhwa.anilist_id, language, ct.source)
+    if not known:
+        known = refresh_chapters(manhwa, ct, now, language, progress)
+    chapter, which = _which(known, ct, manhwa, language, number, part)
+    done = [
+        p
+        for p in ct.chapters.parts(manhwa.anilist_id, language, ct.source)
+        if p.number == chapter.number
+    ]
+    total = max((p.parts for p in done), default=0)
+    return Chosen(NextPart(chapter, which, total), any(p.part == which for p in done))
+
+
 def chapter_status(
     anilist_id: int, ct: ChapterTools, language: str = "en"
 ) -> list[ChapterStatus]:

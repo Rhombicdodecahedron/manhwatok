@@ -25,7 +25,9 @@ from textual.worker import Worker, get_current_worker
 from manhwatok.app.build_post import prefill_items, save_new_post
 from manhwatok.app.chapter_post import (
     ChapterTools,
+    Chosen,
     build_chapter_post,
+    chosen_part,
     next_to_build,
     pick_source,
     resolve_title,
@@ -52,6 +54,7 @@ from manhwatok.ports.chapters import PageCount
 from manhwatok.tui.screens.picks import PicksScreen
 
 MAX_TAG_HITS = 30
+MAX_PARTS = 99  # parts of one chapter: far more than any chapter is cut into
 
 
 def _number(raw: str, name: str, low: int, high: int, default: int | None) -> int | None:
@@ -84,11 +87,18 @@ class ChapterRequest:
     tracked: tuple[int, str] | None  # (AniList id, name) of the tracked title chosen
     source: ChapterSourceName | None  # None: the one it is tracked under, else the first with it
     language: str
+    number: str | None  # a chapter asked for by name; None takes the next one in turn
+    part: int | None  # which part of it; None takes the next unbuilt one
     account: Account | None
     title: str | None
     hashtags: str | None
     accent: str | None
     emojis: str | None
+
+    @property
+    def asked_for(self) -> bool:
+        """Whether a chapter or part was named, rather than taken in turn."""
+        return self.number is not None or self.part is not None
 
 
 def next_line(manhwa: Manhwa, source: ChapterSourceName, found: NextPart | None) -> str:
@@ -98,6 +108,17 @@ def next_line(manhwa: Manhwa, source: ChapterSourceName, found: NextPart | None)
         return f"{where} — every listed chapter is built"
     parts = f" of {found.parts}" if found.parts else ""
     return f"{where} — next: chapter {found.chapter.number}, part {found.part}{parts}"
+
+
+def chosen_line(manhwa: Manhwa, source: ChapterSourceName, chosen: Chosen) -> str:
+    """What Check says about a chapter and part asked for by name."""
+    found = chosen.part
+    parts = f" of {found.parts}" if found.parts else ""
+    built = " — built already" if chosen.built else ""
+    return (
+        f"{manhwa.title} · {source.value} — asked for: chapter {found.chapter.number}, "
+        f"part {found.part}{parts}{built}"
+    )
 
 
 class BuildPane(VerticalScroll):
@@ -208,6 +229,13 @@ class BuildPane(VerticalScroll):
             with Vertical(classes="field narrow"):
                 yield Label("Language")
                 yield Input("en", id="chapter-language")
+        with Horizontal(classes="row"):
+            with Vertical(classes="field narrow"):
+                yield Label("Chapter (blank = next)")
+                yield Input(id="chapter-number")
+            with Vertical(classes="field narrow"):
+                yield Label("Part (blank = next)")
+                yield Input(id="chapter-part")
         with Horizontal(classes="row"):
             with Vertical(classes="field"):
                 yield Label("Post title (blank = <title> *Chapter N*)")
@@ -439,11 +467,14 @@ class BuildPane(VerticalScroll):
         accent = self._input("accent").value.strip() or None
         if accent is not None:
             accent = check_accent(accent)
+        part = _number(self._input("chapter-part").value, "part", 1, MAX_PARTS, None)
         return ChapterRequest(
             text=text,
             tracked=None if chosen is None else (chosen, self._titles.get(chosen, str(chosen))),
             source=self.query_one("#chapter-source", Select).selection,
             language=language,
+            number=self._input("chapter-number").value.strip() or None,
+            part=part,
             account=self._account(),
             title=self._input("chapter-post-title").value.strip() or None,
             hashtags=self._input("hashtags").value.strip() or None,
@@ -485,13 +516,21 @@ class BuildPane(VerticalScroll):
 
             try:
                 manhwa, ct = self._title_tools(ctx, req, progress)
-                found = next_to_build(manhwa, ct, self.app.clock(), req.language, progress)
+                now = self.app.clock()
+                if req.asked_for:
+                    chosen = chosen_part(
+                        manhwa, ct, now, req.number, req.part, req.language, progress
+                    )
+                    line = chosen_line(manhwa, ct.source, chosen)
+                else:
+                    found = next_to_build(manhwa, ct, now, req.language, progress)
+                    line = next_line(manhwa, ct.source, found)
             except ManhwatokError as e:
                 if not worker.is_cancelled:
                     self.app.later(self._chapter_failed, e)
                 return
             if not worker.is_cancelled:
-                self.app.later(self._checked, next_line(manhwa, ct.source, found), worker)
+                self.app.later(self._checked, line, worker)
 
         self.run_worker(run, thread=True, group="chapter-check", exclusive=True)
 
@@ -526,7 +565,7 @@ class BuildPane(VerticalScroll):
             tools = replace(ctx.tools, progress=progress)
             now = self.app.clock()
             manhwa, ct = self._title_tools(ctx, req, progress)
-            if next_to_build(manhwa, ct, now, req.language, progress) is None:
+            if not req.asked_for and next_to_build(manhwa, ct, now, req.language, progress) is None:
                 raise ManhwatokError(
                     f"every listed chapter of {manhwa.title} is already built — "
                     f"{ct.source.value} has nothing new"
@@ -537,6 +576,8 @@ class BuildPane(VerticalScroll):
                 ct,
                 req.account,
                 now,
+                number=req.number,
+                part=req.part,
                 language=req.language,
                 title=req.title,
                 hashtags=req.hashtags,

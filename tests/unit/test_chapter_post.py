@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from manhwatok.app.chapter_post import (
+    chosen_part,
     build_chapter_post,
     chapter_status,
     next_to_build,
@@ -434,3 +435,33 @@ def test_the_post_records_which_source_its_chapter_came_from(tmp_path):
     ct = _both(tmp_path, webtoons=(CH12,)).using(ChapterSourceName.WEBTOONS)
     post, _ = _build(tmp_path, ct)
     assert post.chapter.source is ChapterSourceName.WEBTOONS
+
+
+def test_chosen_part_takes_the_chapter_asked_for(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    _build(tmp_path, ct)  # chapter 12 part 1 of 2
+    ct.pages.listings.clear()
+    chosen = chosen_part(BOXER, ct, NOW, number="13")
+    assert (chosen.part.chapter.number, chosen.part.part, chosen.built) == ("13", 1, False)
+    assert ct.pages.listings == []  # the record had it
+
+
+def test_chosen_part_says_a_part_was_built_already(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    _build(tmp_path, ct)
+    chosen = chosen_part(BOXER, ct, NOW, number="12", part=1)
+    assert (chosen.part.part, chosen.part.parts, chosen.built) == (1, 2, True)
+
+
+def test_chosen_part_without_a_number_takes_the_next_part_of_the_next_chapter(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    _build(tmp_path, ct)
+    chosen = chosen_part(BOXER, ct, NOW)
+    assert (chosen.part.chapter.number, chosen.part.part, chosen.built) == ("12", 2, False)
+
+
+def test_chosen_part_names_the_listed_chapters_for_one_that_is_missing(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    with pytest.raises(ManhwatokError) as caught:
+        chosen_part(BOXER, ct, NOW, number="99")
+    assert "has no chapter 99 in en — listed: 12, 13" in str(caught.value)

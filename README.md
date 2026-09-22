@@ -686,6 +686,9 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   at the top turns the form into `chapter build`: pick a title already tracked (or type a new
   one, a name or AniList id), the source (`auto` = the one it is tracked under, else the first
   that has it) and language, and optionally the post title, hashtags, accent and emojis.
+  Leave **Chapter** and **Part** blank to carry on where the last post stopped, or name either
+  to go back to one: **Check** then says "asked for: chapter 12, part 1 of 3 — built already"
+  instead of what comes next, and **Build** makes that very part again.
   **Check** shows what `chapter next` would build ("next: chapter 12, part 2 of 3"), asking
   the source for new chapters when every one on record is built; **Build** downloads, cuts and
   renders that part (page counts show under the buttons) and opens the new post in Posts.
