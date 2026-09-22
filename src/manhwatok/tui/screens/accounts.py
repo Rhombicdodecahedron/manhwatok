@@ -14,7 +14,7 @@ from manhwatok.app.accounts import add_account, update_account
 from manhwatok.app.login_account import forget_login, login_account, saved_login
 from manhwatok.domain.account import MAX_REPEAT_DAYS, Account
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import ArtSourceName, ArtStyle
+from manhwatok.domain.models import ArtSourceName, ArtStyle, Visibility
 from manhwatok.domain.text import split_names
 from manhwatok.tui.screens.browser import BrowserScreen
 from manhwatok.tui.text import clip
@@ -25,6 +25,7 @@ LISTS = ("genres", "block_genres", "block_tags")
 TEXTS = ("hashtags", "emojis", "default_sound", "accent", "cta_title", "cta_follow")
 ART_CHOICES = ", ".join(style.value for style in ArtStyle)
 SOURCE_CHOICES = ", ".join(source.value for source in ArtSourceName)
+VISIBILITY_CHOICES = ", ".join(who.value for who in Visibility)
 LABELS = {
     "genres": "Genres (comma-separated; a title needs one of them; empty = any)",
     "block_genres": "Blocked genres",
@@ -56,6 +57,10 @@ LABELS = {
         f"Art source for the rotation's list posts: {SOURCE_CHOICES} "
         "(empty = the art style's own)"
     ),
+    "visibility": (
+        f"Who can see this account's posts: {VISIBILITY_CHOICES} (empty = everyone, which is "
+        "TikTok's own default; one post can say otherwise)"
+    ),
 }
 
 
@@ -70,6 +75,7 @@ def account_texts(account: Account) -> dict[str, str]:
     texts["rotation"] = ", ".join(account.rotation)
     texts["timezone"] = account.timezone
     texts["art_source"] = account.art_source.value if account.art_source else ""
+    texts["visibility"] = account.visibility.value
     return texts
 
 
@@ -85,6 +91,16 @@ def _art(text: str) -> ArtStyle:
     except ValueError:
         got = text.strip()
         raise ManhwatokError(f"art must be one of: {ART_CHOICES} — got {got!r}") from None
+
+
+def _visibility(text: str) -> Visibility:
+    try:
+        return Visibility(text.strip().lower() or Visibility.EVERYONE)
+    except ValueError:
+        got = text.strip()
+        raise ManhwatokError(
+            f"visibility must be one of: {VISIBILITY_CHOICES} — got {got!r}"
+        ) from None
 
 
 def account_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict[str, Any]:
@@ -104,6 +120,8 @@ def account_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict
             fields[name] = [sound.strip() for sound in text.split("|") if sound.strip()]
         elif name == "art":
             fields[name] = _art(text)
+        elif name == "visibility":
+            fields[name] = _visibility(text)
         elif name == "slots":
             fields[name] = _items(text)
         elif name == "rotation":

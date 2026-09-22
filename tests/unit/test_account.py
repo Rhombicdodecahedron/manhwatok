@@ -144,3 +144,14 @@ def test_slots_are_checked_and_written_the_one_way():
 def test_a_bad_slot_is_refused():
     with pytest.raises(ManhwatokError, match="is not a slot"):
         Account(handle="reads", slots=["monday at seven"])
+
+
+def test_visibility_defaults_to_everyone_so_stored_accounts_load():
+    from pydantic import ValidationError
+
+    from manhwatok.domain.models import Visibility
+
+    assert Account.model_validate_json('{"handle": "reads"}').visibility is Visibility.EVERYONE
+    assert Account(handle="reads", visibility="friends").visibility is Visibility.FRIENDS
+    with pytest.raises(ValidationError):
+        Account(handle="reads", visibility="nobody")

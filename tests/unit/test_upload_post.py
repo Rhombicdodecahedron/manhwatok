@@ -14,6 +14,7 @@ from manhwatok.domain.errors import (
     NotRendered,
     PostNotFound,
 )
+from manhwatok.domain.models import Visibility
 from manhwatok.ports.uploader import UploadReport
 from tests.unit.fakes import FakeUploader, make_tools, post
 
@@ -74,7 +75,7 @@ def test_yes_records_the_titles_and_marks_the_post_sent(tmp_path, store):
     posted, answer = _upload(posts, store, uploader, messages=messages)
     assert posted is True
     folder = posts.folder(POST_ID)
-    [(handle, slides, title, description, sound, debug, when)] = uploader.uploads
+    [(handle, slides, title, description, sound, debug, when, visibility)] = uploader.uploads
     assert handle == "reads"
     assert slides == [folder / f"0{n}.png" for n in range(1, 6)]
     assert title == "Manhwa where the MC regresses"
@@ -83,6 +84,7 @@ def test_yes_records_the_titles_and_marks_the_post_sent(tmp_path, store):
         "#manhwatiktok"
     )
     assert (sound, debug, when) == (None, False, None)
+    assert visibility is Visibility.EVERYONE  # the account's default
     assert uploader.events == ["upload", "confirm", "close"]  # window open while asking
     assert answer.questions == ["Posted on @reads?"]
     assert store.history.recent("reads", NOW) == {1, 2, 3}
@@ -431,3 +433,61 @@ def test_a_theme_with_two_sounds_is_still_a_question(tmp_path, store):
     uploader = FakeUploader()
     _upload(posts, store, uploader, choose_sound=lambda s: s[1])
     assert uploader.uploads[0][4] == "phonk two"
+
+
+# --- who can see the post --------------------------------------------------------------------
+
+
+def test_the_accounts_visibility_is_what_a_post_of_its_own_gets(tmp_path, store):
+    store.accounts.update(Account(handle="reads", visibility=Visibility.FRIENDS))
+    posts = _posts(tmp_path)
+    uploader = FakeUploader()
+    messages = []
+    _upload(posts, store, uploader, messages=messages)
+    assert uploader.uploads[0][7] is Visibility.FRIENDS
+
+
+def test_a_posts_own_visibility_beats_its_accounts(tmp_path, store):
+    store.accounts.update(Account(handle="reads", visibility=Visibility.FRIENDS))
+    posts = _posts(tmp_path, visibility=Visibility.PRIVATE)
+    uploader = FakeUploader()
+    _upload(posts, store, uploader)
+    assert uploader.uploads[0][7] is Visibility.PRIVATE
+
+
+def test_the_given_visibility_beats_the_post_and_the_account(tmp_path, store):
+    store.accounts.update(Account(handle="reads", visibility=Visibility.FRIENDS))
+    posts = _posts(tmp_path, visibility=Visibility.PRIVATE)
+    uploader = FakeUploader()
+    _upload(posts, store, uploader, visibility=Visibility.EVERYONE)
+    assert uploader.uploads[0][7] is Visibility.EVERYONE
+
+
+def test_what_tiktok_ends_up_showing_is_said_unless_it_is_everyone(tmp_path, store):
+    posts = _posts(tmp_path)
+    report = UploadReport(True, True, [], titled=True, visibility=Visibility.FRIENDS)
+    messages = []
+    _upload(posts, store, FakeUploader(report), messages=messages, visibility=Visibility.FRIENDS)
+    assert "TikTok will show it to friends" in messages
+    messages = []
+    _upload(posts, store, FakeUploader(), messages=messages)  # report.visibility is None
+    assert not [m for m in messages if "show it to" in m]
+
+
+def test_visibility_for_falls_back_to_the_accounts_own():
+    from manhwatok.app.upload_post import visibility_for
+
+    account = Account(handle="reads", visibility=Visibility.FRIENDS)
+    assert visibility_for(post(), account) is Visibility.FRIENDS
+    assert visibility_for(post(visibility=Visibility.PRIVATE), account) is Visibility.PRIVATE
+    assert visibility_for(post(), account, Visibility.EVERYONE) is Visibility.EVERYONE
+    assert visibility_for(post(), Account(handle="reads")) is Visibility.EVERYONE
+
+
+def test_set_visibility_saves_it_on_the_post_and_clears_it_with_none(tmp_path):
+    from manhwatok.app.upload_post import set_visibility
+
+    posts = _posts(tmp_path, render=False)
+    assert set_visibility(posts, POST_ID, Visibility.FRIENDS).visibility is Visibility.FRIENDS
+    assert posts.get(POST_ID).visibility is Visibility.FRIENDS
+    assert set_visibility(posts, POST_ID, None).visibility is None  # back to the account's

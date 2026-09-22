@@ -6,7 +6,10 @@
      ?no-sounds (a sound search finds nothing), ?no-schedule (no "When to post" at all),
      ?consent (the one-time "allow scheduled posting" modal opens and the radio stays on Now),
      ?month-only (the calendar shows one month at a time, so the next-month arrow is needed),
-     ?stuck-date (picking a day leaves the date box as it was).
+     ?stuck-date (picking a day leaves the date box as it was),
+     ?no-visibility (no "Who can see this post" at all),
+     ?visible-to=<label> (the list starts on that option instead of Everyone),
+     ?stuck-visibility (picking an option leaves the trigger reading what it read before).
      "Today" for the calendar is 2026-09-22, as on the day the real page was read. -->
 <html lang="en">
 <head><meta charset="utf-8"><title>Upload</title>
@@ -75,9 +78,35 @@
         </div>
       </div>
     </div>
+    <!-- "Who can see this post", in the same card under the schedule. Its options are not
+         here: they open in a popup of their own, outside this container (see #visibility). -->
+    <div data-e2e="video_visibility_container" class="visibility-wrapper">
+      <div class="title-wrapper"><span class="TUXText">Who can see this post</span></div>
+      <div class="Select__root">
+        <button type="button" role="combobox" aria-expanded="false" aria-haspopup="dialog"
+                data-open="false" class="Select__trigger Select__trigger--variant-fill">
+          <div class="Select__triggerInner"><div>Everyone</div></div>
+          <span class="px-icon Select__openIndicator" data-icon="ArrowDown"></span>
+        </button>
+      </div>
+    </div>
     <!-- Reads "Schedule" once the radio moved; manhwatok never clicks either. -->
     <button type="button" data-e2e="post_video_button" onclick="document.body.dataset.posted = 'yes'">Post</button>
   </section>
+  <!-- The visibility options: a popup outside the container above, so they can only be found
+       from the page. Their data-value is not in display order, and "Friends" has a second
+       line of its own. -->
+  <div id="visibility" role="dialog" hidden>
+    <div role="listbox">
+      <div role="option" id="option-&quot;0&quot;" class="Select__item" data-value="&quot;0&quot;"
+           aria-selected="true" data-selected="true"><span class="TUXText">Everyone</span></div>
+      <div role="option" id="option-&quot;2&quot;" class="Select__item" data-value="&quot;2&quot;"
+           aria-selected="false" data-selected="false"><span class="TUXText">Friends</span>
+        <span class="TUXText">Followers you follow back</span></div>
+      <div role="option" id="option-&quot;1&quot;" class="Select__item" data-value="&quot;1&quot;"
+           aria-selected="false" data-selected="false"><span class="TUXText">Only you</span></div>
+    </div>
+  </div>
   <div id="consent" hidden>
     <p>Allow your video to be saved for scheduled posting? When you schedule a video, the video
       is saved on our servers before it is posted.</p>
@@ -228,6 +257,42 @@
       });
       document.getElementById("previous-month").onclick = () => { stepMonth(-1); };
       document.getElementById("next-month").onclick = () => { stepMonth(1); };
+    }
+
+    // --- "Who can see this post" ----------------------------------------------------------
+    // The trigger opens the popup; picking an option closes it and writes its first line into
+    // the trigger. Nothing here is touched unless manhwatok clicks it.
+    const visibility = document.querySelector('[data-e2e="video_visibility_container"]');
+    const popup = document.getElementById("visibility");
+    if (flags.has("no-visibility")) { visibility.remove(); popup.remove(); }
+    const trigger = visibility?.querySelector("button[role=combobox]");
+    const chosen = trigger?.querySelector(".Select__triggerInner div");
+    const labelOf = (option) => option.querySelector(".TUXText").textContent;
+
+    function setVisibility(label) {
+      chosen.textContent = label;
+      for (const option of popup.querySelectorAll('[role="option"]')) {
+        const on = labelOf(option) === label;
+        option.setAttribute("aria-selected", String(on));
+        option.dataset.selected = String(on);
+      }
+    }
+    if (trigger) {
+      if (flags.has("visible-to")) setVisibility(flags.get("visible-to"));
+      trigger.onclick = () => {
+        popup.hidden = false;
+        trigger.setAttribute("aria-expanded", "true");
+        document.body.dataset.visibilityOpened = "yes";
+      };
+      for (const option of popup.querySelectorAll('[role="option"]')) {
+        option.onclick = () => {
+          const label = labelOf(option);
+          if (!flags.has("stuck-visibility")) setVisibility(label);
+          popup.hidden = true;
+          trigger.setAttribute("aria-expanded", "false");
+          document.body.dataset.visibility = label;
+        };
+      }
     }
 
     function stepMonth(by) {

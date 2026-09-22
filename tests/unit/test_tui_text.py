@@ -69,3 +69,12 @@ def test_post_details_of_a_draft(tmp_path):
 def test_clip():
     assert clip("abc", 3) == "abc"
     assert clip("abcd", 3) == "ab…"
+
+
+def test_post_details_shows_who_can_see_it_only_when_the_post_says(tmp_path):
+    from manhwatok.domain.models import Visibility
+
+    posts = make_tools(tmp_path).posts
+    assert "Visible to:" not in post_details(post(), posts, [])  # its account decides
+    text = post_details(post(visibility=Visibility.PRIVATE), posts, ["S"])
+    assert text.splitlines()[3:5] == ["Sounds: S", "Visible to: you alone"]

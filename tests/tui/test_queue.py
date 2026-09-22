@@ -6,6 +6,7 @@ import pytest
 pytest.importorskip("textual")
 
 from manhwatok.domain.account import Account  # noqa: E402
+from manhwatok.domain.models import Visibility  # noqa: E402
 from manhwatok.domain.theme import Theme  # noqa: E402
 from manhwatok.tui.screens.posts import PostsPane  # noqa: E402
 from manhwatok.tui.screens.queue import QueuePane, QueueTable  # noqa: E402
@@ -345,7 +346,9 @@ def _ready(tmp_path, uploader):
     from manhwatok.app.render_post import render_post
 
     ctx = make_ctx(tmp_path, uploader=uploader)
-    ctx.store.accounts.add(Account(handle="reads", slots=["thu 19:00"]))
+    ctx.store.accounts.add(
+        Account(handle="reads", slots=["thu 19:00"], visibility=Visibility.FRIENDS)
+    )
     ctx.tools.posts.save(post(id=ON_THU, account="reads", scheduled_at=THU))
     render_post(ON_THU, ctx.tools)
     return ctx
@@ -371,6 +374,7 @@ def test_u_uploads_the_selected_post_with_its_slot_as_the_schedule(tmp_path):
 
     run_app(ctx, scenario)
     assert uploader.uploads[0][6] == THU  # TikTok's own schedule gets the slot
+    assert uploader.uploads[0][7] is Visibility.FRIENDS  # the account's own choice
     assert ctx.tools.posts.get(ON_THU).tiktok_scheduled_at == THU
 
 

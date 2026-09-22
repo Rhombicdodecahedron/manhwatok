@@ -7,6 +7,7 @@ pytest.importorskip("textual")
 from manhwatok.app.render_post import render_post  # noqa: E402
 from manhwatok.domain.account import Account  # noqa: E402
 from manhwatok.domain.errors import NotLoggedIn  # noqa: E402
+from manhwatok.domain.models import Visibility  # noqa: E402
 from manhwatok.ports.uploader import UploadReport  # noqa: E402
 from manhwatok.tui.screens.browser import BrowserScreen  # noqa: E402
 from manhwatok.tui.screens.posts import PostTable  # noqa: E402
@@ -59,7 +60,7 @@ def test_yes_records_the_post_as_sent(tmp_path):
     run_app(ctx, scenario)
     assert uploader.events == ["upload", "close"]
     # no sounds to pick from, no debug, and the post has no time of its own to schedule
-    assert uploader.uploads[0][4:] == (None, False, None)
+    assert uploader.uploads[0][4:] == (None, False, None, Visibility.EVERYONE)
     assert ctx.tools.posts.get(PID).sent_at == NOW
     assert ctx.store.history.recent("reads", NOW) == {1, 2, 3}
 
@@ -288,3 +289,35 @@ def test_a_post_planned_for_too_soon_is_uploaded_as_todays(tmp_path):
 
     run_app(ctx, scenario)
     assert uploader.uploads[0][6] is None
+
+
+def test_u_passes_the_posts_own_visibility_to_the_browser(tmp_path):
+    from manhwatok.domain.models import Visibility
+
+    uploader = FakeUploader()
+    ctx = _ctx(tmp_path, uploader, visibility=Visibility.FRIENDS)
+
+    async def scenario(app, pilot):
+        await _upload_until_asked(app, pilot)
+        await pilot.press("n")
+        await wait_for(pilot, lambda: "nothing recorded" in _log(app))
+
+    run_app(ctx, scenario)
+    assert uploader.uploads[0][7] is Visibility.FRIENDS
+
+
+def test_u_falls_back_to_the_accounts_visibility(tmp_path):
+    from manhwatok.domain.account import Account as _Account
+    from manhwatok.domain.models import Visibility
+
+    uploader = FakeUploader()
+    ctx = _ctx(tmp_path, uploader)
+    ctx.store.accounts.update(_Account(handle="reads", visibility=Visibility.PRIVATE))
+
+    async def scenario(app, pilot):
+        await _upload_until_asked(app, pilot)
+        await pilot.press("n")
+        await wait_for(pilot, lambda: "nothing recorded" in _log(app))
+
+    run_app(ctx, scenario)
+    assert uploader.uploads[0][7] is Visibility.PRIVATE

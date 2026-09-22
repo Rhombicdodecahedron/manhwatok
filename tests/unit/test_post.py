@@ -176,3 +176,12 @@ def test_a_chapter_posts_title_is_the_plain_title():
     from tests.unit.fakes import chapter_post
 
     assert upload_title(chapter_post()) == "Test Manhwa Chapter 12"
+
+
+def test_visibility_defaults_to_none_so_posts_saved_before_it_load():
+    from manhwatok.domain.models import Visibility
+
+    assert ListPost.model_validate_json(PHASE2_POST_JSON).visibility is None
+    assert post().visibility is None  # no override: the account's default decides
+    saved = ListPost.model_validate_json(post(visibility="friends").model_dump_json())
+    assert saved.visibility is Visibility.FRIENDS

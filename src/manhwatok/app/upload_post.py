@@ -12,6 +12,7 @@ from manhwatok.app.post_tools import ProgressFn
 from manhwatok.app.render_post import rendered_files, unfinished_error
 from manhwatok.domain.caption import upload_description, upload_title
 from manhwatok.domain.errors import ManhwatokError
+from manhwatok.domain.models import Visibility
 from manhwatok.domain.plan import check_schedule, schedulable
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import clean_sounds
@@ -70,6 +71,25 @@ def schedule_for(post: ListPost, now: datetime) -> datetime | None:
     return post.scheduled_at if schedulable(post.scheduled_at, now) else None
 
 
+def visibility_for(
+    post: ListPost, account: Account, chosen: Visibility | None = None
+) -> Visibility:
+    """Who can see this post: what the upload was told to use, else the post's own choice,
+    else its account's — the account's is Everyone unless it says otherwise, which is what
+    TikTok itself opens on."""
+    return chosen or post.visibility or account.visibility
+
+
+def set_visibility(
+    posts: PostRepository, post_id: str, visibility: Visibility | None
+) -> ListPost:
+    """Set who can see a post once it is up, or clear it with None — an upload then uses the
+    post's account's own choice again."""
+    post = posts.get(post_id).model_copy(update={"visibility": visibility})
+    posts.save(post)
+    return post
+
+
 def upload_post(
     post_id: str,
     posts: PostRepository,
@@ -86,12 +106,14 @@ def upload_post(
     chapters: ChapterRepository | None = None,
     schedule_at: datetime | None = None,
     ask_sound: bool = False,
+    visibility: Visibility | None = None,
 ) -> bool:
     """True when the user confirmed the post went out (and it was recorded). `sound`: a TikTok
     sound search, "" for none; None uses `preset_sound`, else asks `choose_sound` among the
     post's sounds — `ask_sound` asks even when there is a preset one. `schedule_at` fills in
     TikTok's own schedule instead of posting now; a time TikTok wouldn't take is refused here,
-    before any browser opens."""
+    before any browser opens. `visibility` is who can see it, for this upload only: without one
+    the post's own choice decides, and without that its account's."""
     post = posts.get(post_id)
     if post.is_unfinished:
         raise unfinished_error(post_id)
@@ -121,6 +143,7 @@ def upload_post(
             sound,
             debug,
             schedule_at,
+            visibility_for(post, account, visibility),
         )
         if report.attached:
             progress(f"attached {len(slides)} slides")
@@ -130,6 +153,8 @@ def upload_post(
             progress("typed the description")
         if report.sound:
             progress(f"added the sound {report.sound}")
+        if report.visibility is not None and report.visibility is not Visibility.EVERYONE:
+            progress(f"TikTok will show it to {report.visibility.spoken}")
         for note in report.notes:
             progress(note)
         if report.scheduled_at:

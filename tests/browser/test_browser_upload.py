@@ -18,6 +18,7 @@ import pytest
 from manhwatok.adapters.playwright_uploader import PlaywrightUploader, _find_chrome
 from manhwatok.adapters.tiktok_page import TikTokPage
 from manhwatok.domain.errors import NotLoggedIn
+from manhwatok.domain.models import Visibility
 from manhwatok.ports.uploader import UploadReport
 
 sync_api = pytest.importorskip(
@@ -97,8 +98,16 @@ def _slides(tmp_path) -> list[Path]:
     return slides
 
 
-def _upload(uploader, slides, debug=False, handle="reads", sound="solo leveling", at=None):
-    return uploader.upload(handle, slides, TITLE, DESCRIPTION, sound, debug, at)
+def _upload(
+    uploader,
+    slides,
+    debug=False,
+    handle="reads",
+    sound="solo leveling",
+    at=None,
+    visibility=Visibility.EVERYONE,
+):
+    return uploader.upload(handle, slides, TITLE, DESCRIPTION, sound, debug, at, visibility)
 
 
 def _window(uploader):
@@ -386,3 +395,82 @@ def test_nothing_is_scheduled_when_no_time_is_asked_for(tmp_path, site):
     finally:
         uploader.close()
     assert (report.scheduled_at, report.notes, report.problems) == (None, [], [])
+
+
+# --- who can see the post --------------------------------------------------------------------
+
+VISIBILITY_FIX = "choose who can see the post in the browser yourself"
+
+
+def _shown(window) -> str:
+    """What TikTok's "Who can see this post" button reads."""
+    return window.locator(TikTokPage().visibility_trigger).inner_text().strip()
+
+
+@pytest.mark.parametrize(
+    ("wanted", "label"),
+    [(Visibility.FRIENDS, "Friends"), (Visibility.PRIVATE, "Only you")],
+)
+def test_it_picks_who_can_see_the_post_and_reads_the_button_back(tmp_path, site, wanted, label):
+    """The options are matched on their visible text: their values are not in display order
+    (Friends is 2, Only you is 1), and "Friends" has a second line of its own."""
+    uploader = _uploader(tmp_path, site)
+    try:
+        report = _upload(uploader, _slides(tmp_path), visibility=wanted)
+        window = _window(uploader)
+        assert _shown(window) == label
+        assert window.evaluate("({...document.body.dataset})")["visibility"] == label
+    finally:
+        uploader.close()
+    assert (report.visibility, report.problems) == (wanted, [])
+
+
+def test_a_list_already_showing_what_is_wanted_is_never_opened(tmp_path, site):
+    uploader = _uploader(tmp_path, site, "fake_upload.html?visible-to=Friends")
+    try:
+        report = _upload(uploader, _slides(tmp_path), visibility=Visibility.FRIENDS)
+        window = _window(uploader)
+        assert _shown(window) == "Friends"
+        assert "visibilityOpened" not in window.evaluate("({...document.body.dataset})")
+    finally:
+        uploader.close()
+    assert (report.visibility, report.problems) == (Visibility.FRIENDS, [])
+
+
+def test_everyone_leaves_tiktoks_own_default_alone(tmp_path, site):
+    uploader = _uploader(tmp_path, site)
+    try:
+        report = _upload(uploader, _slides(tmp_path))
+        window = _window(uploader)
+        assert _shown(window) == "Everyone"
+        assert "visibilityOpened" not in window.evaluate("({...document.body.dataset})")
+    finally:
+        uploader.close()
+    assert (report.visibility, report.problems) == (None, [])
+
+
+def test_a_button_that_doesnt_read_back_is_a_problem(tmp_path, site):
+    uploader = _uploader(tmp_path, site, "fake_upload.html?stuck-visibility")
+    try:
+        report = _upload(uploader, _slides(tmp_path), visibility=Visibility.FRIENDS)
+        assert _shown(_window(uploader)) == "Everyone"  # the click did nothing
+    finally:
+        uploader.close()
+    assert report.visibility is Visibility.EVERYONE  # what the page really shows
+    assert report.problems == [
+        f'TikTok\'s "Who can see this post" reads Everyone, not Friends — {VISIBILITY_FIX}'
+    ]
+
+
+def test_a_page_without_the_visibility_list_is_a_problem(tmp_path, site):
+    uploader = _uploader(
+        tmp_path, site, "fake_upload.html?no-visibility", visibility_timeout=0.5
+    )
+    try:
+        report = _upload(uploader, _slides(tmp_path), visibility=Visibility.PRIVATE)
+    finally:
+        uploader.close()
+    assert (report.attached, report.captioned, report.visibility) == (True, True, None)
+    assert report.problems == [
+        f'TikTok\'s "Who can see this post" wasn\'t there — {VISIBILITY_FIX}'
+    ]

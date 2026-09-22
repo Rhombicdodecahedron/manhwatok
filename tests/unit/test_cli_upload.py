@@ -13,6 +13,7 @@ from manhwatok.app.render_post import render_post
 from manhwatok.cli import app
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import NotLoggedIn
+from manhwatok.domain.models import Visibility
 from manhwatok.ports.uploader import UploadReport
 from tests.unit.fakes import FakeUploader, make_tools, post
 
@@ -64,6 +65,7 @@ def test_upload_then_yes_records_the_post_as_sent(tmp_path, monkeypatch):
         None,  # the account has no sounds: nothing asked
         False,  # no --debug
         None,  # not scheduled: the post has no time of its own
+        Visibility.EVERYONE,  # neither the post nor the account asks for anything else
     )
     assert posts.get(POST_ID).sent_at is not None
     with _store(tmp_path) as store:
@@ -404,3 +406,95 @@ def test_ask_sound_brings_the_question_back(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert "  1. night drive\n  2. dark aria\n" in result.output
     assert browser.uploads[0][4] == "dark aria"
+
+
+# --- who can see the post --------------------------------------------------------------------
+
+
+def _visible(tmp_path, who):
+    with _store(tmp_path) as store:
+        store.accounts.update(Account(handle="reads", visibility=who))
+
+
+def test_upload_uses_the_accounts_visibility_and_says_so(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    _visible(tmp_path, Visibility.FRIENDS)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith(
+        f"post {POST_ID} → @reads, visible to friends, posting now\n"
+    )
+    assert browser.uploads[0][7] is Visibility.FRIENDS
+
+
+def test_a_posts_own_visibility_beats_its_accounts(tmp_path, monkeypatch):
+    _account_post(tmp_path, visibility=Visibility.PRIVATE)
+    _visible(tmp_path, Visibility.FRIENDS)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith(
+        f"post {POST_ID} → @reads, visible to you alone, posting now\n"
+    )
+    assert browser.uploads[0][7] is Visibility.PRIVATE
+
+
+def test_upload_visibility_beats_both_and_changes_no_post(tmp_path, monkeypatch):
+    posts = _account_post(tmp_path, visibility=Visibility.PRIVATE)
+    _visible(tmp_path, Visibility.FRIENDS)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, "--visibility", "everyone"], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith(f"post {POST_ID} → @reads, posting now\n")
+    assert browser.uploads[0][7] is Visibility.EVERYONE
+    assert posts.get(POST_ID).visibility is Visibility.PRIVATE  # a one-off, nothing saved
+
+
+def test_the_line_says_both_who_sees_it_and_when(tmp_path, monkeypatch):
+    at = _soon(hours=2).replace(second=0, microsecond=0)
+    _account_post(tmp_path, scheduled_at=at, visibility=Visibility.FRIENDS)
+    _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID], input="n\n")
+    local = at.astimezone(ZoneInfo("Europe/Paris"))
+    assert result.output.startswith(
+        f"post {POST_ID} → @reads, visible to friends, scheduled for "
+        f"{local:%a %d %b %H:%M} (Europe/Paris)\n"
+    )
+
+
+def test_upload_says_what_tiktok_ended_up_showing(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    report = UploadReport(True, True, [], titled=True, visibility=Visibility.PRIVATE)
+    _browser(monkeypatch, report=report)
+    result = runner.invoke(app, ["upload", POST_ID, "--visibility", "private"], input="n\n")
+    assert "TikTok will show it to you alone\n" in result.output
+
+
+def test_a_visibility_tiktok_doesnt_have_never_opens_the_browser(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, "--visibility", "nobody"])
+    assert result.exit_code == 2
+    assert browser.events == []
+
+
+def test_the_visibility_command_sets_and_clears_a_posts_own(tmp_path):
+    posts = _account_post(tmp_path, render=False)
+    result = runner.invoke(app, ["visibility", POST_ID, "friends"])
+    assert result.exit_code == 0, result.output
+    assert result.output == f"post {POST_ID} is visible to friends\n"
+    assert posts.get(POST_ID).visibility is Visibility.FRIENDS
+    result = runner.invoke(app, ["visibility", POST_ID, "--clear"])
+    assert result.exit_code == 0, result.output
+    assert result.output == f"post {POST_ID} follows its account's choice\n"
+    assert posts.get(POST_ID).visibility is None
+
+
+def test_the_visibility_command_wants_one_of_a_choice_or_clear(tmp_path):
+    _account_post(tmp_path, render=False)
+    assert runner.invoke(app, ["visibility", POST_ID]).exit_code == 1
+    assert runner.invoke(app, ["visibility", POST_ID, "friends", "--clear"]).exit_code == 1
+    assert runner.invoke(app, ["visibility", POST_ID, "nobody"]).exit_code == 2
+    result = runner.invoke(app, ["visibility", "20260914-ffff", "friends"])
+    assert result.exit_code == 1 and "error: no post 20260914-ffff" in result.output

@@ -18,6 +18,7 @@ from manhwatok.domain.models import (
     CoverStyle,
     SearchQuery,
     Sort,
+    Visibility,
 )
 
 app = typer.Typer(
@@ -845,15 +846,19 @@ def _upload_schedule(
     return check_schedule(parse_when(at, account.timezone, now), now)
 
 
-def _upload_line(post_id: str, account, when: Optional[datetime]) -> str:
-    """What the upload is about to do, said before the browser opens."""
+def _upload_line(
+    post_id: str, account, when: Optional[datetime], visibility=Visibility.EVERYONE
+) -> str:
+    """What the upload is about to do, said before the browser opens. Who can see it is only
+    worth saying when it isn't everyone — TikTok's own default."""
     from zoneinfo import ZoneInfo
 
+    seen = "" if visibility is Visibility.EVERYONE else f", visible to {visibility.spoken}"
     if when is None:
-        return f"post {post_id} → {account.display}, posting now"
+        return f"post {post_id} → {account.display}{seen}, posting now"
     local = when.astimezone(ZoneInfo(account.timezone))
     return (
-        f"post {post_id} → {account.display}, scheduled for {local:%a %d %b %H:%M} "
+        f"post {post_id} → {account.display}{seen}, scheduled for {local:%a %d %b %H:%M} "
         f"({account.timezone})"
     )
 
@@ -886,13 +891,20 @@ def upload(
     no_schedule: bool = typer.Option(
         False, "--no-schedule", help="Post it now, even if the post is planned for later."
     ),
+    visibility: Optional[Visibility] = typer.Option(
+        None,
+        "--visibility",
+        help="Who can see this one upload: everyone, friends (followers you follow back) or "
+        "private (only you). Beats the post's own choice (`manhwatok visibility`) and the "
+        "account's --visibility; nothing is saved. TikTok's own default is everyone.",
+    ),
 ) -> None:
     """Open TikTok's upload page as the post's account with the slides, title, description and
     sound filled in. A post planned for later (`plan fill`, `schedule`) also gets TikTok's own
     schedule filled in. You check it and click Post — or Schedule — yourself, then answer y
     here to record the post as sent."""
     from manhwatok.app import container
-    from manhwatok.app.upload_post import upload_post
+    from manhwatok.app.upload_post import upload_post, visibility_for
 
     settings = Settings()
     now = datetime.now(timezone.utc)
@@ -904,7 +916,8 @@ def upload(
             if post.account:  # without one, upload_post says what to do about it
                 account = store.accounts.get(post.account)
                 when = _upload_schedule(post, account, at, no_schedule, now)
-                typer.echo(_upload_line(post_id, account, when))
+                seen = visibility_for(post, account, visibility)
+                typer.echo(_upload_line(post_id, account, when, seen))
             posted = upload_post(
                 post_id,
                 posts,
@@ -921,6 +934,7 @@ def upload(
                 chapters=store.chapters,
                 schedule_at=when,
                 ask_sound=ask_sound,
+                visibility=visibility,
             )
     except ManhwatokError as e:
         _fail(e)
@@ -1007,6 +1021,13 @@ SLOTS = typer.Option(
     '<day> HH:MM with day mon..sun or daily, e.g. "mon 19:00,thu 19:00". `manhwatok plan '
     'fill` makes a post for each. "" clears them.',
 )
+ACCOUNT_VISIBILITY = typer.Option(
+    None,
+    "--visibility",
+    help="Who can see this account's posts: everyone (the default, and TikTok's own), friends "
+    "(followers you follow back) or private (only you). One post can say otherwise with "
+    "`manhwatok visibility`, and `upload --visibility` beats both.",
+)
 ART_SOURCE = typer.Option(
     None,
     "--art-source",
@@ -1032,6 +1053,7 @@ def _account_fields(
     time_zone: Optional[str] = None,
     art_source: Optional[str] = None,
     slots: Optional[str] = None,
+    visibility: Optional[Visibility] = None,
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -1046,6 +1068,7 @@ def _account_fields(
         "cta_follow": cta_follow,
         "repeat_days": repeat_days,
         "art": art,
+        "visibility": visibility,
     }
     fields.update({k: v for k, v in scalars.items() if v is not None})
     if sounds:  # typer gives [] when --sound wasn't used
@@ -1083,6 +1106,7 @@ def _print_account(a) -> None:
         ("timezone", a.timezone),
         ("slots", ", ".join(a.slots) or "-"),
         ("art source", a.art_source.value if a.art_source else "-"),
+        ("visibility", a.visibility.value),
     ]:
         typer.echo(f"  {label:<13} {value}")
 
@@ -1131,13 +1155,14 @@ def account_add(
     time_zone: Optional[str] = TIMEZONE,
     art_source: Optional[str] = ART_SOURCE,
     slots: Optional[str] = SLOTS,
+    visibility: Optional[Visibility] = ACCOUNT_VISIBILITY,
 ) -> None:
     """Add an account; unset options get the defaults."""
     from manhwatok.app.accounts import add_account
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound, default_sound, rotation, time_zone, art_source, slots,
+        emojis, sound, default_sound, rotation, time_zone, art_source, slots, visibility,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -1161,13 +1186,14 @@ def account_set(
     time_zone: Optional[str] = TIMEZONE,
     art_source: Optional[str] = ART_SOURCE,
     slots: Optional[str] = SLOTS,
+    visibility: Optional[Visibility] = ACCOUNT_VISIBILITY,
 ) -> None:
     """Change an account; only the given options change."""
     from manhwatok.app.accounts import update_account
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound, default_sound, rotation, time_zone, art_source, slots,
+        emojis, sound, default_sound, rotation, time_zone, art_source, slots, visibility,
     )
     _save_account(update_account, "updated", handle, fields)
 
@@ -1704,3 +1730,33 @@ def schedule(
     else:
         zone = getattr(at.tzinfo, "key", None) or f"{at:%Z}"
         typer.echo(f"post {post.id} goes out {at:%a %d %b %Y %H:%M} ({zone})")
+
+
+@app.command("visibility")
+def visibility_cmd(
+    post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
+    who: Optional[Visibility] = typer.Argument(
+        None, help="everyone, friends (followers you follow back) or private (only you)."
+    ),
+    clear: bool = typer.Option(
+        False, "--clear", help="Leave it to the account's own --visibility again."
+    ),
+) -> None:
+    """Choose who can see a post once it is up, e.g. `visibility 20260922-a3f9 friends`.
+
+    It sticks to the post, so every upload of it — here, in the Posts tab or from the Queue —
+    shows it to the same people. Without one, the post's account decides (`account set
+    --visibility`), and `upload --visibility` beats both for one upload."""
+    from manhwatok.app import container
+    from manhwatok.app.upload_post import set_visibility
+
+    if (who is None) != clear:
+        _fail(ManhwatokError("give a visibility or --clear" + (", not both" if clear else "")))
+    try:
+        post = set_visibility(container.build_posts(Settings()), post_id, who)
+    except ManhwatokError as e:
+        _fail(e)
+    if post.visibility is None:
+        typer.echo(f"post {post.id} follows its account's choice")
+    else:
+        typer.echo(f"post {post.id} is visible to {post.visibility.spoken}")

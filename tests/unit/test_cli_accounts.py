@@ -427,3 +427,24 @@ def test_account_plan_options_are_checked(tmp_path, args, message):
     assert message in _err(["account", "add", "reads", *args])
     with _store(tmp_path) as store:
         assert store.accounts.list() == []
+
+
+# --- who can see its posts -------------------------------------------------------------------
+
+
+def test_an_account_shows_everyone_until_it_is_told_otherwise(tmp_path):
+    assert "  visibility    everyone\n" in _ok(["account", "add", "reads"])
+
+
+def test_account_add_and_set_take_a_visibility(tmp_path):
+    from manhwatok.domain.models import Visibility
+
+    out = _ok(["account", "add", "reads", "--visibility", "friends"])
+    assert "  visibility    friends\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").visibility is Visibility.FRIENDS
+    out = _ok(["account", "set", "reads", "--visibility", "private"])
+    assert "  visibility    private\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").visibility is Visibility.PRIVATE
+    assert runner.invoke(app, ["account", "set", "reads", "--visibility", "nobody"]).exit_code == 2

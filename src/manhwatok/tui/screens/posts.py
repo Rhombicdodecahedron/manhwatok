@@ -68,10 +68,12 @@ def _render_one(ctx: AppContext, post: ListPost) -> str:
 
 
 def upload_in_app(app, ctx: AppContext, post: ListPost, progress, debug: bool) -> bool:
-    """Drive the browser for one post — its sound asked for first, and its own planned time
-    filled into TikTok's schedule when TikTok would still take it — and answer whether the user
-    confirmed it went out. Runs in a worker: the questions come back from the app. The Queue
-    tab uploads through this too, so both tabs upload the same way."""
+    """Drive the browser for one post — its sound asked for first, its own planned time filled
+    into TikTok's schedule when TikTok would still take it, and who can see it taken from the
+    post, or from its account when the post doesn't say (`upload_post`'s own order, so the tabs
+    and `manhwatok upload` agree) — and answer whether the user confirmed it went out. Runs in a
+    worker: the questions come back from the app. The Queue tab uploads through this too, so
+    both tabs upload the same way."""
 
     def choose_sound(sounds: list[str]) -> str | None:
         choices = [(sound, sound) for sound in sounds] + [("no sound", "")]

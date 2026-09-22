@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from manhwatok.domain.models import Manhwa, SearchQuery, Sort, Status
+from manhwatok.domain.models import Manhwa, SearchQuery, Sort, Status, Visibility
 
 
 def test_chapter_count_prefers_anilist_total():
@@ -28,3 +28,18 @@ def test_search_query_limit_bounds(limit):
 def test_search_query_exclusions_default_empty():
     q = SearchQuery(genres=["Action"])
     assert (q.exclude_genres, q.exclude_tags) == ([], [])
+
+
+def test_visibility_is_the_three_tiktok_offers():
+    assert [v.value for v in Visibility] == ["everyone", "friends", "private"]
+    assert Visibility("friends") is Visibility.FRIENDS
+    with pytest.raises(ValueError):
+        Visibility("followers")
+
+
+def test_visibility_says_who_it_means_in_a_sentence():
+    assert [f"visible to {v.spoken}" for v in Visibility] == [
+        "visible to everyone",
+        "visible to friends",
+        "visible to you alone",
+    ]

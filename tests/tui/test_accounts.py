@@ -467,3 +467,36 @@ def test_the_form_edits_the_default_sound(tmp_path):
 
     run_app(ctx, scenario)
     assert ctx.store.accounts.get("reads").default_sound == "night drive"
+
+
+def test_account_fields_visibility():
+    from manhwatok.domain.models import Visibility
+
+    before = account_texts(Account(handle="reads"))
+    assert before["visibility"] == "everyone"
+    assert account_fields({**before, "visibility": " Friends "}, before) == {
+        "visibility": Visibility.FRIENDS
+    }
+    private = account_texts(Account(handle="reads", visibility=Visibility.PRIVATE))
+    assert private["visibility"] == "private"
+    assert account_fields({**private, "visibility": ""}, private) == {
+        "visibility": Visibility.EVERYONE
+    }
+    with pytest.raises(ManhwatokError, match="visibility must be one of: everyone, friends"):
+        account_fields({**before, "visibility": "nobody"}, before)
+
+
+def test_the_form_chooses_who_can_see_the_accounts_posts(tmp_path):
+    from manhwatok.domain.models import Visibility
+
+    ctx = _ctx(tmp_path)
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        await pilot.press("a")
+        await pilot.pause()
+        await _fill(app, pilot, handle="reads", visibility="friends")
+        await wait_for(pilot, lambda: ctx.store.accounts.list() != [])
+
+    run_app(ctx, scenario)
+    assert ctx.store.accounts.get("reads").visibility is Visibility.FRIENDS

@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from manhwatok.domain.models import Visibility
+
 
 @dataclass(frozen=True)
 class TikTokPage:
@@ -70,12 +72,24 @@ class TikTokPage:
         "January", "February", "March", "April", "May", "June",
         "July", "August", "September", "October", "November", "December",
     )
+    # --- "Who can see this post", the list just under "When to post" ---
+    visibility_container: str = '[data-e2e="video_visibility_container"]'
+    # The button that opens the list; its own text is what is chosen, so it is read back too.
+    visibility_trigger: str = '[data-e2e="video_visibility_container"] button[role="combobox"]'
+    # The options open in a popup outside the container, so they are looked for on the page.
+    # Their data-value is not in display order (Friends is 2, Only you is 1): the visible text
+    # says which is which, and `visibility_choice` matches on that.
+    visibility_option: str = '[role="listbox"] [role="option"]'
+    visibility_option_text: str = "span.TUXText"
+    # What TikTok's list calls each Visibility, in its order (TikTok Studio is in English).
+    visibility_names: tuple[str, ...] = ("Everyone", "Friends", "Only you")
     page_timeout: float = 30.0  # seconds: load the page, find the file input
     editor_timeout: float = 60.0  # seconds: TikTok processes the files, shows the editor
     caption_timeout: float = 5.0  # seconds: the title/description boxes, once the editor is there
     hashtag_timeout: float = 3.0  # seconds: TikTok suggests a typed hashtag
     sound_timeout: float = 10.0  # seconds: the Sounds dialog opens, a search finds something
     schedule_timeout: float = 5.0  # seconds: the radio turns on, a picker or the calendar opens
+    visibility_timeout: float = 5.0  # seconds: the list opens, the trigger reads back
 
     def hashtag_choice(self, tag: str) -> str:
         """The suggestion that is exactly `tag` (TikTok lists hashtags in lowercase)."""
@@ -93,6 +107,25 @@ class TikTokPage:
         """The calendar cell for day-of-month `day`, and only if TikTok allows that day. A day
         number shows at most once among the valid ones: the window is 10 days long."""
         return f"{self.calendar_day}:text-is({json.dumps(str(day))})"
+
+    def visibility_label(self, visibility: Visibility) -> str:
+        """What TikTok's list calls `visibility`: "Only you" for private."""
+        return self.visibility_names[list(Visibility).index(visibility)]
+
+    def shown_visibility(self, text: str) -> Visibility | None:
+        """Which visibility a label from the page means, or None for one this doesn't know —
+        a TikTok in another language, or an option it has since gained."""
+        for visibility, label in zip(Visibility, self.visibility_names):
+            if label == text.strip():
+                return visibility
+        return None
+
+    def visibility_choice(self, visibility: Visibility) -> str:
+        """The option reading exactly TikTok's label for `visibility`. The "Friends" option has
+        a second line ("Followers you follow back"), so the label is matched on the line of its
+        own it sits on, not on the option's whole text."""
+        label = json.dumps(self.visibility_label(visibility))
+        return f"{self.visibility_option}:has({self.visibility_option_text}:text-is({label}))"
 
     def month_title(self, when) -> str:
         """The month and year the calendar's header shows for `when`: "September 2026"."""

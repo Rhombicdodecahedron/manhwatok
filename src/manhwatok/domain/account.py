@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.errors import InvalidName, ManhwatokError
-from manhwatok.domain.models import ArtSourceName, ArtStyle
+from manhwatok.domain.models import ArtSourceName, ArtStyle, Visibility
 from manhwatok.domain.plan import clean_rotation, clean_slots
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
@@ -61,6 +61,9 @@ class Account(BaseModel):
     slots: list[str] = Field(default_factory=list)
     # Where `next` fills a list post's art from, as `render --source`; None keeps the style's own.
     art_source: ArtSourceName | None = None
+    # Who can see this account's posts, unless a post says otherwise. Defaulted, so accounts
+    # saved before it load; TikTok's own default is the same.
+    visibility: Visibility = Visibility.EVERYONE
 
     @field_validator("handle")
     @classmethod

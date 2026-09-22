@@ -53,8 +53,9 @@ def caption_text(post: ListPost, posts: PostRepository) -> tuple[str, bool]:
 
 
 def post_details(post: ListPost, posts: PostRepository, sounds: list[str]) -> str:
-    """The text beside the slide preview: title, the account's sounds, art style, cover version,
-    emojis, caption, and its picks — or, for a chapter post, which chapter and part it is."""
+    """The text beside the slide preview: title, the account's sounds, art style, cover
+    version, who can see it, emojis, caption, and its picks — or, for a chapter post, which
+    chapter and part it is."""
     who = f"@{post.account}" if post.account else "no account"
     size = "no picks" if post.is_unfinished else f"{post.slide_count} slides"
     part = post.chapter
@@ -73,6 +74,8 @@ def post_details(post: ListPost, posts: PostRepository, sounds: list[str]) -> st
         lines.append(f"Art: {post.art.value}")
     if post.cover is not CoverStyle.FAN:
         lines.append(f"Cover: {post.cover.value}")
+    if post.visibility is not None:  # without one its account decides, as `upload` does
+        lines.append(f"Visible to: {post.visibility.spoken}")
     emojis = post_emojis(post)
     if emojis:
         lines.append(f"Emojis: {emojis}{' (auto)' if post.emojis == AUTO else ''}")

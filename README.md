@@ -555,6 +555,7 @@ uv run manhwatok account set @manhwa.daily --emojis "🔥📚" \
 uv run manhwatok upload <id>              # an account's post with up-to-date slides
 uv run manhwatok upload <id> --at "2026-09-24 19:00"   # fill TikTok's schedule in with this
 uv run manhwatok upload <id> --no-schedule             # post it now, whatever the plan says
+uv run manhwatok upload <id> --visibility friends      # who can see this one (see below)
 ```
 
 - TikTok's title field gets the post title plus the post's emojis (`build --emojis`, default:
@@ -581,6 +582,31 @@ uv run manhwatok upload <id> --no-schedule             # post it now, whatever t
   and `upload` offers that theme's sounds first, then the account's (a sound on both is listed
   once). Posts built without a theme, or whose theme has been removed since, are offered the
   account's. Set them with `theme add/set --sound "..."`, repeated for several.
+
+### Who can see a post
+
+TikTok's "Who can see this post" opens on **Everyone**, and manhwatok leaves it there unless
+something asks for otherwise — it is the one thing on the page it touches only when it has to.
+
+```bash
+uv run manhwatok account set @manhwa.daily --visibility friends   # every post of this account
+uv run manhwatok visibility 20260922-a3f9 private                 # this one post, from now on
+uv run manhwatok visibility 20260922-a3f9 --clear                 # back to the account's choice
+uv run manhwatok upload 20260922-a3f9 --visibility private        # this one upload only
+```
+
+- The three are `everyone`, `friends` (TikTok's "Friends": the followers you follow back) and
+  `private` (its "Only you") — handy for looking a post over where it will be seen before
+  showing it to anyone.
+- **Precedence: `upload --visibility` beats the post's own choice, which beats the account's
+  `--visibility`, which is `everyone` unless you set it.** `account show` lists it, and
+  `upload --visibility` is a one-off: it changes neither the post nor the account.
+- `visibility <id> <who>` sticks to the post, so every upload of it — from the terminal, the
+  Posts tab or the Queue — shows it to the same people; `--clear` hands it back to the account.
+- The upload says what it is about to do before the browser opens ("post 20260922-a3f9 →
+  @manhwa.daily, visible to friends, scheduled for Thu 24 Sep 19:00"), then picks the option in
+  TikTok's list and reads the button back. If the button doesn't read what was asked for, that
+  is a problem for you to fix in the window — as with the schedule, nothing is assumed.
 
 ### TikTok's own schedule
 
@@ -636,11 +662,12 @@ uv run manhwatok tui
 Everything the commands above do, in one window with five tabs (`1`–`5`, `q` quits):
 
 - **Posts** — the list, and a preview of the highlighted post: its slides (`←`/`→` flip, `o`
-  opens the slide in your image viewer), the sounds it would be offered, its art style and emojis (when
-  set), caption and picks — or, for a chapter post, which chapter and part it is. `e` edit
+  opens the slide in your image viewer), the sounds it would be offered, its art style, who
+  can see it and emojis (each when set), caption and picks — or, for a chapter post, which chapter and part it is. `e` edit
   picks, `r` render, `a` art, `c` cover version (fan, quad or
   hero; swapped in at once when already rendered), `x` export, `u` upload — filling TikTok's
-  schedule from the post's slot, as `manhwatok upload` does — (`U` with `--debug`),
+  schedule from the post's slot and its visibility from the post (else its account), as
+  `manhwatok upload` does — (`U` with `--debug`),
   `d` delete, `f` show one account's posts. The scheduled column is when a post goes out, in
   its account's time zone; the sent one is the day it did. `space` marks the post under the
   cursor (`●` in the first column), `ctrl+a` marks every post shown, `esc` clears the marks;
@@ -669,7 +696,8 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   uploads use without asking (blank = ask). The theme form edits its
   sounds the same way, and those are offered before the account's. The posting plan is there
   too: slots (`mon 19:00, daily 12:30`), rotation (`theme:isekai, chapter:Solo Leveling`; a
-  changed rotation starts over), time zone and art source.
+  changed rotation starts over), time zone, art source and who can see its posts (`everyone`,
+  `friends` or `private`; blank = everyone).
 - **Queue** — `plan show` for the next 7 days, by day, in each account's time zone: every slot
   with its post (or `empty`), posts scheduled off the slots marked `not a slot`, and posts whose
   time has passed without being sent on top, marked `overdue`. `f` fills the highlighted

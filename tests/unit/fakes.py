@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Callable
 
 from manhwatok.domain.errors import MetadataError
-from manhwatok.domain.models import Manhwa, SearchQuery, Status, TagInfo
+from manhwatok.domain.models import Manhwa, SearchQuery, Status, TagInfo, Visibility
 from manhwatok.domain.post import ListPost, PostItem
 from manhwatok.ports.posts import SlideArt
 
@@ -250,10 +250,8 @@ class FakeUploader:
         self.error = error
         self.events: list[str] = []
         self.logins: list[str] = []
-        # (handle, slides, title, description, sound, debug, schedule_at)
-        self.uploads: list[
-            tuple[str, list[Path], str, str, str | None, bool, datetime | None]
-        ] = []
+        # (handle, slides, title, description, sound, debug, schedule_at, visibility)
+        self.uploads: list[tuple] = []
 
     def login(self, handle: str) -> None:
         self.events.append("login")
@@ -261,10 +259,13 @@ class FakeUploader:
         if self.error:
             raise self.error
 
-    def upload(self, handle, slides, title, description, sound, debug, schedule_at=None):
+    def upload(
+        self, handle, slides, title, description, sound, debug, schedule_at=None,
+        visibility=Visibility.EVERYONE,
+    ):
         self.events.append("upload")
         self.uploads.append(
-            (handle, list(slides), title, description, sound, debug, schedule_at)
+            (handle, list(slides), title, description, sound, debug, schedule_at, visibility)
         )
         if self.error:
             raise self.error

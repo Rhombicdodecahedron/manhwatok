@@ -358,3 +358,21 @@ def test_tiktok_page_defaults():
     assert page.file_input == "input[type=file][multiple]"
     assert page.caption_candidates[-2:] == ('[contenteditable="true"]', "textarea")
     assert (page.page_timeout, page.editor_timeout) == (30.0, 60.0)
+
+
+def test_tiktok_page_visibility_selectors():
+    from manhwatok.domain.models import Visibility
+
+    page = TikTokPage()
+    assert page.visibility_trigger == (
+        '[data-e2e="video_visibility_container"] button[role="combobox"]'
+    )
+    # The options live in a popup outside the container, and are matched on their visible text:
+    # their data-value is not in display order.
+    assert page.visibility_choice(Visibility.PRIVATE) == (
+        '[role="listbox"] [role="option"]:has(span.TUXText:text-is("Only you"))'
+    )
+    assert [page.visibility_label(v) for v in Visibility] == ["Everyone", "Friends", "Only you"]
+    assert page.shown_visibility("  Friends  ") is Visibility.FRIENDS
+    assert page.shown_visibility("Nur du") is None  # TikTok in another language
+    assert page.visibility_timeout == 5.0

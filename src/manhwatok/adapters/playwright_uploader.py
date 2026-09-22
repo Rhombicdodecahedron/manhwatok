@@ -6,7 +6,8 @@ is being automated, so `login` starts Chrome on its own, with nothing attached t
 for the user to quit it. `upload` then opens TikTok's upload page in that profile with
 Playwright, attaches the slides, types the title and description (picking each hashtag from
 TikTok's suggestions), picks a sound, fills in TikTok's own schedule when the post is planned
-for later, and leaves the window open: the user reviews the post and clicks Post (or Schedule).
+for later, sets who can see the post when it isn't to go out to everyone, and leaves the window
+open: the user reviews the post and clicks Post (or Schedule).
 This adapter never clicks Post or Schedule, never sees a password and does
 nothing to hide that the browser is automated — no stealth plugins, no extra launch arguments,
 no fingerprint, proxy or captcha tricks; it only waits between steps like a person would.
@@ -30,6 +31,7 @@ from manhwatok.domain.errors import (
     StorageError,
     UploadUnavailable,
 )
+from manhwatok.domain.models import Visibility
 from manhwatok.domain.plan import schedule_step
 from manhwatok.ports.uploader import UploadReport
 
@@ -40,6 +42,7 @@ CHROME_PATHS = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",)
 CHROME_NAMES = ("google-chrome", "google-chrome-stable")
 POLL_MS = 200  # how often to look again for an element that isn't there yet
 SCHEDULE_FIX = "set the date and time in the browser yourself"
+VISIBILITY_FIX = "choose who can see the post in the browser yourself"
 
 
 def _load_playwright():
@@ -152,9 +155,12 @@ class PlaywrightUploader:
         sound: str | None,
         debug: bool,
         schedule_at: datetime | None = None,
+        visibility: Visibility = Visibility.EVERYONE,
     ) -> UploadReport:
         with self._noting_ctrl_c():
-            return self._upload(handle, slides, title, description, sound, debug, schedule_at)
+            return self._upload(
+                handle, slides, title, description, sound, debug, schedule_at, visibility
+            )
 
     def close(self) -> None:
         """Best effort, never raises. A Ctrl-C in the terminal also stops Playwright's driver
@@ -198,6 +204,7 @@ class PlaywrightUploader:
         sound: str | None,
         debug: bool,
         schedule_at: datetime | None = None,
+        visibility: Visibility = Visibility.EVERYONE,
     ) -> UploadReport:
         page = self._open(handle)
         problems: list[str] = []
@@ -223,7 +230,9 @@ class PlaywrightUploader:
         if not report.attached:
             problems.append("title and description not typed — paste caption.txt yourself")
         else:
-            self._fill_editor(page, report, handle, title, description, sound, schedule_at)
+            self._fill_editor(
+                page, report, handle, title, description, sound, schedule_at, visibility
+            )
         if debug and problems:
             report.debug_dir = self._save_debug(page, slides, problems)
         return report
@@ -315,10 +324,19 @@ class PlaywrightUploader:
         return None
 
     def _fill_editor(
-        self, page, report: UploadReport, handle, title, description, sound, schedule_at=None
+        self,
+        page,
+        report: UploadReport,
+        handle,
+        title,
+        description,
+        sound,
+        schedule_at=None,
+        visibility=Visibility.EVERYONE,
     ) -> None:
-        """Title, description, sound and TikTok's own schedule: each step that fails is a
-        problem for the user to finish; once the window is gone, the rest is skipped."""
+        """Title, description, sound, TikTok's own schedule and who can see the post: each step
+        that fails is a problem for the user to finish; once the window is gone, the rest is
+        skipped."""
         if self._find(page, [self._page.editor_ready], self._page.editor_timeout) is None:
             report.problems.append("the post editor didn't open — check the browser window")
         steps = []
@@ -331,11 +349,14 @@ class PlaywrightUploader:
             steps.append(("add the sound", "add one yourself", self._sound_step))
         if schedule_at is not None:
             steps.append(("fill in the schedule", SCHEDULE_FIX, self._schedule_step))
+        if visibility is not Visibility.EVERYONE:  # TikTok already opens on Everyone
+            steps.append(("choose who can see it", VISIBILITY_FIX, self._visibility_step))
         text = {
             "title": title,
             "description": description,
             "sound": sound,
             "schedule_at": schedule_at,
+            "visibility": visibility,
             "handle": handle,
         }
         for what, fix, step in steps:
@@ -550,6 +571,43 @@ class PlaywrightUploader:
                 )
                 right = False
         return right
+
+    # --- who can see the post -------------------------------------------------------------
+
+    def _visibility_step(self, page, report: UploadReport, text: dict, fix: str) -> None:
+        """Set TikTok's "Who can see this post". It opens on Everyone, so this only runs for
+        another one, and a list already showing it is left alone — there is nothing to click.
+        The button's own text is read back afterwards: a click that landed elsewhere would
+        otherwise leave the post open to everyone without anyone noticing."""
+        wanted, timeout = text["visibility"], self._page.visibility_timeout
+        button = self._find(page, [self._page.visibility_trigger], timeout)
+        if button is None:
+            report.problems.append(f'TikTok\'s "Who can see this post" wasn\'t there — {fix}')
+            return
+        if self._shown_visibility(button) is wanted:
+            report.visibility = wanted
+            return
+        self._pause(page)
+        button.click()
+        option = self._find(page, [self._page.visibility_choice(wanted)], timeout)
+        label = self._page.visibility_label(wanted)
+        if option is None:
+            report.problems.append(f'TikTok\'s visibility list has no "{label}" — {fix}')
+            return
+        self._pause(page)
+        option.click()
+        self._pause(page)
+        shown = button.inner_text().strip()
+        report.visibility = self._page.shown_visibility(shown)
+        if report.visibility is not wanted:
+            report.problems.append(
+                f'TikTok\'s "Who can see this post" reads {shown or "nothing"}, not {label} '
+                f"— {fix}"
+            )
+
+    def _shown_visibility(self, button) -> Visibility | None:
+        """Which visibility the button names now, or None for a label manhwatok doesn't know."""
+        return self._page.shown_visibility(button.inner_text())
 
     def _clear(self, page, box) -> None:
         """Click into `box` and empty it: TikTok may prefill it."""

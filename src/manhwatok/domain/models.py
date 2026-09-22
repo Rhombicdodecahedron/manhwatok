@@ -57,6 +57,20 @@ class ChapterSourceName(StrEnum):
     ASURA = "asura"  # Asura's own translations: whole runs of the action manhwa it picks up
 
 
+class Visibility(StrEnum):
+    """Who can see a post once it is up. TikTok's list calls these Everyone, Friends and
+    Only you, and opens on Everyone: the words TikTok uses live in `adapters/tiktok_page.py`."""
+
+    EVERYONE = "everyone"  # anyone on TikTok — TikTok's own default
+    FRIENDS = "friends"  # the followers you follow back
+    PRIVATE = "private"  # only you, e.g. to look a post over where it will be seen
+
+    @property
+    def spoken(self) -> str:
+        """Who that is, in a sentence: "visible to <spoken>"."""
+        return "you alone" if self is Visibility.PRIVATE else self.value
+
+
 class ArtOrder(StrEnum):
     """How a list of art options is arranged before you pick from it."""
 

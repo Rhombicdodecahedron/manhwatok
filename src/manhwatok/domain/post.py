@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import AwareDatetime, BaseModel, Field
 
 from manhwatok.domain.chapter import SLIDES_PER_POST, ChapterPart
-from manhwatok.domain.models import ArtStyle, CoverStyle, Manhwa
+from manhwatok.domain.models import ArtStyle, CoverStyle, Manhwa, Visibility
 
 DEFAULT_ACCENT = "#43c9e4"
 DEFAULT_HASHTAGS = "#manhwa #manhwarecommendation #webtoon #manhwatiktok"
@@ -51,6 +51,9 @@ class ListPost(BaseModel):
     cover: CoverStyle = CoverStyle.FAN  # which cover version render makes 01.png
     # The theme it was built from, when it was: `upload` offers that theme's sounds first.
     theme: str | None = None
+    # Who can see this post: None (the default, so older post.json files load) leaves it to
+    # the account's own `visibility`. `upload --visibility` beats both, for that one upload.
+    visibility: Visibility | None = None
     # A chapter post: its slides are this part of a chapter, drawn from `chapter.panels`
     # instead of from picks. None on every recommendation-list post.
     chapter: ChapterPart | None = None
