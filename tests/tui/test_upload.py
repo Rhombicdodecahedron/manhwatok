@@ -241,6 +241,26 @@ def test_sound_names_with_brackets_render_verbatim_and_pass_through(tmp_path):
     assert uploader.uploads[0][4] == "Dark Aria [Remix]"
 
 
+def test_an_account_that_picks_at_random_is_not_asked(tmp_path, monkeypatch):
+    """The precedence lives in upload_post, so the tabs get --random-sound's behaviour for
+    free: no dialog, and the sound chance picked."""
+    import random
+
+    monkeypatch.setattr(random, "choice", lambda sounds: sounds[-1])
+    uploader = FakeUploader(UploadReport(True, True, [], titled=True, sound="night drive"))
+    ctx = _ctx(tmp_path, uploader, sounds=SOUNDS)
+    ctx.store.accounts.update(Account(handle="reads", sounds=list(SOUNDS), random_sound=True))
+
+    async def scenario(app, pilot):
+        await _upload_until_asked(app, pilot)  # straight to "Posted on @reads?"
+        await pilot.press("n")
+        await wait_for(pilot, lambda: "nothing recorded" in _log(app))
+        assert "added the sound night drive" in _log(app)
+
+    run_app(ctx, scenario)
+    assert uploader.uploads[0][4] == "night drive"
+
+
 def test_quitting_while_the_sound_choice_is_open_cancels_the_upload(tmp_path):
     """Answering the sound question with None because the app is quitting must not fall
     through to a real upload — choose_sound must refuse before upload_post opens the browser."""

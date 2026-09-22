@@ -329,6 +329,19 @@ def test_account_default_sound_is_saved_shown_and_cleared(tmp_path):
         assert store.accounts.get("reads").default_sound == ""
 
 
+def test_account_random_sound_is_saved_shown_and_turned_off(tmp_path):
+    out = _ok(["account", "add", "reads", "--sound", "night drive", "--random-sound"])
+    assert "  random sound  yes\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").random_sound is True
+    out = _ok(["account", "set", "reads", "--hashtags", "#x"])  # not given: it stays on
+    assert "  random sound  yes\n" in out
+    out = _ok(["account", "set", "reads", "--no-random-sound"])
+    assert "  random sound  no\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").random_sound is False
+
+
 def test_theme_sounds_are_saved_shown_and_changed(tmp_path):
     added = runner.invoke(
         app,

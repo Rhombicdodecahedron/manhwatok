@@ -5,6 +5,8 @@ sent (repeat history and `sent_at`, plus `tiktok_scheduled_at` for a scheduled o
 
 from __future__ import annotations
 
+import random
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable
 
@@ -30,6 +32,14 @@ from manhwatok.ports.uploader import Uploader
 ConfirmFn = Callable[[str], bool]
 # Asks which sound to use, of the post's theme and its account; None for no sound.
 ChooseSoundFn = Callable[[list[str]], "str | None"]
+# Picks one of the sounds on offer without asking: chance, or something scripted in tests.
+PickSoundFn = Callable[[list[str]], str]
+
+
+def at_random(sounds: list[str]) -> str:
+    """One of `sounds`, by chance — what `--random-sound` picks with. A function of its own so
+    tests can hand `sound_choice` a chooser of their own instead of seeding the module."""
+    return random.choice(sounds)
 
 
 def theme_sounds(post: ListPost, themes: ThemeRepository | None) -> list[str]:
@@ -57,11 +67,49 @@ def preset_sound(
     post: ListPost, account: Account, themes: ThemeRepository | None
 ) -> str | None:
     """The sound to use without asking: the account's default, or the post's theme's own when
-    that theme has exactly one — there is nothing to choose between. None means ask."""
+    that theme has exactly one — there is nothing to choose between. None means ask. The last
+    two rules of `sound_choice`, which is what every upload goes through."""
     if account.default_sound:
         return account.default_sound
     themed = theme_sounds(post, themes)
     return themed[0] if len(themed) == 1 else None
+
+
+@dataclass(frozen=True)
+class SoundChoice:
+    """Which sound an upload adds: `sound`, None for none at all — unless `ask`, when there is
+    a real question to put to the user, among `sounds_for`. `at_random` says chance chose it,
+    which `upload` says in the line it prints before the browser opens."""
+
+    sound: str | None = None
+    ask: bool = False
+    at_random: bool = False
+
+
+def sound_choice(
+    post: ListPost,
+    account: Account,
+    themes: ThemeRepository | None,
+    sound: str | None = None,
+    ask_sound: bool = False,
+    random_sound: bool = False,
+    pick: PickSoundFn = at_random,
+) -> SoundChoice:
+    """The whole sound precedence, in one place so `upload`, the TUI and both agree, strongest
+    first: a `sound` given ("" for none at all); `ask_sound`, which asks whatever else is set;
+    `random_sound` — the option or the account's own — which picks one of the sounds on offer
+    by chance, and falls through when the post has none to pick from; then `preset_sound`, the
+    account's default sound or a theme's single one; else ask."""
+    if sound is not None:
+        return SoundChoice(sound.strip() or None)
+    if ask_sound:
+        return SoundChoice(ask=True)
+    if random_sound or account.random_sound:
+        offer = sounds_for(post, account, themes)
+        if offer:
+            return SoundChoice(pick(offer), at_random=True)
+    preset = preset_sound(post, account, themes)
+    return SoundChoice(preset, ask=preset is None)
 
 
 def schedule_for(post: ListPost, now: datetime) -> datetime | None:
@@ -107,10 +155,13 @@ def upload_post(
     schedule_at: datetime | None = None,
     ask_sound: bool = False,
     visibility: Visibility | None = None,
+    random_sound: bool = False,
+    pick: PickSoundFn = at_random,
 ) -> bool:
     """True when the user confirmed the post went out (and it was recorded). `sound`: a TikTok
-    sound search, "" for none; None uses `preset_sound`, else asks `choose_sound` among the
-    post's sounds — `ask_sound` asks even when there is a preset one. `schedule_at` fills in
+    sound search, "" for none; None leaves it to `sound_choice` — a preset sound, one
+    `random_sound` picks with `pick`, or `choose_sound` among the post's sounds, which
+    `ask_sound` asks for whatever else is set. `schedule_at` fills in
     TikTok's own schedule instead of posting now; a time TikTok wouldn't take is refused here,
     before any browser opens. `visibility` is who can see it, for this upload only: without one
     the post's own choice decides, and without that its account's."""
@@ -123,13 +174,13 @@ def upload_post(
     if schedule_at is not None:
         check_schedule(schedule_at, now)
     slides, _ = rendered_files(post, posts)
-    if sound is None:
-        preset = None if ask_sound else preset_sound(post, account, themes)
-        if preset is not None:
-            sound = preset
-        else:
-            offer = sounds_for(post, account, themes)
-            sound = choose_sound(offer) if offer and choose_sound else None
+    choice = sound_choice(
+        post, account, themes, sound, ask_sound, random_sound=random_sound, pick=pick
+    )
+    sound = choice.sound
+    if choice.ask:
+        offer = sounds_for(post, account, themes)
+        sound = choose_sound(offer) if offer and choose_sound else None
     sound = sound.strip() if sound else None
     if post.sent_at:
         when = post.sent_at.astimezone()

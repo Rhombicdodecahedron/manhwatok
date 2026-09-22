@@ -50,6 +50,13 @@ def test_defaults():
     assert a.repeat_days == DEFAULT_REPEAT_DAYS == 30
     assert a.art is ArtStyle.NONE
     assert (a.emojis, a.sounds, a.default_sound) == ("", [], "")
+    assert a.random_sound is False
+
+
+def test_random_sound_is_off_unless_asked_for():
+    """Defaulted, so accounts saved before it load; on, uploads pick without asking."""
+    assert Account(handle="ab").random_sound is False
+    assert Account(handle="ab", random_sound=True).random_sound is True
 
 
 def test_a_default_sound_is_tidied_like_the_others():

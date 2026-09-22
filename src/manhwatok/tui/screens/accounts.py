@@ -39,6 +39,10 @@ LABELS = {
     "default_sound": (
         "The sound uploads use without asking (empty = ask which of the sounds above to use)"
     ),
+    "random_sound": (
+        "Let chance pick one of the sounds above for every upload, instead of asking "
+        "(yes/no; empty = no)"
+    ),
     "accent": "Accent colour",
     "art": f"Slide art for new posts: {ART_CHOICES} (empty = none)",
     "cta_title": "End-slide title (*word* = accent colour)",
@@ -76,6 +80,7 @@ def account_texts(account: Account) -> dict[str, str]:
     texts["timezone"] = account.timezone
     texts["art_source"] = account.art_source.value if account.art_source else ""
     texts["visibility"] = account.visibility.value
+    texts["random_sound"] = "yes" if account.random_sound else "no"
     return texts
 
 
@@ -103,6 +108,16 @@ def _visibility(text: str) -> Visibility:
         ) from None
 
 
+def _yes_no(text: str) -> bool:
+    """A yes/no field: empty is no, as an account saved without it."""
+    said = text.strip().lower()
+    if said in ("", "no"):
+        return False
+    if said == "yes":
+        return True
+    raise ManhwatokError(f"pick at random must be yes or no — got {text.strip()!r}")
+
+
 def account_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict[str, Any]:
     """Account fields from form text: every filled-in field for a new account (`before` None),
     only the changed ones for an existing account."""
@@ -122,6 +137,8 @@ def account_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict
             fields[name] = _art(text)
         elif name == "visibility":
             fields[name] = _visibility(text)
+        elif name == "random_sound":
+            fields[name] = _yes_no(text)
         elif name == "slots":
             fields[name] = _items(text)
         elif name == "rotation":

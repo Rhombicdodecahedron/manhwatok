@@ -68,7 +68,8 @@ def _render_one(ctx: AppContext, post: ListPost) -> str:
 
 
 def upload_in_app(app, ctx: AppContext, post: ListPost, progress, debug: bool) -> bool:
-    """Drive the browser for one post — its sound asked for first, its own planned time filled
+    """Drive the browser for one post — its sound asked for first, unless the account settles
+    it on its own (a default sound, or one picked at random), its own planned time filled
     into TikTok's schedule when TikTok would still take it, and who can see it taken from the
     post, or from its account when the post doesn't say (`upload_post`'s own order, so the tabs
     and `manhwatok upload` agree) — and answer whether the user confirmed it went out. Runs in a

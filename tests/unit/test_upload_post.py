@@ -4,7 +4,7 @@ import pytest
 
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app.render_post import render_post
-from manhwatok.app.upload_post import upload_post
+from manhwatok.app.upload_post import SoundChoice, upload_post
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import (
     AccountNotFound,
@@ -433,6 +433,119 @@ def test_a_theme_with_two_sounds_is_still_a_question(tmp_path, store):
     uploader = FakeUploader()
     _upload(posts, store, uploader, choose_sound=lambda s: s[1])
     assert uploader.uploads[0][4] == "phonk two"
+
+
+# --- a sound picked at random ----------------------------------------------------------------
+
+
+class Picker:
+    """Stands in for random.choice: records every list it was offered and takes the `nth` of it."""
+
+    def __init__(self, nth: int = 0):
+        self.nth = nth
+        self.offered: list[list[str]] = []
+
+    def __call__(self, sounds: list[str]) -> str:
+        self.offered.append(list(sounds))
+        return sounds[self.nth]
+
+
+def _never(sounds):
+    return pytest.fail(f"should not pick at random, was offered {sounds}")
+
+
+def test_random_sound_picks_one_of_the_sounds_on_offer(tmp_path, store):
+    posts = _themed(tmp_path, store, ["phonk one", "phonk two"])
+    uploader = FakeUploader()
+    pick = Picker(nth=2)
+    _upload(
+        posts, store, uploader, random_sound=True, pick=pick,
+        choose_sound=lambda s: pytest.fail("should not ask"),
+    )
+    # The same list `upload` would have asked about: the theme's sounds, then the account's.
+    assert pick.offered == [["phonk one", "phonk two", "account song"]]
+    assert uploader.uploads[0][4] == "account song"
+
+
+def test_the_accounts_random_sound_needs_no_option(tmp_path, store):
+    store.accounts.update(
+        Account(handle="reads", sounds=["dark aria", "night drive"], random_sound=True)
+    )
+    posts = _posts(tmp_path)
+    uploader = FakeUploader()
+    pick = Picker(nth=1)
+    _upload(
+        posts, store, uploader, pick=pick,
+        choose_sound=lambda s: pytest.fail("should not ask"),
+    )
+    assert pick.offered == [["dark aria", "night drive"]]
+    assert uploader.uploads[0][4] == "night drive"
+
+
+def test_random_sound_with_no_sounds_at_all_falls_back_instead_of_failing(tmp_path, store):
+    posts = _posts(tmp_path)  # @reads has no sounds, and the post no theme
+    uploader = FakeUploader()
+    asked = []
+    _upload(
+        posts, store, uploader, random_sound=True, pick=_never,
+        choose_sound=lambda s: (asked.append(s), None)[1],
+    )
+    assert asked == []  # nothing to offer: as without --random-sound, no question either
+    assert uploader.uploads[0][4] is None
+
+
+def test_random_sound_beats_the_accounts_default_sound(tmp_path, store):
+    store.accounts.update(
+        Account(handle="reads", sounds=["dark aria"], default_sound="night drive")
+    )
+    posts = _posts(tmp_path)
+    uploader = FakeUploader()
+    pick = Picker(nth=1)
+    _upload(posts, store, uploader, random_sound=True, pick=pick)
+    assert pick.offered == [["night drive", "dark aria"]]
+    assert uploader.uploads[0][4] == "dark aria"
+
+
+def test_ask_sound_beats_random_sound(tmp_path, store):
+    store.accounts.update(
+        Account(handle="reads", sounds=["dark aria", "night drive"], random_sound=True)
+    )
+    posts = _posts(tmp_path)
+    uploader = FakeUploader()
+    offered = []
+    _upload(
+        posts, store, uploader, ask_sound=True, random_sound=True, pick=_never,
+        choose_sound=lambda s: (offered.append(s), s[1])[1],
+    )
+    assert offered == [["dark aria", "night drive"]]
+    assert uploader.uploads[0][4] == "night drive"
+
+
+def test_sound_choice_says_when_chance_chose_the_sound(tmp_path, store):
+    """The whole precedence in one place, so `upload` can say what it is about to do without
+    picking a second (different) sound of its own."""
+    from manhwatok.app.upload_post import sound_choice
+
+    account = Account(handle="reads", sounds=["dark aria", "night drive"])
+    one = post(account="reads")
+    assert sound_choice(one, account, store.themes) == SoundChoice(ask=True)
+    assert sound_choice(one, account, store.themes, sound="x") == SoundChoice("x")
+    assert sound_choice(one, account, store.themes, sound="") == SoundChoice(None)
+    at_random = sound_choice(
+        one, account, store.themes, random_sound=True, pick=Picker(nth=1)
+    )
+    assert at_random == SoundChoice("night drive", at_random=True)
+
+
+@pytest.mark.parametrize(("given", "expected"), [("  night drive ", "night drive"), ("", None)])
+def test_a_given_sound_beats_random_sound(tmp_path, store, given, expected):
+    store.accounts.update(
+        Account(handle="reads", sounds=["dark aria"], random_sound=True)
+    )
+    posts = _posts(tmp_path)
+    uploader = FakeUploader()
+    _upload(posts, store, uploader, sound=given, pick=_never)
+    assert uploader.uploads[0][4] == expected
 
 
 # --- who can see the post --------------------------------------------------------------------

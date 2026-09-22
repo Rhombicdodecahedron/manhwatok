@@ -555,6 +555,7 @@ uv run manhwatok account set @manhwa.daily --emojis "🔥📚" \
 uv run manhwatok upload <id>              # an account's post with up-to-date slides
 uv run manhwatok upload <id> --at "2026-09-24 19:00"   # fill TikTok's schedule in with this
 uv run manhwatok upload <id> --no-schedule             # post it now, whatever the plan says
+uv run manhwatok upload <id> --random-sound            # let chance pick the sound, don't ask
 uv run manhwatok upload <id> --visibility friends      # who can see this one (see below)
 ```
 
@@ -577,6 +578,17 @@ uv run manhwatok upload <id> --visibility friends      # who can see this one (s
 - `account add/set --default-sound "..."` is the one sound to use without asking; a post whose
   theme has exactly one sound uses that one the same way. `upload --ask-sound` brings the
   question back (the default sound is offered first then), and `--default-sound ""` clears it.
+- `upload --random-sound` lets chance pick instead of asking — one of the very sounds the
+  question would have offered, the post's theme's first and then the account's. The line before
+  the browser opens says which:
+  `post 20260922-a3f9 → @manhwa.daily, posting now, sound: "SOLO LEVELING RaijinLofi" (picked at random)`.
+  `account add/set --random-sound` does it for every upload of an account, and
+  `--no-random-sound` stops it. A post with no sound to pick from asks as usual.
+- The sound is decided in this order, strongest first: `upload --sound "..."` (a search of your
+  own) — it can't be combined with `--no-sound`, which adds no sound at all; then
+  `--ask-sound`, which asks whatever else is set; then `--random-sound` or the account's;
+  then the account's `--default-sound`, or the one sound of the post's theme; else the
+  question. The TUI's Posts and Queue tabs follow the same order.
 - Sounds live on themes as well as accounts, so a post is offered what suits it: phonk for a
   murim list, something softer for a romance one. A post remembers the theme it was built from,
   and `upload` offers that theme's sounds first, then the account's (a sound on both is listed
@@ -696,8 +708,9 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   to TikTok. The account form also edits its emojis (`auto` = from each post's genres), its art
   style (`none`, `background`,
   `panel`, `character` or `scene`; blank = none), its sounds, one line separated by ` | ` (e.g.
-  `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none), and the default sound
-  uploads use without asking (blank = ask). The theme form edits its
+  `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none), the default sound
+  uploads use without asking (blank = ask) and whether chance picks one of the sounds instead
+  of asking (`yes`/`no`; blank = no, as `account set --random-sound`). The theme form edits its
   sounds the same way, and those are offered before the account's. The posting plan is there
   too: slots (`mon 19:00, daily 12:30`), rotation (`theme:isekai, chapter:Solo Leveling`; a
   changed rotation starts over), time zone, art source and who can see its posts (`everyone`,
@@ -713,8 +726,9 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
 Slides show as real pictures in terminals with image support (kitty, WezTerm, Konsole, foot and
 other sixel terminals); elsewhere as coloured blocks. Uploading works as with `manhwatok upload`:
 if the account has sounds, a dialog first asks which one to add (or "no sound"; `esc` adds
-none), the log shows what the browser did, and a dialog asks whether you posted it. A bulk `U`
-asks the same questions, post after post, without the log screen. Only one render and one
+none) — unless the account picks at random, or a preset sound decides — the log shows what the
+browser did, and a dialog asks whether you posted it. A bulk `U` asks the same questions, post
+after post, without the log screen. Only one render and one
 browser run at a time (a bulk run counts as the render); quitting waits for both. The TUI and the commands can be
 used at the same time.
 

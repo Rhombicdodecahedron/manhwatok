@@ -847,19 +847,25 @@ def _upload_schedule(
 
 
 def _upload_line(
-    post_id: str, account, when: Optional[datetime], visibility=Visibility.EVERYONE
+    post_id: str,
+    account,
+    when: Optional[datetime],
+    visibility=Visibility.EVERYONE,
+    chose=None,
 ) -> str:
     """What the upload is about to do, said before the browser opens. Who can see it is only
-    worth saying when it isn't everyone — TikTok's own default."""
+    worth saying when it isn't everyone — TikTok's own default — and the sound only when
+    chance chose it, since nothing else asked for that one."""
     from zoneinfo import ZoneInfo
 
     seen = "" if visibility is Visibility.EVERYONE else f", visible to {visibility.spoken}"
+    luck = f', sound: "{chose.sound}" (picked at random)' if chose and chose.at_random else ""
     if when is None:
-        return f"post {post_id} → {account.display}{seen}, posting now"
+        return f"post {post_id} → {account.display}{seen}, posting now{luck}"
     local = when.astimezone(ZoneInfo(account.timezone))
     return (
         f"post {post_id} → {account.display}{seen}, scheduled for {local:%a %d %b %H:%M} "
-        f"({account.timezone})"
+        f"({account.timezone}){luck}"
     )
 
 
@@ -878,6 +884,13 @@ def upload(
     no_sound: bool = typer.Option(False, "--no-sound", help="Add no sound, don't ask."),
     ask_sound: bool = typer.Option(
         False, "--ask-sound", help="Ask which sound to use, even with a default one set."
+    ),
+    random_sound: bool = typer.Option(
+        False,
+        "--random-sound",
+        help="Pick one of the sounds on offer at random instead of asking (as the account's "
+        "--random-sound). With no sound to pick from, it asks as usual; --ask-sound and "
+        "--sound/--no-sound beat it.",
     ),
     at: Optional[str] = typer.Option(
         None,
@@ -904,20 +917,29 @@ def upload(
     schedule filled in. You check it and click Post — or Schedule — yourself, then answer y
     here to record the post as sent."""
     from manhwatok.app import container
-    from manhwatok.app.upload_post import upload_post, visibility_for
+    from manhwatok.app.upload_post import sound_choice, upload_post, visibility_for
 
     settings = Settings()
     now = datetime.now(timezone.utc)
     try:
+        if no_sound and sound is not None:
+            raise ManhwatokError("give --sound or --no-sound, not both")
         with container.build_store(settings) as store:
             posts = container.build_posts(settings)
             when = None
+            asked = "" if no_sound else sound
             post = posts.get(post_id)
             if post.account:  # without one, upload_post says what to do about it
                 account = store.accounts.get(post.account)
                 when = _upload_schedule(post, account, at, no_schedule, now)
                 seen = visibility_for(post, account, visibility)
-                typer.echo(_upload_line(post_id, account, when, seen))
+                # Chosen here, once, so the line says the very sound the browser will get:
+                # asking `upload_post` to pick again would be a second roll of the dice.
+                chose = sound_choice(
+                    post, account, store.themes, asked, ask_sound, random_sound=random_sound
+                )
+                asked = None if chose.ask else chose.sound or ""
+                typer.echo(_upload_line(post_id, account, when, seen, chose))
             posted = upload_post(
                 post_id,
                 posts,
@@ -928,7 +950,7 @@ def upload(
                 typer.echo,
                 now=now,
                 debug=debug,
-                sound="" if no_sound else sound,
+                sound=asked,
                 choose_sound=_choose_sound,
                 themes=store.themes,
                 chapters=store.chapters,
@@ -994,6 +1016,13 @@ DEFAULT_SOUND = typer.Option(
     help="The sound `upload` uses for this account without asking, e.g. \"SOLO LEVELING "
     'RaijinLofi". "" clears it and brings the question back; `upload --ask-sound` asks once.',
 )
+RANDOM_SOUND = typer.Option(
+    None,
+    "--random-sound/--no-random-sound",
+    help="Let chance pick one of this account's sounds (its --default-sound and --sound, or a "
+    "post's theme's own) for every upload, instead of asking. `upload --ask-sound` still "
+    "asks, and `upload --sound`/`--no-sound` still decide for one post.",
+)
 ACCOUNT_ACCENT = typer.Option(None, "--accent", help="Accent colour, e.g. #43c9e4.")
 CTA_TITLE = typer.Option(None, "--cta-title", help="End-slide title; *word* = accent colour.")
 CTA_FOLLOW = typer.Option(None, "--cta-follow", help="End-slide follow line.")
@@ -1049,6 +1078,7 @@ def _account_fields(
     emojis: Optional[str] = None,
     sounds: Optional[list[str]] = None,
     default_sound: Optional[str] = None,
+    random_sound: Optional[bool] = None,
     rotation: Optional[str] = None,
     time_zone: Optional[str] = None,
     art_source: Optional[str] = None,
@@ -1063,6 +1093,7 @@ def _account_fields(
         "hashtags": hashtags,
         "emojis": emojis,
         "default_sound": default_sound,
+        "random_sound": random_sound,
         "accent": accent,
         "cta_title": cta_title,
         "cta_follow": cta_follow,
@@ -1097,6 +1128,7 @@ def _print_account(a) -> None:
         ("emojis", a.emojis or "-"),
         ("sounds", " | ".join(a.sounds) or "-"),
         ("default sound", a.default_sound or "-"),
+        ("random sound", "yes" if a.random_sound else "no"),
         ("accent", a.accent),
         ("cta title", a.cta_title),
         ("cta follow", a.cta_follow),
@@ -1146,6 +1178,7 @@ def account_add(
     emojis: Optional[str] = ACCOUNT_EMOJIS,
     sound: Optional[list[str]] = ACCOUNT_SOUNDS,
     default_sound: Optional[str] = DEFAULT_SOUND,
+    random_sound: Optional[bool] = RANDOM_SOUND,
     accent: Optional[str] = ACCOUNT_ACCENT,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
@@ -1162,7 +1195,8 @@ def account_add(
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound, default_sound, rotation, time_zone, art_source, slots, visibility,
+        emojis, sound, default_sound, random_sound, rotation, time_zone, art_source,
+        slots, visibility,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -1177,6 +1211,7 @@ def account_set(
     emojis: Optional[str] = ACCOUNT_EMOJIS,
     sound: Optional[list[str]] = ACCOUNT_SOUNDS,
     default_sound: Optional[str] = DEFAULT_SOUND,
+    random_sound: Optional[bool] = RANDOM_SOUND,
     accent: Optional[str] = ACCOUNT_ACCENT,
     cta_title: Optional[str] = CTA_TITLE,
     cta_follow: Optional[str] = CTA_FOLLOW,
@@ -1193,7 +1228,8 @@ def account_set(
 
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
-        emojis, sound, default_sound, rotation, time_zone, art_source, slots, visibility,
+        emojis, sound, default_sound, random_sound, rotation, time_zone, art_source,
+        slots, visibility,
     )
     _save_account(update_account, "updated", handle, fields)
 

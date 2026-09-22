@@ -47,6 +47,9 @@ class Account(BaseModel):
     sounds: list[str] = Field(default_factory=list)
     # The one `upload` uses without asking, when set (`--ask-sound` asks anyway).
     default_sound: str = ""
+    # Pick one of the sounds on offer at random instead of asking, as `upload --random-sound`.
+    # Defaulted, so accounts saved before it load.
+    random_sound: bool = False
     accent: str = DEFAULT_ACCENT
     cta_title: str = DEFAULT_CTA_TITLE
     cta_follow: str = DEFAULT_CTA_FOLLOW

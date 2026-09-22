@@ -408,6 +408,77 @@ def test_ask_sound_brings_the_question_back(tmp_path, monkeypatch):
     assert browser.uploads[0][4] == "dark aria"
 
 
+# --- a sound picked at random ----------------------------------------------------------------
+
+
+def _last_sound(monkeypatch) -> None:
+    """random.choice, made predictable: the last of whatever it is offered."""
+    import random
+
+    monkeypatch.setattr(random, "choice", lambda sounds: sounds[-1])
+
+
+def test_random_sound_picks_one_without_asking_and_says_so(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    _account_with_sounds(tmp_path)
+    _last_sound(monkeypatch)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, "--random-sound"], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith(
+        f'post {POST_ID} → @reads, posting now, sound: "dark aria" (picked at random)\n'
+    )
+    assert "Sound for this post" not in result.output
+    assert browser.uploads[0][4] == "dark aria"
+
+
+def test_the_accounts_random_sound_asks_nothing_either(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    with _store(tmp_path) as store:
+        store.accounts.update(
+            Account(handle="reads", sounds=["solo leveling", "dark aria"], random_sound=True)
+        )
+    _last_sound(monkeypatch)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert '(picked at random)' in result.output
+    assert browser.uploads[0][4] == "dark aria"
+
+
+def test_random_sound_without_any_sound_to_pick_asks_nothing_and_adds_none(
+    tmp_path, monkeypatch
+):
+    _account_post(tmp_path)  # @reads has no sounds at all
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, "--random-sound"], input="n\n")
+    assert result.exit_code == 0, result.output
+    assert result.output.startswith(f"post {POST_ID} → @reads, posting now\n")
+    assert browser.uploads[0][4] is None
+
+
+def test_ask_sound_beats_random_sound_from_the_command_line(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    _account_with_sounds(tmp_path)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(
+        app, ["upload", POST_ID, "--random-sound", "--ask-sound"], input="2\nn\n"
+    )
+    assert result.exit_code == 0, result.output
+    assert "picked at random" not in result.output
+    assert "  1. solo leveling\n  2. dark aria\n" in result.output
+    assert browser.uploads[0][4] == "dark aria"
+
+
+def test_a_sound_and_no_sound_together_are_refused(tmp_path, monkeypatch):
+    _account_post(tmp_path)
+    browser = _browser(monkeypatch)
+    result = runner.invoke(app, ["upload", POST_ID, "--sound", "night drive", "--no-sound"])
+    assert result.exit_code == 1
+    assert "give --sound or --no-sound, not both" in result.output
+    assert browser.events == []
+
+
 # --- who can see the post --------------------------------------------------------------------
 
 

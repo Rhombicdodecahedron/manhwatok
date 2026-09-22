@@ -469,6 +469,39 @@ def test_the_form_edits_the_default_sound(tmp_path):
     assert ctx.store.accounts.get("reads").default_sound == "night drive"
 
 
+def test_the_form_turns_picking_a_sound_at_random_on_and_off(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.store.accounts.add(Account(handle="reads", sounds=["Dark Aria", "night drive"]))
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.screen.query_one("#field-random_sound").value == "no"
+        await _fill(app, pilot, random_sound=" Yes ")
+        await wait_for(pilot, lambda: "saved @reads" in notes(app))
+        assert ctx.store.accounts.get("reads").random_sound is True
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.screen.query_one("#field-random_sound").value == "yes"
+        await _fill(app, pilot, random_sound="")
+        await wait_for(pilot, lambda: not isinstance(app.screen, FormModal))
+
+    run_app(ctx, scenario)
+    assert ctx.store.accounts.get("reads").random_sound is False
+
+
+def test_account_fields_random_sound():
+    before = account_texts(Account(handle="reads"))
+    assert before["random_sound"] == "no"
+    assert account_fields({**before, "random_sound": " YES "}, before) == {"random_sound": True}
+    on = account_texts(Account(handle="reads", random_sound=True))
+    assert on["random_sound"] == "yes"
+    assert account_fields({**on, "random_sound": "no"}, on) == {"random_sound": False}
+    with pytest.raises(ManhwatokError, match="pick at random must be yes or no — got 'maybe'"):
+        account_fields({**before, "random_sound": "maybe"}, before)
+
+
 def test_account_fields_visibility():
     from manhwatok.domain.models import Visibility
 
