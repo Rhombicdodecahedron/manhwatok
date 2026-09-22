@@ -6,7 +6,6 @@ from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.coordinate import Coordinate
 from textual.widgets import DataTable, Static
 
 from manhwatok.app.delete_post import delete_post
@@ -14,6 +13,7 @@ from manhwatok.app.edit_post import update_picks
 from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import choose_cover, render_post, rendered_files
 from manhwatok.app.upload_post import sounds_for, upload_post
+from manhwatok.domain.account import DEFAULT_TIMEZONE
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered
 from manhwatok.domain.models import CoverStyle
 from manhwatok.domain.post import ListPost
@@ -21,8 +21,9 @@ from manhwatok.domain.text import plain_title
 from manhwatok.tui.screens.art import ArtScreen
 from manhwatok.tui.screens.browser import BrowserScreen
 from manhwatok.tui.screens.picks import PicksScreen
-from manhwatok.tui.text import clip, post_details, post_status
+from manhwatok.tui.text import clip, post_details, post_status, scheduled_text
 from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal
+from manhwatok.tui.widgets.headed_table import HeadedTable
 from manhwatok.tui.widgets.slide_preview import SlidePreview
 
 ALL = "*"
@@ -30,37 +31,17 @@ HEADING = "account:"  # row key prefix of an account's heading row
 NO_ACCOUNT = "no account"
 
 
-class PostTable(DataTable):
+class PostTable(HeadedTable):
     """The posts, under a heading per account. Left/right flip the preview's slides instead of
     scrolling sideways, and up/down step over the headings."""
+
+    HEADING = HEADING
 
     def action_cursor_left(self) -> None:
         self.query_ancestor(PostsPane).action_slide(-1)
 
     def action_cursor_right(self) -> None:
         self.query_ancestor(PostsPane).action_slide(1)
-
-    def action_cursor_down(self) -> None:
-        super().action_cursor_down()
-        self.skip_headings(1)
-
-    def action_cursor_up(self) -> None:
-        super().action_cursor_up()
-        self.skip_headings(-1)
-
-    def row_key_at(self, row: int) -> str | None:
-        return self.coordinate_to_cell_key(Coordinate(row, 0)).row_key.value
-
-    def skip_headings(self, step: int) -> None:
-        """Move on from a heading in the direction of travel, or back the other way when there
-        is nothing that way — a heading is a label, never a selection."""
-        for way in (step, -step):
-            row = self.cursor_row
-            while 0 <= row < self.row_count and (self.row_key_at(row) or "").startswith(HEADING):
-                row += way
-            if 0 <= row < self.row_count:
-                self.move_cursor(row=row)
-                return
 
 
 def _by_account(posts: list[ListPost]) -> list[tuple[str, list[ListPost]]]:
@@ -111,7 +92,7 @@ class PostsPane(Vertical):
 
     def on_mount(self) -> None:
         table = self.query_one(PostTable)
-        table.add_columns("id", "account", "title", "status", "slides")
+        table.add_columns("id", "account", "title", "status", "scheduled", "slides")
         self.reload()
 
     def focus_main(self) -> None:
@@ -128,20 +109,23 @@ class PostsPane(Vertical):
             posts = ctx.tools.posts.list()
             if self.account_filter:
                 posts = [p for p in posts if p.account == self.account_filter]
+            zones = {a.handle: a.timezone for a in ctx.store.accounts.list()}
         except ManhwatokError as e:
             self.app.fail(e)
-            posts = []
+            posts, zones = [], {}
         self.posts = {p.id: p for p in posts}
         table = self.query_one(PostTable)
         table.clear()
         for who, theirs in _by_account(posts):
-            table.add_row(Text(f"── {who} ──", style="bold"), "", "", "", "", key=HEADING + who)
+            heading = Text(f"── {who} ──", style="bold")
+            table.add_row(heading, "", "", "", "", "", key=HEADING + who)
             for p in theirs:
                 table.add_row(
                     p.id,
                     f"@{p.account}" if p.account else "-",
                     Text(clip(plain_title(p.title) or "(untitled)", 40)),
                     post_status(p, ctx.tools.posts),
+                    scheduled_text(p, zones.get(p.account or "", DEFAULT_TIMEZONE)),
                     "-" if p.is_unfinished else str(p.slide_count),
                     key=p.id,
                 )
@@ -153,11 +137,7 @@ class PostsPane(Vertical):
     @property
     def current_id(self) -> str | None:
         """The highlighted post's id, or None on an account heading (or an empty table)."""
-        table = self.query_one(PostTable)
-        if not table.row_count:
-            return None
-        key = table.row_key_at(table.cursor_row)
-        return None if (key or "").startswith(HEADING) else key
+        return self.query_one(PostTable).current_key
 
     @property
     def current(self) -> ListPost | None:

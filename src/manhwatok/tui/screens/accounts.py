@@ -14,7 +14,7 @@ from manhwatok.app.accounts import add_account, update_account
 from manhwatok.app.login_account import forget_login, login_account, saved_login
 from manhwatok.domain.account import MAX_REPEAT_DAYS, Account
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import ArtStyle
+from manhwatok.domain.models import ArtSourceName, ArtStyle
 from manhwatok.domain.text import split_names
 from manhwatok.tui.screens.browser import BrowserScreen
 from manhwatok.tui.text import clip
@@ -24,6 +24,7 @@ from manhwatok.tui.widgets.form import FormModal
 LISTS = ("genres", "block_genres", "block_tags")
 TEXTS = ("hashtags", "emojis", "accent", "cta_title", "cta_follow")
 ART_CHOICES = ", ".join(style.value for style in ArtStyle)
+SOURCE_CHOICES = ", ".join(source.value for source in ArtSourceName)
 LABELS = {
     "genres": "Genres (comma-separated; a title needs one of them; empty = any)",
     "block_genres": "Blocked genres",
@@ -39,6 +40,19 @@ LABELS = {
     "cta_title": "End-slide title (*word* = accent colour)",
     "cta_follow": "End-slide follow line",
     "repeat_days": f"Repeat window in days (1–{MAX_REPEAT_DAYS})",
+    "slots": (
+        "Posting slots each week, in the time zone (comma-separated <day> HH:MM, day mon..sun "
+        "or daily, e.g. mon 19:00, daily 12:30; empty = none)"
+    ),
+    "rotation": (
+        "Rotation: what the posts are about, in turn (comma-separated chapter:<title> or "
+        "theme:<name>; a changed rotation starts over from the first)"
+    ),
+    "timezone": "Time zone of the slots (an IANA name, e.g. Europe/Paris)",
+    "art_source": (
+        f"Art source for the rotation's list posts: {SOURCE_CHOICES} "
+        "(empty = the art style's own)"
+    ),
 }
 
 
@@ -49,7 +63,17 @@ def account_texts(account: Account) -> dict[str, str]:
     texts["sounds"] = " | ".join(account.sounds)
     texts["art"] = "" if account.art is ArtStyle.NONE else account.art.value
     texts["repeat_days"] = str(account.repeat_days)
+    texts["slots"] = ", ".join(account.slots)
+    texts["rotation"] = ", ".join(account.rotation)
+    texts["timezone"] = account.timezone
+    texts["art_source"] = account.art_source.value if account.art_source else ""
     return texts
+
+
+def _items(text: str) -> list[str]:
+    """Comma-separated items, stripped, blanks dropped — repeats kept (a rotation's repeats
+    are its own; the account drops repeated slots)."""
+    return [item.strip() for item in text.split(",") if item.strip()]
 
 
 def _art(text: str) -> ArtStyle:
@@ -77,6 +101,14 @@ def account_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict
             fields[name] = [sound.strip() for sound in text.split("|") if sound.strip()]
         elif name == "art":
             fields[name] = _art(text)
+        elif name == "slots":
+            fields[name] = _items(text)
+        elif name == "rotation":
+            # As `account set --rotation`: a new rotation starts from its first item.
+            fields[name] = _items(text)
+            fields["rotation_cursor"] = 0
+        elif name == "art_source":
+            fields[name] = text.strip().lower() or None
         elif name == "repeat_days":
             try:
                 fields[name] = int(text)
@@ -87,6 +119,12 @@ def account_fields(texts: dict[str, str], before: dict[str, str] | None) -> dict
         else:
             fields[name] = text
     return fields
+
+
+def _slots_cell(slots: list[str]) -> str:
+    if len(slots) > 1:
+        return f"{len(slots)} slots"
+    return slots[0] if slots else "-"
 
 
 def _sounds_cell(sounds: list[str]) -> str:
@@ -118,7 +156,7 @@ class AccountsPane(Vertical):
     def on_mount(self) -> None:
         self.query_one(DataTable).add_columns(
             "account", "genres", "blocked", "hashtags", "accent", "sounds", "art", "repeat",
-            "login",
+            "slots", "login",
         )
         self.reload()
 
@@ -153,6 +191,7 @@ class AccountsPane(Vertical):
                 Text(_sounds_cell(a.sounds)),
                 a.art.value,
                 f"{a.repeat_days}d",
+                _slots_cell(a.slots),
                 login,
                 key=a.handle,
             )

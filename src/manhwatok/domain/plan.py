@@ -130,6 +130,21 @@ def upcoming_slots(account: Account, now: datetime, days: int) -> list[datetime]
     return _slot_times(wanted, ZoneInfo(account.timezone), now, days)
 
 
+def is_slot(account: Account, when: datetime) -> bool:
+    """Whether `when` is one of the account's weekly slots: the instant a slot names on that
+    day in the account's zone, read as `upcoming_slots` reads it across clock changes."""
+    target = when.astimezone(timezone.utc)
+    zone = ZoneInfo(account.timezone)
+    day = target.astimezone(zone).date()
+    for slot in account.slots:
+        parts = _slot_parts(slot)
+        if parts is None or parts[0] not in (DAILY, DAYS[day.weekday()]):
+            continue
+        if local_time(day, parts[1], zone).astimezone(timezone.utc) == target:
+            return True
+    return False
+
+
 def _slot_times(
     wanted: list[tuple[str, time]], zone: ZoneInfo, now: datetime, days: int
 ) -> list[datetime]:

@@ -9,6 +9,7 @@ from manhwatok.domain.plan import (
     RotationItem,
     clean_rotation,
     clean_slots,
+    is_slot,
     next_item,
     parse_slot,
     parse_when,
@@ -169,6 +170,23 @@ def test_a_week_across_a_change_keeps_the_wall_clock_time():
     times = upcoming_slots(_account("daily 19:00"), now, 7)
     assert {(t.hour, t.minute) for t in times} == {(19, 0)}
     assert len(times) == 7
+
+
+def test_is_slot_is_a_weekly_time_of_the_account_in_its_zone():
+    reads = _account("thu 19:00", "daily 08:15")
+    assert is_slot(reads, datetime(2026, 9, 24, 19, 0, tzinfo=PARIS))
+    assert is_slot(reads, datetime(2026, 9, 24, 17, 0, tzinfo=timezone.utc))  # the same instant
+    assert is_slot(reads, datetime(2026, 9, 26, 8, 15, tzinfo=PARIS))
+    assert not is_slot(reads, datetime(2026, 9, 25, 19, 0, tzinfo=PARIS))  # a friday
+    assert not is_slot(reads, datetime(2026, 9, 24, 19, 1, tzinfo=PARIS))
+    assert not is_slot(_account(), datetime(2026, 9, 24, 19, 0, tzinfo=PARIS))
+
+
+def test_is_slot_across_clock_changes_matches_upcoming_slots():
+    sunday = _account("sun 02:30")
+    assert is_slot(sunday, datetime(2026, 3, 29, 1, 30, tzinfo=timezone.utc))  # 03:30 CEST
+    assert is_slot(sunday, datetime(2026, 10, 25, 0, 30, tzinfo=timezone.utc))  # first 02:30
+    assert not is_slot(sunday, datetime(2026, 10, 25, 1, 30, tzinfo=timezone.utc))  # second
 
 
 # --- when a post goes out ---------------------------------------------------------------------

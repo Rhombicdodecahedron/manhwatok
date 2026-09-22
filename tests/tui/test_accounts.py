@@ -5,7 +5,7 @@ pytest.importorskip("textual")
 from manhwatok.app.login_account import quit_shortcut
 from manhwatok.domain.account import Account  # noqa: E402
 from manhwatok.domain.errors import ManhwatokError, MetadataError  # noqa: E402
-from manhwatok.domain.models import ArtStyle, TagInfo  # noqa: E402
+from manhwatok.domain.models import ArtSourceName, ArtStyle, TagInfo  # noqa: E402
 from manhwatok.tui.screens.accounts import (  # noqa: E402
     LABELS,
     AccountsPane,
@@ -83,6 +83,7 @@ def test_add_an_account_in_anilist_spelling(tmp_path):
                 "2 sounds",
                 "panel",
                 "7d",
+                "-",
                 "-",
             ],
         ]
@@ -344,3 +345,109 @@ def test_account_fields_sounds_emojis_and_art():
     assert account_fields({**styled, "art": ""}, styled) == {"art": ArtStyle.NONE}
     with pytest.raises(ManhwatokError, match="art must be one of: none, background, panel"):
         account_fields({**before, "art": "epic"}, before)
+
+
+def test_add_an_account_with_its_posting_plan(tmp_path):
+    ctx = _ctx(tmp_path)
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        await pilot.press("a")
+        await pilot.pause()
+        form = app.screen
+        assert form.query_one("#field-timezone").placeholder == "Europe/Paris"
+        await _fill(
+            app,
+            pilot,
+            handle="reads",
+            slots="Thu 19:00, daily 8:00",
+            rotation="theme:Isekai, chapter:Solo Leveling, theme:isekai",
+            timezone=" Asia/Seoul ",
+            art_source="Pins",
+        )
+        await wait_for(pilot, lambda: "added @reads" in notes(app))
+        assert _rows(app)[0][8] == "2 slots"
+
+    run_app(ctx, scenario)
+    a = ctx.store.accounts.get("reads")
+    assert a.slots == ["thu 19:00", "daily 08:00"]
+    assert a.rotation == ["theme:isekai", "chapter:Solo Leveling", "theme:isekai"]
+    assert (a.timezone, a.art_source) == ("Asia/Seoul", ArtSourceName.PINS)
+
+
+def test_edit_the_posting_plan(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.store.accounts.add(
+        Account(
+            handle="reads",
+            slots=["mon 19:00"],
+            rotation=["theme:isekai", "chapter:Solo Leveling"],
+            rotation_cursor=1,
+            art_source=ArtSourceName.FANART,
+        )
+    )
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        assert _rows(app)[0][8] == "mon 19:00"
+        await pilot.press("enter")
+        await pilot.pause()
+        form = app.screen
+        assert form.query_one("#field-slots").value == "mon 19:00"
+        assert form.query_one("#field-rotation").value == "theme:isekai, chapter:Solo Leveling"
+        assert form.query_one("#field-timezone").value == "Europe/Paris"
+        assert form.query_one("#field-art_source").value == "fanart"
+        await _fill(app, pilot, timezone="Mars/Olympus")
+        await wait_for(pilot, lambda: any("is not a time zone" in n for n in notes(app)))
+        await pilot.pause()
+        assert isinstance(app.screen, FormModal)
+        await _fill(
+            app, pilot, timezone="America/New_York", slots="", art_source="", rotation="theme:a"
+        )
+        await wait_for(pilot, lambda: "saved @reads" in notes(app))
+        assert _rows(app)[0][8] == "-"
+
+    run_app(ctx, scenario)
+    a = ctx.store.accounts.get("reads")
+    assert (a.timezone, a.slots, a.art_source) == ("America/New_York", [], None)
+    assert (a.rotation, a.rotation_cursor) == (["theme:a"], 0)  # a new rotation starts over
+
+
+def test_an_untouched_rotation_keeps_its_cursor(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.store.accounts.add(
+        Account(handle="reads", rotation=["theme:a", "theme:b"], rotation_cursor=1)
+    )
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        await pilot.press("enter")
+        await pilot.pause()
+        await _fill(app, pilot, slots="tue 18:30")
+        await wait_for(pilot, lambda: "saved @reads" in notes(app))
+
+    run_app(ctx, scenario)
+    a = ctx.store.accounts.get("reads")
+    assert (a.slots, a.rotation_cursor) == (["tue 18:30"], 1)
+
+
+def test_account_fields_posting_plan():
+    before = account_texts(Account(handle="reads"))
+    assert (before["slots"], before["rotation"]) == ("", "")
+    assert (before["timezone"], before["art_source"]) == ("Europe/Paris", "")
+    texts = {
+        **before,
+        "slots": " mon 19:00 ,, daily 8:00 ",
+        "rotation": "theme:a, , chapter:X",
+        "art_source": " Covers ",
+    }
+    assert account_fields(texts, before) == {
+        "slots": ["mon 19:00", "daily 8:00"],
+        "rotation": ["theme:a", "chapter:X"],
+        "rotation_cursor": 0,
+        "art_source": "covers",
+    }
+    sourced = account_texts(Account(handle="reads", art_source=ArtSourceName.REDDIT))
+    assert account_fields({**sourced, "art_source": " "}, sourced) == {"art_source": None}
+    new = {name: "" for name in before} | {"rotation": "theme:a"}
+    assert account_fields(new, None) == {"rotation": ["theme:a"], "rotation_cursor": 0}

@@ -15,7 +15,7 @@ from manhwatok.app.context import AppContext
 from manhwatok.app.next_post import WarnFn, make_next_post
 from manhwatok.domain.account import DEFAULT_TIMEZONE, Account, normalize_handle
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError
-from manhwatok.domain.plan import parse_when, upcoming_slots
+from manhwatok.domain.plan import is_slot, parse_when, upcoming_slots
 from manhwatok.domain.post import ListPost
 from manhwatok.ports.posts import PostRepository
 from manhwatok.ports.store import AccountRepository
@@ -73,6 +73,26 @@ def plan_rows(
     return sorted(
         rows, key=lambda r: (_utc(r.at), r.account.handle, r.post.id if r.post else "")
     )
+
+
+def overdue_rows(accounts: list[Account], posts: list[ListPost], now: datetime) -> list[PlanRow]:
+    """The posts of `accounts` scheduled at `now` or before that aren't sent yet — the ones
+    `plan_rows` no longer shows — oldest first, each at its time in its account's zone."""
+    by_handle = {account.handle: account for account in accounts}
+    rows = [
+        PlanRow(
+            p.scheduled_at.astimezone(ZoneInfo(account.timezone)),
+            account,
+            p,
+            is_slot(account, p.scheduled_at),
+        )
+        for p in posts
+        if p.scheduled_at is not None
+        and p.sent_at is None
+        and (account := by_handle.get(p.account or "")) is not None
+        and _utc(p.scheduled_at) <= _utc(now)
+    ]
+    return sorted(rows, key=lambda r: (_utc(r.at), r.account.handle, r.post.id))
 
 
 def fill(

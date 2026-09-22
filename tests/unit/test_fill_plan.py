@@ -6,7 +6,7 @@ import pytest
 
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app import fill_plan
-from manhwatok.app.fill_plan import PlanRow, fill, plan_rows, schedule_post
+from manhwatok.app.fill_plan import PlanRow, fill, overdue_rows, plan_rows, schedule_post
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError
 from tests.unit.fakes import make_tools, post
@@ -87,6 +87,41 @@ def test_other_accounts_unscheduled_and_out_of_range_posts_are_left_out():
         post(id="20260922-eeee", account="reads", scheduled_at=NOW),  # not after now
     ]
     assert plan_rows([reads], others, NOW, 3) == []
+
+
+# --- overdue_rows ----------------------------------------------------------------------------
+
+LAST_THU = datetime(2026, 9, 17, 19, 0, tzinfo=PARIS)
+
+
+def test_overdue_rows_are_unsent_posts_whose_time_is_past_oldest_first():
+    reads = Account(handle="reads", slots=["thu 19:00"])
+    seoul = Account(handle="seoul", timezone="Asia/Seoul")
+    late = post(id="20260917-aaaa", account="reads", scheduled_at=_utc(LAST_THU))
+    noon = datetime(2026, 9, 21, 12, 0, tzinfo=timezone.utc)
+    later = post(id="20260921-bbbb", account="seoul", scheduled_at=noon)
+    left_out = [
+        post(id="20260917-cccc", account="reads", scheduled_at=LAST_THU, sent_at=LAST_THU),
+        post(id="20260922-dddd", account="reads", scheduled_at=THU),  # still ahead
+        post(id="20260917-eeee", account="reads"),  # never scheduled
+        post(id="20260917-ffff", account="other", scheduled_at=LAST_THU),  # not listed
+        post(id="20260917-gggg", account=None, scheduled_at=LAST_THU),
+    ]
+
+    rows = overdue_rows([reads, seoul], [later, *left_out, late], NOW)
+
+    assert rows == [
+        PlanRow(LAST_THU, reads, late, True),
+        PlanRow(noon.astimezone(ZoneInfo("Asia/Seoul")), seoul, later, False),
+    ]
+    assert rows[0].at.tzinfo == PARIS
+
+
+def test_a_post_scheduled_right_now_is_overdue():
+    reads = Account(handle="reads")
+    due = post(account="reads", scheduled_at=NOW)
+    assert [r.post for r in overdue_rows([reads], [due], NOW)] == [due]
+    assert plan_rows([reads], [due], NOW, 7) == []  # so it shows in one of the two, once
 
 
 # --- fill ------------------------------------------------------------------------------------

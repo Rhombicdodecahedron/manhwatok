@@ -44,11 +44,32 @@ def test_lists_posts_grouped_by_account(tmp_path):
 
     async def scenario(app, pilot):
         assert _rows(app) == [
-            ["── @reads ──", "", "", "", ""],
-            [NEW, "@reads", "Manhwa where the MC regresses", "rendered", "5"],
-            ["── no account ──", "", "", "", ""],
-            [OLD, "-", "Manhwa where the MC regresses", "not rendered", "5"],
+            ["── @reads ──", "", "", "", "", ""],
+            [NEW, "@reads", "Manhwa where the MC regresses", "rendered", "-", "5"],
+            ["── no account ──", "", "", "", "", ""],
+            [OLD, "-", "Manhwa where the MC regresses", "not rendered", "-", "5"],
         ]
+
+    run_app(ctx, scenario)
+
+
+def test_the_scheduled_column_shows_the_day_and_time_in_the_accounts_zone(tmp_path):
+    ctx = make_ctx(tmp_path)
+    ctx.store.accounts.add(Account(handle="reads"))
+    ctx.store.accounts.add(Account(handle="seoul", timezone="Asia/Seoul"))
+    at = datetime(2026, 9, 17, 17, 0, tzinfo=timezone.utc)  # Thu 19:00 in Paris
+    ctx.tools.posts.save(post(id="20260916-0001", account="reads", scheduled_at=at))
+    ctx.tools.posts.save(post(id="20260916-0002", account="seoul", scheduled_at=at))
+    ctx.tools.posts.save(post(id="20260916-0003", account="gone", scheduled_at=at))
+    ctx.tools.posts.save(post(id="20260916-0004", scheduled_at=at))
+
+    async def scenario(app, pilot):
+        assert {r[0]: r[4] for r in _rows(app) if not r[0].startswith("──")} == {
+            "20260916-0001": "Thu 19:00",
+            "20260916-0002": "Fri 02:00",
+            "20260916-0003": "Thu 19:00",  # an account since removed: Paris time
+            "20260916-0004": "Thu 19:00",
+        }
 
     run_app(ctx, scenario)
 

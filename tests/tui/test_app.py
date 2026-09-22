@@ -18,7 +18,7 @@ def test_number_keys_switch_tabs_and_q_quits(tmp_path):
     async def scenario(app, pilot):
         tabs = app.query_one("#tabs")
         assert tabs.active == "posts"
-        for key, tab in [("2", "build"), ("3", "accounts"), ("4", "themes"), ("1", "posts")]:
+        for key, tab in [("2", "build"), ("3", "accounts"), ("4", "themes"), ("5", "queue"), ("1", "posts")]:
             await pilot.press(key)
             assert tabs.active == tab
         await pilot.press("q")

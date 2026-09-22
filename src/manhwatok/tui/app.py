@@ -22,6 +22,7 @@ from manhwatok.domain.errors import ManhwatokError
 from manhwatok.tui.screens.accounts import AccountsPane
 from manhwatok.tui.screens.build import BuildPane
 from manhwatok.tui.screens.posts import PostsPane
+from manhwatok.tui.screens.queue import QueuePane
 from manhwatok.tui.screens.themes import ThemesPane
 from manhwatok.tui.widgets.dialogs import ChoiceModal, ConfirmModal
 
@@ -51,6 +52,7 @@ class ManhwatokApp(App[None]):
         Binding("2", "tab('build')", "Build"),
         Binding("3", "tab('accounts')", "Accounts"),
         Binding("4", "tab('themes')", "Themes"),
+        Binding("5", "tab('queue')", "Queue"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -79,6 +81,8 @@ class ManhwatokApp(App[None]):
                 yield AccountsPane()
             with TabPane("Themes", id="themes"):
                 yield ThemesPane()
+            with TabPane("Queue", id="queue"):
+                yield QueuePane()
         yield Footer()
 
     def on_mount(self) -> None:
@@ -101,8 +105,13 @@ class ManhwatokApp(App[None]):
             focus_main()
 
     def show_post(self, post_id: str) -> None:
-        """Switch to the Posts tab with `post_id` highlighted."""
-        self.query_one(PostsPane).reload(select=post_id)
+        """Switch to the Posts tab with `post_id` highlighted — showing every account again when
+        its filter hides that post."""
+        pane = self.query_one(PostsPane)
+        pane.reload(select=post_id)
+        if pane.current_id != post_id and pane.account_filter is not None:
+            pane.account_filter = None
+            pane.reload(select=post_id)
         self.action_tab("posts")
 
     @property
@@ -140,16 +149,24 @@ class ManhwatokApp(App[None]):
         """Run `job(tools)` in the render worker (render progress becomes notifications), then
         `done(result)` on the app thread. A ManhwatokError is shown and `done` isn't called.
         Returns False (and does nothing) while another render is running."""
+        return self.start_render_in_context(lambda ctx: job(ctx.tools), done)
+
+    def start_render_in_context(
+        self, job: Callable[[AppContext], object], done: Callable[[object], None]
+    ) -> bool:
+        """As `start_render`, for a job that needs more than the post tools (a plan fill builds
+        posts from AniList and the chapter sources, then renders them): `job` gets the app's
+        context with the post tools' progress turned into notifications."""
         if self.refuse_while_rendering():
             return False
         self._render(job, done)
         return True
 
-    def _render(self, job: Callable[[PostTools], object], done: Callable[[object], None]) -> None:
+    def _render(self, job: Callable[[AppContext], object], done: Callable[[object], None]) -> None:
         def run() -> None:
             tools = replace(self.ctx.tools, progress=lambda msg: self.notify(msg))
             try:
-                result = job(tools)
+                result = job(replace(self.ctx, tools=tools))
             except ManhwatokError as e:
                 self.fail(e)
                 return

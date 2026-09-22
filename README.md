@@ -603,14 +603,15 @@ uv sync --extra tui          # once (add --extra upload to keep the upload helpe
 uv run manhwatok tui
 ```
 
-Everything the commands above do, in one window with four tabs (`1`–`4`, `q` quits):
+Everything the commands above do, in one window with five tabs (`1`–`5`, `q` quits):
 
 - **Posts** — the list, and a preview of the highlighted post: its slides (`←`/`→` flip, `o`
   opens the slide in your image viewer), the sounds it would be offered, its art style and emojis (when
   set), caption and picks — or, for a chapter post, which chapter and part it is. `e` edit
   picks, `r` render, `a` art, `c` cover version (fan, quad or
   hero; swapped in at once when already rendered), `x` export, `u` upload (`U` with `--debug`),
-  `d` delete, `f` show one account's posts.
+  `d` delete, `f` show one account's posts. The scheduled column is when a post goes out, in
+  its account's time zone.
 - **Art** (`a` on a post) — the post's titles on the left, with the picture each one is drawn
   with. `enter` on a title lists MangaDex's volume covers for it, `enter` on one of those
   downloads it and re-renders; `s` steps through the sources (covers, fan art, pins), `u` takes
@@ -625,7 +626,15 @@ Everything the commands above do, in one window with four tabs (`1`–`4`, `q` q
   style (`none`, `background`,
   `panel`, `character` or `scene`; blank = none) and its sounds, one line separated by ` | ` (e.g.
   `SOLO LEVELING RaijinLofi | Dark Aria SawanoHiroyuki`; blank = none). The theme form edits its
-  sounds the same way, and those are offered before the account's.
+  sounds the same way, and those are offered before the account's. The posting plan is there
+  too: slots (`mon 19:00, daily 12:30`), rotation (`theme:isekai, chapter:Solo Leveling`; a
+  changed rotation starts over), time zone and art source.
+- **Queue** — `plan show` for the next 7 days, by day, in each account's time zone: every slot
+  with its post (or `empty`), posts scheduled off the slots marked `not a slot`, and posts whose
+  time has passed without being sent on top, marked `overdue`. `f` fills the highlighted
+  account's empty slots (as `plan fill`), `F` every account's, `enter` opens the post in Posts,
+  `m` moves it to another empty slot of its account, `x` unschedules it (the post is kept), `r`
+  refreshes.
 
 Slides show as real pictures in terminals with image support (kitty, WezTerm, Konsole, foot and
 other sixel terminals); elsewhere as coloured blocks. Uploading works as with `manhwatok upload`:

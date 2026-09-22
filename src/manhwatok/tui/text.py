@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo
+
 from manhwatok.app.render_post import rendered_files
 from manhwatok.domain.caption import build_caption
 from manhwatok.domain.emoji import AUTO, post_emojis
@@ -25,6 +27,13 @@ def post_status(post: ListPost, posts: PostRepository) -> str:
     except NotRendered:
         return "not rendered"
     return "rendered"
+
+
+def scheduled_text(post: ListPost, zone: str) -> str:
+    """When the post goes out, short ("Thu 19:00"), in time zone `zone`; "-" when unscheduled."""
+    if post.scheduled_at is None:
+        return "-"
+    return f"{post.scheduled_at.astimezone(ZoneInfo(zone)):%a %H:%M}"
 
 
 def caption_text(post: ListPost, posts: PostRepository) -> tuple[str, bool]:
