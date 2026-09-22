@@ -16,8 +16,8 @@ from manhwatok.app.build_post import prefill_items, store_new_post
 from manhwatok.app.chapter_post import (
     ChapterTools,
     build_chapter_post,
+    next_to_build,
     pick_source,
-    refresh_chapters,
     resolve_title,
 )
 from manhwatok.app.context import AppContext
@@ -25,7 +25,6 @@ from manhwatok.app.delete_post import delete_post
 from manhwatok.app.render_post import render_from_source, render_post
 from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account, normalize_handle
-from manhwatok.domain.chapter import next_part
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import Manhwa
 from manhwatok.domain.plan import CHAPTER, RotationItem, next_item
@@ -89,15 +88,9 @@ def _chapter_post(
 
 
 def _has_next(manhwa: Manhwa, ct: ChapterTools, now: datetime) -> bool:
-    """Whether a part is left to build. When the chapters on record are all built (or none
-    are on record yet), the source is asked for its list first: an ongoing title has new
-    chapters most weeks, and a rotation shouldn't pass over them until someone refreshes."""
-    parts = ct.chapters.parts(manhwa.anilist_id, LANGUAGE, ct.source)
-    known = ct.chapters.chapters(manhwa.anilist_id, LANGUAGE, ct.source)
-    if known and next_part(known, parts) is not None:
-        return True
-    known = refresh_chapters(manhwa, ct, now, LANGUAGE)
-    return next_part(known, parts) is not None
+    """Whether a part is left to build — asking the source for new chapters when those on
+    record are all built: a rotation shouldn't pass over them until someone refreshes."""
+    return next_to_build(manhwa, ct, now, LANGUAGE) is not None
 
 
 def _theme_post(ctx: AppContext, account: Account, name: str, now: datetime) -> ListPost:

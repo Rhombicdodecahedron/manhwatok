@@ -20,6 +20,7 @@ from manhwatok.domain.account import Account
 from manhwatok.domain.chapter import (
     ChapterPart,
     ChapterRecord,
+    NextPart,
     PartRecord,
     missing_numbers,
     next_part,
@@ -154,6 +155,16 @@ def resolve_title(text: str, metadata: MetadataSource, cache: Cache | None = Non
     return manhwa
 
 
+def tracked_title(
+    anilist_id: int, name: str, metadata: MetadataSource, cache: Cache | None = None
+) -> Manhwa:
+    """A title the chapter store already tracks: remembered by id, else searched by its name."""
+    hit = cache.get(f"manhwa:{anilist_id}", float("inf")) if cache is not None else None
+    if hit:
+        return Manhwa.model_validate_json(hit)
+    return resolve_title(name, metadata, cache)
+
+
 def refresh_chapters(
     manhwa: Manhwa,
     ct: ChapterTools,
@@ -188,6 +199,23 @@ def refresh_chapters(
         ]
     )
     return ct.chapters.chapters(manhwa.anilist_id, language, ct.source)
+
+
+def next_to_build(
+    manhwa: Manhwa,
+    ct: ChapterTools,
+    now: datetime,
+    language: str = "en",
+    progress: ProgressFn = _noop,
+) -> NextPart | None:
+    """The part `build_chapter_post` would make next, or None when every chapter is built.
+    When nothing is on record, or everything on record is built, the source is asked for its
+    list first: an ongoing title has new chapters most weeks."""
+    parts = ct.chapters.parts(manhwa.anilist_id, language, ct.source)
+    known = ct.chapters.chapters(manhwa.anilist_id, language, ct.source)
+    if known and (found := next_part(known, parts)) is not None:
+        return found
+    return next_part(refresh_chapters(manhwa, ct, now, language, progress), parts)
 
 
 def chapter_status(

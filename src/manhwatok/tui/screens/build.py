@@ -1,22 +1,54 @@
 """Build: search for candidates (an account's filters, a theme or tags/genres), pick them in
-the picks editor, save and render the new post."""
+the picks editor, save and render the new post — or, in Chapter mode, build a title's next
+chapter part, as `chapter next` and `chapter build` do."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass, replace
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Checkbox, Input, Label, OptionList, Select, Static
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Input,
+    Label,
+    OptionList,
+    RadioButton,
+    RadioSet,
+    Select,
+    Static,
+)
 from textual.widgets.option_list import Option
 from textual.worker import Worker, get_current_worker
 
 from manhwatok.app.build_post import prefill_items, save_new_post
+from manhwatok.app.chapter_post import (
+    ChapterTools,
+    build_chapter_post,
+    next_to_build,
+    pick_source,
+    resolve_title,
+    tracked_title,
+)
+from manhwatok.app.context import AppContext
+from manhwatok.app.post_tools import ProgressFn
 from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account
+from manhwatok.domain.chapter import NextPart
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import ArtStyle, Manhwa, SearchQuery, Sort, TagInfo
+from manhwatok.domain.models import (
+    ArtStyle,
+    ChapterSourceName,
+    Manhwa,
+    SearchQuery,
+    Sort,
+    TagInfo,
+)
 from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS
 from manhwatok.domain.text import split_names
+from manhwatok.ports.chapters import PageCount
 from manhwatok.tui.screens.picks import PicksScreen
 
 MAX_TAG_HITS = 30
@@ -44,6 +76,30 @@ def matching_tags(tags: list[TagInfo], search: str) -> list[TagInfo]:
     return (sorted(by_name, key=lambda t: t.name) + by_text)[:MAX_TAG_HITS]
 
 
+@dataclass(frozen=True)
+class ChapterRequest:
+    """What the Chapter form asks for, read on the app thread for a worker to act on."""
+
+    text: str  # a title typed in: a name or an AniList id; wins over `tracked`
+    tracked: tuple[int, str] | None  # (AniList id, name) of the tracked title chosen
+    source: ChapterSourceName | None  # None: the one it is tracked under, else the first with it
+    language: str
+    account: Account | None
+    title: str | None
+    hashtags: str | None
+    accent: str | None
+    emojis: str | None
+
+
+def next_line(manhwa: Manhwa, source: ChapterSourceName, found: NextPart | None) -> str:
+    """What `chapter next` says, in one line."""
+    where = f"{manhwa.title} · {source.value}"
+    if found is None:
+        return f"{where} — every listed chapter is built"
+    parts = f" of {found.parts}" if found.parts else ""
+    return f"{where} — next: chapter {found.chapter.number}, part {found.part}{parts}"
+
+
 class BuildPane(VerticalScroll):
     DEFAULT_CSS = """
     BuildPane { padding: 0 1; }
@@ -55,6 +111,14 @@ class BuildPane(VerticalScroll):
     BuildPane #search { margin: 1 0; }
     BuildPane #status { height: auto; color: $text-muted; }
     BuildPane #tag-hits { height: 10; }
+    BuildPane #list-form, BuildPane #chapter-form, BuildPane #tag-form { height: auto; }
+    BuildPane #mode { width: 17; margin-right: 1; }
+    BuildPane #chapter-actions { margin: 1 0; }
+    BuildPane #chapter-actions Button { margin-right: 1; }
+    BuildPane #chapter-next { height: auto; color: $text-muted; }
+    BuildPane .chapter { display: none; }
+    BuildPane.-chapter .chapter { display: block; }
+    BuildPane.-chapter .list { display: none; }
     """
 
     def __init__(self) -> None:
@@ -62,15 +126,48 @@ class BuildPane(VerticalScroll):
         self._auto_title = ""
         self._tags: list[TagInfo] | None = None
         self._loading_tags = False
+        self._titles: dict[int, str] = {}  # the chapter store's tracked titles, by AniList id
 
     def compose(self) -> ComposeResult:
         with Horizontal(classes="row"):
+            with RadioSet(id="mode"):
+                yield RadioButton("List", value=True, id="mode-list")
+                yield RadioButton("Chapter", id="mode-chapter")
             with Vertical(classes="field"):
                 yield Label("Account (its filters, style and repeat window)")
                 yield Select([], prompt="no account", id="account")
-            with Vertical(classes="field"):
+            with Vertical(classes="field list"):
                 yield Label("Theme — or tags/genres below")
                 yield Select([], prompt="no theme", id="theme")
+        with Vertical(id="list-form", classes="list"):
+            yield from self._list_fields()
+        with Vertical(id="chapter-form", classes="chapter"):
+            yield from self._chapter_fields()
+        with Horizontal(classes="row"):
+            with Vertical(classes="field"):
+                yield Label("Hashtags")
+                yield Input(id="hashtags")
+            with Vertical(classes="field narrow"):
+                yield Label("Accent")
+                yield Input(id="accent")
+            with Vertical(classes="field narrow"):
+                yield Label("Emojis")
+                yield Input(id="emojis")
+            with Vertical(classes="field narrow list"):
+                yield Label("Art")
+                yield Select([(a.value, a) for a in ArtStyle], prompt="none", id="art")
+        yield Button("Search", id="search", variant="primary", classes="list")
+        yield Static("", id="status", markup=False, classes="list")
+        with Horizontal(id="chapter-actions", classes="row chapter"):
+            yield Button("Check", id="chapter-check")
+            yield Button("Build", id="chapter-build", variant="primary")
+        yield Static("", id="chapter-next", markup=False, classes="chapter")
+        with Vertical(id="tag-form", classes="list"):
+            yield Label("Find a tag (enter adds it to Tags)")
+            yield Input(placeholder="e.g. revenge", id="tag-search")
+            yield OptionList(id="tag-hits")
+
+    def _list_fields(self) -> ComposeResult:
         with Horizontal(classes="row"):
             with Vertical(classes="field"):
                 yield Label("Tags (comma-separated, all must match)")
@@ -94,24 +191,27 @@ class BuildPane(VerticalScroll):
             with Vertical(classes="field"):
                 yield Label("Title (*word* = accent colour)")
                 yield Input(id="title")
+
+    def _chapter_fields(self) -> ComposeResult:
         with Horizontal(classes="row"):
             with Vertical(classes="field"):
-                yield Label("Hashtags")
-                yield Input(id="hashtags")
+                yield Label("Title (one already tracked)")
+                yield Select([], prompt="pick a title", id="chapter-title")
+            with Vertical(classes="field"):
+                yield Label("— or a new one (AniList name or id)")
+                yield Input(id="chapter-new-title")
+        with Horizontal(classes="row"):
+            with Vertical(classes="field"):
+                yield Label("Source")
+                sources = [(s.value, s) for s in ChapterSourceName]
+                yield Select(sources, prompt="auto", id="chapter-source")
             with Vertical(classes="field narrow"):
-                yield Label("Accent")
-                yield Input(id="accent")
-            with Vertical(classes="field narrow"):
-                yield Label("Emojis")
-                yield Input(id="emojis")
-            with Vertical(classes="field narrow"):
-                yield Label("Art")
-                yield Select([(a.value, a) for a in ArtStyle], prompt="none", id="art")
-        yield Button("Search", id="search", variant="primary")
-        yield Static("", id="status", markup=False)
-        yield Label("Find a tag (enter adds it to Tags)")
-        yield Input(placeholder="e.g. revenge", id="tag-search")
-        yield OptionList(id="tag-hits")
+                yield Label("Language")
+                yield Input("en", id="chapter-language")
+        with Horizontal(classes="row"):
+            with Vertical(classes="field"):
+                yield Label("Post title (blank = <title> *Chapter N*)")
+                yield Input(id="chapter-post-title")
 
     def on_mount(self) -> None:
         self.refresh_data()
@@ -120,18 +220,32 @@ class BuildPane(VerticalScroll):
     def focus_main(self) -> None:
         self.query_one("#account", Select).focus()
 
+    @property
+    def chapter_mode(self) -> bool:
+        return self.has_class("-chapter")
+
+    def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
+        if event.radio_set.id != "mode":
+            return
+        event.stop()
+        self.set_class(event.pressed.id == "mode-chapter", "-chapter")
+
     def refresh_data(self) -> None:
         """Reload the account and theme choices, keeping the current picks when they still exist."""
         store = self.app.ctx.store
         try:
             accounts = store.accounts.list()
             themes = store.themes.list()
+            titles = dict(store.chapters.titles())
         except ManhwatokError as e:
             self.app.fail(e)
             return
+        self._titles = titles
+        by_name = sorted(titles.items(), key=lambda pair: pair[1].casefold())
         for select_id, options in [
             ("#account", [(a.display, a.handle) for a in accounts]),
             ("#theme", [(t.name, t.name) for t in themes]),
+            ("#chapter-title", [(name, anilist_id) for anilist_id, name in by_name]),
         ]:
             select = self.query_one(select_id, Select)
             keep = select.selection
@@ -201,9 +315,14 @@ class BuildPane(VerticalScroll):
         return query.model_copy(update={k: v for k, v in overrides.items() if v is not None})
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "search":
+        actions = {
+            "search": self.search,
+            "chapter-check": self.check_chapter,
+            "chapter-build": self.build_chapter,
+        }
+        if event.button.id in actions:
             event.stop()
-            self.search()
+            actions[event.button.id]()
 
     def search(self) -> None:
         try:
@@ -303,6 +422,141 @@ class BuildPane(VerticalScroll):
         post, slides = built
         self.query_one("#status", Static).update(f"post {post.id} · {len(slides)} slides")
         self.app.notify(f"post {post.id} · {len(slides)} slides")
+        self.app.show_post(post.id)
+
+    # --- chapter mode ----------------------------------------------------------------------
+
+    def _chapter_request(self) -> ChapterRequest:
+        """The Chapter form, checked. Raises ManhwatokError on what can be told without asking
+        AniList or the source."""
+        text = self._input("chapter-new-title").value.strip()
+        chosen = self.query_one("#chapter-title", Select).selection
+        if not text and chosen is None:
+            raise ManhwatokError("name a title, or its AniList id")
+        language = self._input("chapter-language").value.strip().lower()
+        if not language:
+            raise ManhwatokError("give a chapter language, e.g. en")
+        accent = self._input("accent").value.strip() or None
+        if accent is not None:
+            accent = check_accent(accent)
+        return ChapterRequest(
+            text=text,
+            tracked=None if chosen is None else (chosen, self._titles.get(chosen, str(chosen))),
+            source=self.query_one("#chapter-source", Select).selection,
+            language=language,
+            account=self._account(),
+            title=self._input("chapter-post-title").value.strip() or None,
+            hashtags=self._input("hashtags").value.strip() or None,
+            accent=accent,
+            emojis=self._input("emojis").value.strip() or None,
+        )
+
+    @staticmethod
+    def _title_tools(
+        ctx: AppContext, req: ChapterRequest, progress: ProgressFn
+    ) -> tuple[Manhwa, ChapterTools]:
+        """The title asked for and the chapter tools of its source (worker thread)."""
+        if req.text or req.tracked is None:
+            manhwa = resolve_title(req.text, ctx.metadata, ctx.store.cache)
+        else:
+            manhwa = tracked_title(*req.tracked, ctx.metadata, ctx.store.cache)
+        ct = pick_source(manhwa, ctx.chapter_tools, req.language, req.source, progress)
+        return manhwa, ct
+
+    def _set_next(self, text: str) -> None:
+        self.query_one("#chapter-next", Static).update(text)
+
+    def check_chapter(self) -> None:
+        """Show what `chapter next` would build — listing the title from its source when
+        nothing (or nothing unbuilt) is on record."""
+        try:
+            req = self._chapter_request()
+        except ManhwatokError as e:
+            self.app.fail(e)
+            return
+        self._set_next("checking…")
+
+        def run() -> None:
+            ctx, worker = self.app.ctx, get_current_worker()
+
+            def progress(msg: str) -> None:
+                if not worker.is_cancelled:
+                    self.app.later(self._set_next, str(msg))
+
+            try:
+                manhwa, ct = self._title_tools(ctx, req, progress)
+                found = next_to_build(manhwa, ct, self.app.clock(), req.language, progress)
+            except ManhwatokError as e:
+                if not worker.is_cancelled:
+                    self.app.later(self._chapter_failed, e)
+                return
+            if not worker.is_cancelled:
+                self.app.later(self._checked, next_line(manhwa, ct.source, found), worker)
+
+        self.run_worker(run, thread=True, group="chapter-check", exclusive=True)
+
+    def _chapter_failed(self, error: ManhwatokError) -> None:
+        self._set_next("")
+        self.app.fail(error)
+
+    def _checked(self, text: str, worker: Worker) -> None:
+        if worker.is_cancelled:
+            return
+        self._set_next(text)
+        self.refresh_data()  # a title listed for the first time is now tracked
+
+    def build_chapter(self) -> None:
+        """Build the title's next part and render it, in the render worker: page counts show
+        in the form, other progress as notifications, as a render's does."""
+        try:
+            req = self._chapter_request()
+        except ManhwatokError as e:
+            self.app.fail(e)
+            return
+
+        def job(ctx: AppContext):
+            notify = ctx.tools.progress
+
+            def progress(msg: str) -> None:
+                if isinstance(msg, PageCount):
+                    self.app.later(self._set_next, str(msg))
+                else:
+                    notify(msg)
+
+            tools = replace(ctx.tools, progress=progress)
+            now = self.app.clock()
+            manhwa, ct = self._title_tools(ctx, req, progress)
+            if next_to_build(manhwa, ct, now, req.language, progress) is None:
+                raise ManhwatokError(
+                    f"every listed chapter of {manhwa.title} is already built — "
+                    f"{ct.source.value} has nothing new"
+                )
+            return build_chapter_post(
+                manhwa,
+                tools,
+                ct,
+                req.account,
+                now,
+                language=req.language,
+                title=req.title,
+                hashtags=req.hashtags,
+                accent=req.accent,
+                emojis=req.emojis,
+            )
+
+        if self.app.start_render_in_context(job, self._chapter_built):
+            self._set_next("building…")
+
+    def _chapter_built(self, built) -> None:
+        post, slides = built
+        where = post.chapter
+        text = (
+            f"post {post.id} · chapter {where.number} part {where.part}/{where.parts} · "
+            f"{len(slides)} slides"
+        )
+        self._set_next(text)
+        self.app.notify(text)
+        self.refresh_data()
         self.app.show_post(post.id)
 
     # --- tag search ----------------------------------------------------------------------

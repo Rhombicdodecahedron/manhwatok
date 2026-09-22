@@ -620,7 +620,13 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
 - **Build** — account, theme or tags/genres, and the post's style: hashtags, accent, emojis and
   art (blank = the account's, shown greyed out); **Search** opens the picks editor: `space`
   picks or drops a title, `shift+↑`/`shift+↓` reorder, `enter` edits a hook, `ctrl+s` saves and
-  renders, `esc` cancels. "Find a tag" searches AniList's tags.
+  renders, `esc` cancels. "Find a tag" searches AniList's tags. The **List / Chapter** switch
+  at the top turns the form into `chapter build`: pick a title already tracked (or type a new
+  one, a name or AniList id), the source (`auto` = the one it is tracked under, else the first
+  that has it) and language, and optionally the post title, hashtags, accent and emojis.
+  **Check** shows what `chapter next` would build ("next: chapter 12, part 2 of 3"), asking
+  the source for new chapters when every one on record is built; **Build** downloads, cuts and
+  renders that part (page counts show under the buttons) and opens the new post in Posts.
 - **Accounts** / **Themes** — `a` add, `e` or `enter` edit, `d` remove; `l` logs an account in
   to TikTok. The account form also edits its emojis (`auto` = from each post's genres), its art
   style (`none`, `background`,

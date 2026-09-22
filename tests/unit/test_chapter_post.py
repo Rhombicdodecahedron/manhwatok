@@ -5,8 +5,10 @@ import pytest
 from manhwatok.app.chapter_post import (
     build_chapter_post,
     chapter_status,
+    next_to_build,
     refresh_chapters,
     resolve_title,
+    tracked_title,
 )
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import ManhwatokError, MetadataError
@@ -204,6 +206,39 @@ def test_chapter_status_reports_listed_built_and_published(tmp_path):
     assert (status["13"].built, status["13"].published) == (0, 0)
 
 
+def test_next_to_build_lists_a_title_nothing_is_on_record_for(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    progress = []
+    found = next_to_build(BOXER, ct, NOW, progress=progress.append)
+    assert (found.chapter.number, found.part, found.parts) == ("12", 1, 0)
+    assert ct.pages.listings == [119174]
+    assert progress == ["The Boxer: 2 chapters listed"]
+
+
+def test_next_to_build_uses_the_record_while_a_part_is_left(tmp_path):
+    ct = _chapter_tools(tmp_path, panels=40)
+    _build(tmp_path, ct)
+    ct.pages.listings.clear()
+    found = next_to_build(BOXER, ct, NOW)
+    assert (found.chapter.number, found.part, found.parts) == ("12", 2, 2)
+    assert ct.pages.listings == []
+
+
+def test_next_to_build_asks_the_source_again_once_everything_on_record_is_built(tmp_path):
+    ct = _chapter_tools(tmp_path, chapters=(CH12,))
+    _build(tmp_path, ct)
+    assert next_to_build(BOXER, ct, NOW) is None
+    ct.pages.listed.append(CH13)
+    found = next_to_build(BOXER, ct, NOW)
+    assert (found.chapter.number, found.part) == ("13", 1)
+
+
+def test_next_to_build_in_another_language(tmp_path):
+    fr = ChapterInfo("fr-1", "1", "", "fr", 20)
+    ct = _chapter_tools(tmp_path, chapters=(CH12, fr))
+    assert next_to_build(BOXER, ct, NOW, "fr").chapter.chapter_id == "fr-1"
+
+
 # --- naming a title ------------------------------------------------------------------------------
 
 
@@ -223,6 +258,24 @@ def test_resolve_title_reuses_the_cached_title_instead_of_searching_again(tmp_pa
     cache = MemoryCache()
     resolve_title("The Boxer", meta, cache)
     resolve_title("119174", meta, cache)
+    assert meta.searches == ["The Boxer"]
+
+
+def test_a_tracked_title_comes_from_the_cache_by_id(tmp_path):
+    from tests.unit.test_mangadex import MemoryCache
+
+    meta = FakeMetadata([BOXER])
+    cache = MemoryCache()
+    cache.put("manhwa:119174", BOXER.model_dump_json())
+    assert tracked_title(119174, "The Boxer", meta, cache) == BOXER
+    assert meta.searches == []
+
+
+def test_a_tracked_title_not_in_the_cache_is_searched_by_its_name(tmp_path):
+    from tests.unit.test_mangadex import MemoryCache
+
+    meta = FakeMetadata([BOXER])
+    assert tracked_title(119174, "The Boxer", meta, MemoryCache()) == BOXER
     assert meta.searches == ["The Boxer"]
 
 

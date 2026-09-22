@@ -56,6 +56,7 @@ def make_ctx(
     pins=None,
     reddit=None,
     chapter_pages=None,
+    chapter_sources=None,
 ) -> AppContext:
     """A context on a real database and real post folders under tmp_path, fakes elsewhere.
     Every `uploader()` call returns the same `uploader` (a FakeUploader by default)."""
@@ -74,7 +75,7 @@ def make_ctx(
             ArtSourceName.REDDIT: reddit or FakeArtSource(),
         },
         chapter_tools=make_chapter_tools(
-            tmp_path, pages=chapter_pages, chapters=store.chapters
+            tmp_path, pages=chapter_pages, chapters=store.chapters, sources=chapter_sources
         ),
         uploader_factory=lambda: browser,
         closers=[store],
