@@ -239,7 +239,14 @@ def _draw_byline(canvas: Image.Image, placed: Placed | None) -> None:
         return
     layer = Image.new("RGBA", SIZE, (0, 0, 0, 0))
     shadow = ImageDraw.Draw(layer)
-    _draw_text(shadow, Placed(placed.text, placed.x + 2, placed.y + 2, placed.w), SHADOW, SHADOW)
+    # The shadow keeps the byline's own alignment, or it prints a second, darker handle
+    # wherever "left" happens to fall.
+    _draw_text(
+        shadow,
+        Placed(placed.text, placed.x + 2, placed.y + 2, placed.w, placed.align),
+        SHADOW,
+        SHADOW,
+    )
     layer = layer.filter(ImageFilter.GaussianBlur(3))
     _draw_text(ImageDraw.Draw(layer), placed, BYLINE, BYLINE)
     canvas.alpha_composite(layer)

@@ -678,6 +678,27 @@ def test_the_byline_reads_on_bright_art(tmp_path):
     assert any(max(px) < 150 for px in row)  # the shadow
 
 
+def test_the_bylines_shadow_sits_under_its_own_text(tmp_path, monkeypatch):
+    """The shadow follows the byline's alignment: a centred byline with a left-aligned shadow
+    printed a second, darker copy of the handle further left."""
+    from manhwatok.adapters import pillow_renderer
+
+    placements = []
+    real = pillow_renderer._draw_text
+
+    def spy(draw, placed, color, accent):
+        if placed.text.line_text(0) == "@reads":
+            placements.append(placed.line_x(0))
+        return real(draw, placed, color, accent)
+
+    monkeypatch.setattr(pillow_renderer, "_draw_text", spy)
+    p = _post(1).model_copy(update={"account": "reads"})
+    PillowRenderer().render(p, _art({1: None}), tmp_path / "out")
+    assert placements, "the byline was never drawn"
+    # Every slide draws it twice: the shadow first, two pixels off its own text, never elsewhere.
+    assert {shadow - text for shadow, text in zip(placements[::2], placements[1::2])} == {2}
+
+
 # --- chapter posts ------------------------------------------------------------------------------
 
 
