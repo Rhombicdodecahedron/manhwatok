@@ -166,3 +166,30 @@ def test_starts_at_is_the_first_numbered_chapter():
 
 def test_a_run_that_starts_at_one_is_whole_from_the_beginning():
     assert starts_at([_chapter("1"), _chapter("2")]) == "1"
+
+
+# --- what the end slide asks for next ----------------------------------------------------------
+
+
+def test_follow_text_asks_for_the_next_part_while_one_is_left():
+    from manhwatok.domain.chapter import follow_text
+
+    assert follow_text("12", 2, 3) == "Follow for part 3"
+
+
+def test_follow_text_asks_for_the_next_chapter_once_the_last_part_is_out():
+    from manhwatok.domain.chapter import follow_text
+
+    assert follow_text("12", 3, 3) == "Follow for chapter 13"
+
+
+def test_follow_text_of_a_chapter_that_is_not_a_whole_number_stays_vague():
+    from manhwatok.domain.chapter import follow_text
+
+    assert follow_text("12.5", 1, 1) == "Follow for the next chapter"
+
+
+def test_follow_text_of_a_oneshot_asks_for_a_follow_plainly():
+    from manhwatok.domain.chapter import follow_text
+
+    assert follow_text("", 1, 1) == "Follow for more"

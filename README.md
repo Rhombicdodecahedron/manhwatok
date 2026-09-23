@@ -164,8 +164,10 @@ uv run manhwatok chapter build "The Boxer" --number 13 --part 2
 webtoon really is, and cuts it into 1080×1920 slides — cutting only in a gutter, so a speech
 bubble or a face is never sliced. A chapter is far more than TikTok's 35 images, so it becomes
 several posts: chapter 12 of The Boxer is 27 slides of part 1 and 27 of part 2. The cover names
-the chapter and the part, the end slide points at the next one, and every slide is signed like
-any other post's.
+the chapter and the part, and every slide is signed like any other post's. The end slide reads
+the title, then what just ended ("Chapter 12 done", "Part 2 next"), then what to follow for
+("Follow for part 3", or "Follow for chapter 13" once the last part is out) — worked out from
+the chapter itself, so `--cta-title` and `--cta-follow` only shape a recommendation post.
 
 From there it is an ordinary post: `render`, `export`, `upload`, `posts` and the terminal app
 all treat it the same. What it isn't is a list of picks, so `edit`, `art` and `cover` say so
@@ -483,7 +485,8 @@ uv run manhwatok posts --account @manhwa.daily
 - Without `--account`, `build` behaves as before: no filters, no history, default hashtags,
   accent and end slide.
 - `account remove` keeps the account's posting history, so re-adding the handle keeps its repeat
-  protection. `--cta-title` / `--cta-follow` set the end slide's texts (`*word*` = accent colour).
+  protection. `--cta-title` / `--cta-follow` set a recommendation post's end-slide texts
+  (`*word*` = accent colour); a chapter post's last slide says what its chapter needs instead.
 
 ## Next post
 

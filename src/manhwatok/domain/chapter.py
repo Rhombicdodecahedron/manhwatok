@@ -140,6 +140,26 @@ def part_slices(total: int, max_slides: int = SLIDES_PER_POST) -> list[tuple[int
     return slices
 
 
+def end_title(number: str, part: int, parts: int) -> str:
+    """What the end slide says above the follow line; *stars* colour the number."""
+    if part < parts:
+        return f"Part *{part + 1}* next"
+    if number.strip():
+        return f"Chapter *{number}* done"
+    return "*The end*"
+
+
+def follow_text(number: str, part: int, parts: int) -> str:
+    """What the end slide asks for: the part still to come, else the chapter after this one.
+    A chapter numbered "12.5" has no obvious next number, so it stays vague."""
+    if part < parts:
+        return f"Follow for part {part + 1}"
+    whole = _whole(number)
+    if whole is None:
+        return "Follow for more" if not number.strip() else "Follow for the next chapter"
+    return f"Follow for chapter {whole + 1}"
+
+
 def chapter_kicker(number: str, part: int, parts: int) -> str:
     """What the cover's pill says above the title."""
     if not number.strip():

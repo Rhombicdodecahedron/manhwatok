@@ -399,3 +399,36 @@ def test_a_long_manhwa_name_shrinks_rather_than_leaving_the_safe_area():
     layout = layout_chapter_cover(LONG_NAME + " " + LONG_NAME, "12", 1, 1)
     assert len(layout.title.text.lines) <= 4
     assert all(SAFE.contains(b) for b in layout.text_boxes())
+
+
+# --- chapter end slide ---------------------------------------------------------------------
+
+
+def test_chapter_end_puts_the_title_above_the_big_line_and_the_follow_below():
+    from manhwatok.adapters.layout import layout_chapter_end
+
+    layout = layout_chapter_end("Solo Leveling", "Chapter *2* done", "Follow for chapter 3", BY)
+    assert layout.name.text.line_text(0) == "SOLO LEVELING"
+    lines = layout.title.text.lines
+    whole = " ".join(layout.title.text.line_text(i) for i in range(len(lines)))
+    assert whole == "CHAPTER 2 DONE"  # it may wrap; the words are what matter
+    assert layout.follow.text.line_text(0) == "FOLLOW FOR CHAPTER 3"
+    assert layout.name.box.bottom <= layout.title.box.y  # the title reads first
+    assert layout.title.box.bottom <= layout.follow.box.y
+    assert layout.byline is not None
+
+
+def test_chapter_end_keeps_every_block_inside_the_safe_area():
+    from manhwatok.adapters.layout import SAFE, layout_chapter_end
+
+    layout = layout_chapter_end(LONG_NAME, "Part *2* next", "Follow for part 3")
+    for box in layout.text_boxes():
+        assert box.y >= SAFE.y and box.bottom <= SAFE.bottom, box
+        assert box.x >= SAFE.x and box.x + box.w <= SAFE.x + SAFE.w, box
+
+
+def test_chapter_end_centres_its_three_blocks():
+    from manhwatok.adapters.layout import layout_chapter_end
+
+    layout = layout_chapter_end("The Boxer", "Chapter *13* done", "Follow for chapter 14")
+    assert [p.align for p in (layout.name, layout.title, layout.follow)] == ["center"] * 3

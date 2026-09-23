@@ -20,10 +20,12 @@ from manhwatok.adapters.layout import (
     fit_inside,
     byline_of,
     layout_chapter_cover,
+    layout_chapter_end,
     layout_cover,
     layout_end,
     layout_item,
 )
+from manhwatok.domain.chapter import end_title, follow_text
 from manhwatok.domain.color import hex_to_rgb, readable_accent
 from manhwatok.domain.errors import StorageError
 from manhwatok.domain.labels import chapter_label
@@ -380,14 +382,15 @@ class PillowRenderer:
             if last
             else _accent_gradient(SIZE, accent_hex)
         ).convert("RGBA")
-        name = f"{part.manhwa_title} — ch. {part.number}" if part.number else part.manhwa_title
-        layout = layout_end([name], post.cta_title, post.cta_follow, _byline(post))
+        layout = layout_chapter_end(
+            part.manhwa_title,
+            end_title(part.number, part.part, part.parts),
+            follow_text(part.number, part.part, part.parts),
+            _byline(post),
+        )
         draw = ImageDraw.Draw(canvas)
+        _draw_text(draw, layout.name, WHITE, accent)
         _draw_text(draw, layout.title, WHITE, accent)
-        for row in layout.rows:
-            if row.number:
-                _draw_text(draw, row.number, accent, accent)
-            _draw_text(draw, row.name, WHITE, accent)
         _draw_text(draw, layout.follow, WHITE, accent)
         _draw_byline(canvas, layout.byline)
         return canvas

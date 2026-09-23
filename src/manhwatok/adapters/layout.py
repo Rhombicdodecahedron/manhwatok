@@ -520,6 +520,34 @@ def _ink_span(rows: list[EndRow]) -> tuple[int, int]:
     return min(b.y for b in boxes), max(b.bottom for b in boxes)
 
 
+@dataclass(frozen=True)
+class ChapterEndLayout:
+    name: Placed  # the manhwa's name, small, above the big line
+    title: Placed  # "Chapter 12 done" / "Part 2 next"
+    follow: Placed  # what to follow for
+    byline: Placed | None = None
+
+    def text_boxes(self) -> list[Box]:
+        """The boxes laid out inside SAFE; the byline sits below it and is not one of them."""
+        return [self.name.box, self.title.box, self.follow.box]
+
+
+def layout_chapter_end(
+    name: str, cta_title: str, cta_follow: str, byline: str = ""
+) -> ChapterEndLayout:
+    """A chapter post's last slide: the title as a quiet line above the big word on what just
+    ended, and the follow line near the foot. No recap — a chapter post is one title, so the
+    numbered list a recommendation post ends with has nothing to count."""
+    x, w = SAFE.x, SAFE.w
+    title_t = fit_words(words_of(accent_spans(cta_title.upper())), display, w, 3, 100, 68, 1.06)
+    name_t = fit_words(plain_words(name.upper()), bold, w, 2, 44, 32, 1.2)
+    follow_t = fit_words(plain_words(cta_follow.upper()), bold, w, 2, 44, 32, 1.2)
+    title = Placed(title_t, x, END_TITLE_TOP, w, "center")
+    name = Placed(name_t, x, title.box.y - LIST_GAP - name_t.height, w, "center")
+    follow = Placed(follow_t, x, FOLLOW_BOTTOM - follow_t.height, w, "center")
+    return ChapterEndLayout(name, title, follow, byline_of(byline))
+
+
 def layout_end(names: list[str], cta_title: str, cta_follow: str, byline: str = "") -> EndLayout:
     """Title near the top, follow line near the bottom, and the numbered recap centred
     vertically in the band between them (a long list fills it and ends in "+N more")."""

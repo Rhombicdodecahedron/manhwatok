@@ -814,3 +814,40 @@ def test_a_byline_without_an_account_is_still_drawn(tmp_path):
     from manhwatok.adapters.pillow_renderer import _byline
 
     assert _byline(_post(1).model_copy(update={"byline": "manhwa daily"})) == "manhwa daily"
+
+
+def _end_texts(tmp_path, monkeypatch, **fields):
+    """The text the chapter end slide draws, in drawing order."""
+    from manhwatok.adapters import pillow_renderer
+
+    drawn = []
+    real = pillow_renderer._draw_text
+
+    def spy(draw, placed, color, accent):
+        text = placed.text
+        drawn.append(" ".join(text.line_text(i) for i in range(len(text.lines))))
+        return real(draw, placed, color, accent)
+
+    post, folder = _chapter_post(tmp_path, **fields)
+    monkeypatch.setattr(pillow_renderer, "_draw_text", spy)
+    paths = PillowRenderer().render(post, {}, folder)
+    drawn.clear()  # the cover and panels are drawn first
+    PillowRenderer().chapter_end_slide(post, None)
+    return drawn, paths
+
+
+def test_the_chapter_end_slide_names_the_title_then_what_ended_then_the_follow(
+    tmp_path, monkeypatch
+):
+    drawn, _ = _end_texts(tmp_path, monkeypatch, number="12", part=1, parts=3)
+    assert drawn == ["TEST MANHWA", "PART 2 NEXT", "FOLLOW FOR PART 2"]
+
+
+def test_the_chapter_end_slide_asks_for_the_next_chapter_on_the_last_part(tmp_path, monkeypatch):
+    drawn, _ = _end_texts(tmp_path, monkeypatch, number="12", part=3, parts=3)
+    assert drawn == ["TEST MANHWA", "CHAPTER 12 DONE", "FOLLOW FOR CHAPTER 13"]
+
+
+def test_the_chapter_end_slide_has_no_ranked_row(tmp_path, monkeypatch):
+    drawn, _ = _end_texts(tmp_path, monkeypatch, number="12", part=3, parts=3)
+    assert not any(text.strip().startswith("1 ") or " — CH." in text for text in drawn), drawn

@@ -22,6 +22,7 @@ from manhwatok.domain.chapter import (
     ChapterRecord,
     NextPart,
     PartRecord,
+    end_title as chapter_end_title,
     missing_numbers,
     next_part,
     part_slices,
@@ -405,12 +406,10 @@ def create_chapter_post(
 
 
 def end_title(chapter: ChapterPart) -> str:
-    """What the end slide says above the follow line."""
-    if chapter.part < chapter.parts:
-        return f"Part *{chapter.part + 1}* next"
-    if chapter.number:
-        return f"Chapter *{chapter.number}* done"
-    return "*The end*"
+    """What the end slide says above the follow line. The renderer works this out from the
+    chapter itself, so an old post says the right thing too; this keeps a built post's
+    `cta_title` honest about what its last slide reads."""
+    return chapter_end_title(chapter.number, chapter.part, chapter.parts)
 
 
 def _which(
