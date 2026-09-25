@@ -165,14 +165,19 @@ webtoon really is, and cuts it into 1080×1920 slides. The cut goes in the lowes
 reach of a full slide, looking as far as half a slide up, and a short slide is padded with the
 page's own margin colour. Only when there is no gutter at all does it cut through the art: the
 slide is then kept full, like a crop, and the cut raised just enough to clear any speech bubble
-or lettering (found by shape, and by RapidOCR's text detector for bubbles with no closed
-outline) — never a short slide padded out to hide the cut. Long empty stretches are shortened
+(RapidOCR's text detector finds the lettering; a bubble-shaped blob with none in it is art, and
+so is a drawn sound effect). A slide ended early for a bubble is never padded to hide the cut:
+it starts earlier instead, from a gutter of the slide before, so a little of it shows twice. Long empty stretches are shortened
 and blank slides dropped. The first and last five slides are read with RapidOCR for what is not
 the story: scanlator credits, website banners and Discord ads, the title card, "To be
 continued" and the end card under it. Such a slide is dropped, or cut back to the gutter above
 the junk when the last story panel shares it; the first 25 are also searched for a title card
-after a cold open, dropped only when the slide is the title card and nothing else. A chapter is
-far more than TikTok's 35 images, so it becomes several posts: chapter 12 of The Boxer is 27 slides of part 1 and 27 of part 2. The cover names
+after a cold open, dropped only when the slide is the title card and nothing else. Last, the
+website marks scanlators stamp into the art (an "ASURASCANS.COM" badge) are painted out of every
+slide kept: RapidOCR finds a line that is a web address, the patch grows across its badge, and
+OpenCV fills it in from the art around it — clean on skies, walls and gutters, a visible guess on
+a mark sitting across a panel's border or detailed art. A chapter is far more than TikTok's 35
+images, so it becomes several posts: chapter 12 of The Boxer is 27 slides of part 1 and 27 of part 2. The cover names
 the chapter and the part, and every slide is signed like any other post's. The end slide reads
 the title, then what just ended ("Chapter 12 done", "Part 2 next"), then what to follow for
 ("Follow for part 3", or "Follow for chapter 13" once the last part is out) — worked out from
@@ -195,7 +200,7 @@ part to be built again.
 | Sources | `mangadex` (fan translations, wide catalogue), `webtoons` (the publisher's own English from episode 1, free episodes only) and `asura` (Asura's own translations, whole runs) |
 | Language | English only; a title the source has with nothing in English says so |
 | Gaps | `chapter list` says where the English run starts, what is missing inside it, and which languages have the rest |
-| Speed | about 20s to download a chapter, and 10–30s to cut it |
+| Speed | about 20s to download a chapter, and 20–60s to cut it (most of it reading slides for marks) |
 
 ### Where the pages come from
 

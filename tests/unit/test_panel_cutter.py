@@ -341,3 +341,85 @@ def test_lettering_where_a_slide_would_end_is_never_cut(tmp_path):
 def test_without_a_lettering_check_the_same_line_is_sliced(tmp_path):
     first, second, *_ = _bubble_cutter().cut([_art_with_lettering(tmp_path)], tmp_path / "out")
     assert _has_red(first) and _has_red(second)
+
+
+def test_website_marks_are_painted_out_of_the_slides_kept_after_the_junk_check(tmp_path):
+    page = _page(tmp_path, "p1.png", [(INK, 34), (WHITE, 6)] * 3)
+    order, cleaned = [], []
+
+    def junk(path, titles, margin, ends):
+        order.append(("junk", path.name))
+        return 0 if path.name == "panel-001.png" else None  # a banner slide, dropped whole
+
+    def marks(img):
+        order.append(("marks", len(cleaned)))
+        cleaned.append(img.size)
+        return Image.new("RGB", img.size, (1, 2, 3)) if len(cleaned) == 1 else None
+
+    panels = _cutter(junk=junk, marks=marks).cut([page], tmp_path / "out")
+    assert len(panels) == 2 and len(cleaned) == 2  # the banner slide was never cleaned
+    assert order.index(("marks", 0)) > order.index(("junk", "panel-003.png"))
+    with Image.open(panels[0]) as img:
+        assert img.getpixel((0, 0)) == (1, 2, 3)
+    with Image.open(panels[1]) as img:
+        assert img.getpixel((0, 0)) != (1, 2, 3)
+
+
+def test_a_bubble_shape_with_no_lettering_in_it_is_art_where_lettering_is_read(tmp_path):
+    """A glow or a white shirt looks like a bubble; with nothing written in it, it is cut
+    through like any art, and the slide stays full."""
+    first, *_ = _bubble_cutter(lettering=lambda img: []).cut(
+        [_art_with_a_bubble(tmp_path)], tmp_path / "out"
+    )
+    assert _white_run(first) > 0  # cut at the full slide, through the shape
+
+
+def test_a_bubble_shape_with_lettering_in_it_is_kept_whole(tmp_path):
+    def lettering(img):
+        rows = [y for y in range(img.height) if img.getpixel((100, y)) == INK]
+        return [(rows[0], rows[0] + 8)] if rows else []
+
+    first, second, *_ = _bubble_cutter(lettering=lettering).cut(
+        [_art_with_a_bubble(tmp_path)], tmp_path / "out"
+    )
+    assert _white_run(first) == 0 and _white_run(second) >= 65
+
+
+def test_a_line_taller_than_any_lettering_is_a_sound_effect_and_is_cut_through(tmp_path):
+    first, second, *_ = _bubble_cutter(lettering=lambda img: [(0, img.height)]).cut(
+        [_art_with_lettering(tmp_path)], tmp_path / "out"
+    )
+    assert _has_red(first) and _has_red(second)
+
+
+def test_a_slide_ended_early_for_a_bubble_starts_earlier_instead_of_being_padded(tmp_path):
+    """Lettering across where the second slide would end: that slide ends above it, and is
+    made up to full height from the end of the first rather than padded."""
+    first, second, third, *_ = _bubble_cutter(lettering=_red_rows).cut(
+        [_art_with_lettering(tmp_path, top=790)], tmp_path / "out"
+    )
+    assert not _has_red(second) and _has_red(third)
+    with Image.open(first) as one, Image.open(second) as two:
+        one, two = np.asarray(one.convert("RGB")), np.asarray(two.convert("RGB"))
+    assert (two[:20] == one[-20:]).all()  # it opens on the end of the first slide
+    assert two[-1, 5].tolist() == two[0, 5].tolist()  # and ends on art, not padding
+
+
+def test_a_led_in_slide_opens_on_a_gutter_of_the_slide_before_not_a_border_line():
+    """The end of the slide before is art, a border line, art, a gutter, art: the lead-in
+    starts at the gutter, and the rows above it take the gutter's colour."""
+    cutter = _cutter(min_gutter=4)
+    last = Image.new("RGB", (20, 40), INK)
+    draw = ImageDraw.Draw(last)
+    for x in range(0, 20, 4):  # art: never flat
+        draw.line((x, 0, x, 39), fill=(200, 180, 40))
+    draw.rectangle((0, 22, 19, 22), fill=(0, 0, 0))  # a panel's border: flat, but one row
+    draw.rectangle((0, 27, 19, 27), fill=(0, 0, 0))  # the next panel's border, above its gutter
+    draw.rectangle((0, 28, 19, 33), fill=WHITE)  # a gutter
+    cutter._last = last
+    piece = Image.new("RGB", (20, 25), (90, 30, 30))
+    slide = np.asarray(cutter._led_in(piece))
+    assert slide.shape[:2] == (40, 20)
+    assert (slide[:9] == 255).all()  # 15 rows of lead-in wanted: from the gutter, white above
+    assert (slide[9:15] == np.asarray(last)[34:40]).all()
+    assert (slide[15:] == np.asarray(piece)).all()

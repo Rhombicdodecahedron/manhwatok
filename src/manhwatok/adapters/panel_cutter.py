@@ -3,7 +3,7 @@
 A webtoon chapter is one tall strip, delivered as pages that are themselves arbitrary slices of
 it — a page boundary means nothing, and a panel often straddles two. So the pages are joined in
 reading order, scaled to the slide's width, and cut wherever `domain.panels` says it is safe:
-in a gutter, never through a bubble.
+in a gutter, else through the art but never through a bubble.
 
 The strip is never held whole. A chapter at 1080 wide is around 100 000 rows, so pages are
 added to a carry image and pieces are written off the top of it as soon as they are complete —
@@ -18,7 +18,8 @@ Long empty stretches are squeezed and blank pieces never written. The first and 
 are then shown to a junk check (scanlator credits, website banners, the title card), which is
 what a chapter opens and closes on. A piece is cut back to the gutter above where its junk
 starts — the last story panel often shares a slide with the credits — or deleted when nothing
-above is story, and the rest renumbered.
+above is story, and the rest renumbered. Last, the website marks scanlators stamp into the art
+are painted out of the slides kept (`adapters.watermark`).
 """
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ from manhwatok.domain.panels import (
 
 SAMPLE_W = 64  # columns a row is measured across: enough for a bubble's outline to show
 PANELS_FILE = "panels.json"  # written last, so a half-cut folder is cut again
-CUTTER_VERSION = 3  # a folder cut by any other version is cut again
+CUTTER_VERSION = 6  # a folder cut by any other version is cut again
 LOOKAHEAD = 400  # rows below a full slide known before cutting, so a bubble there is seen whole
 JUNK_SCAN = 5  # pieces at each end of a chapter shown to the junk check
 TITLE_SCAN = 25  # pieces from the start in which a title card (after a cold open) is looked for
@@ -70,8 +71,11 @@ BUBBLE_PAD = 12  # rows kept clear above and below a bubble
 JunkCheck = Callable[[Path, Sequence[str], Sequence[float], bool], int | None]
 # (a stretch of the strip) -> the (top, bottom) rows of each line of lettering on it
 LetteringCheck = Callable[[Image.Image], list[tuple[int, int]]]
+# (a written slide) -> it with the scanlators' website marks painted out, or None when it has none
+MarkCheck = Callable[[Image.Image], Image.Image | None]
 LETTERING_GAP = 48  # rows between two lines of the same bubble
 LETTERING_PAD = 32  # rows kept clear around a bubble's lettering, for the bubble around it
+LETTERING_MAX_H = 90  # rows a line of lettering is at most; taller is a drawn sound effect
 MARGIN_TOLERANCE = 16  # grey levels a pixel may be off the margin colour and still be margin
 
 
@@ -93,6 +97,7 @@ class PillowPanelCutter:
         junk_scan: int = JUNK_SCAN,
         title_scan: int = TITLE_SCAN,
         lettering: LetteringCheck | None = None,
+        marks: MarkCheck | None = None,
     ) -> None:
         self._width = width
         self._height = height
@@ -107,6 +112,7 @@ class PillowPanelCutter:
         self._junk_scan = junk_scan
         self._title_scan = title_scan
         self._lettering = lettering
+        self._marks = marks
 
     def cut(
         self,
@@ -132,6 +138,7 @@ class PillowPanelCutter:
             raise StorageError(f"could not prepare panel folder {out_dir}: {e}") from e
         written: list[Path] = []
         carry: Image.Image | None = None
+        self._last: Image.Image | None = None  # the story piece written last, for `_led_in`
         for page in pages:
             carry = self._join(carry, self._scaled(page))
             carry = self._drain(carry, out_dir, prefix, written, ended=False)
@@ -140,6 +147,7 @@ class PillowPanelCutter:
             if carry.height and not is_blank(self.row_spreads(carry), self._flatness):
                 written.append(self._write(carry, out_dir, prefix, len(written) + 1))
         written = self._drop_junk(written, out_dir, prefix, titles)
+        self._paint_out_marks(written)
         self._save_manifest(out_dir, written)
         return written
 
@@ -171,15 +179,25 @@ class PillowPanelCutter:
         ]
 
     def bubble_rows(self, img: Image.Image) -> list[bool]:
-        """Which rows cross a speech bubble: a bright blob, closed all round by the art (so not
-        the margin, which reaches the page's sides), bubble-sized, with lettering inside."""
+        """Which rows cross something shaped like a speech bubble (`bubble_spans`)."""
+        rows = [False] * img.height
+        for top, bottom in self.bubble_spans(img):
+            for row in range(max(0, top - BUBBLE_PAD), min(img.height, bottom + BUBBLE_PAD)):
+                rows[row] = True
+        return rows
+
+    def bubble_spans(self, img: Image.Image) -> list[tuple[int, int]]:
+        """The (top, bottom) rows of each shape like a speech bubble: a bright blob, closed all
+        round by the art (so not the margin, which reaches the page's sides), bubble-sized, with
+        dark marks inside. A glow or a white shirt can look the same, so where the lettering is
+        known, a shape only counts with a line of it inside (`_clear`)."""
         small_w = max(1, img.width // BUBBLE_SCALE)
         small_h = max(1, img.height // BUBBLE_SCALE)
         grey = np.asarray(img.convert("L").resize((small_w, small_h), Image.Resampling.BOX))
         count, labels, stats, _ = cv2.connectedComponentsWithStats(
             (grey >= BRIGHT).astype(np.uint8), connectivity=4
         )
-        rows = np.zeros(img.height, dtype=bool)
+        spans = []
         dark = grey <= DARK
         for label in range(1, count):
             x, y, w, h, _ = stats[label]
@@ -194,9 +212,8 @@ class PillowPanelCutter:
                 BUBBLE_MIN_INK / BUBBLE_SCALE
             ):
                 continue
-            top = max(0, y * BUBBLE_SCALE - BUBBLE_PAD)
-            rows[top : (y + h) * BUBBLE_SCALE + BUBBLE_PAD] = True
-        return rows.tolist()
+            spans.append((int(y * BUBBLE_SCALE), int((y + h) * BUBBLE_SCALE)))
+        return spans
 
     # --- the pieces of the cut ----------------------------------------------------------
 
@@ -235,36 +252,35 @@ class PillowPanelCutter:
                 return carry
             if carry.height < self._height:
                 return carry  # the end of the strip: all one last piece
-            bubbles = self.bubble_rows(carry)
             cut = gutter_cut(
-                spreads,
-                self._height,
-                self._slack,
-                self._min_piece,
-                self._flatness,
-                self._min_gutter,
-                bubbles,
+                spreads, self._height, self._slack, self._min_piece, self._flatness, self._min_gutter
             )
+            raised = False
             if cut is None:
-                cut = art_cut(
-                    spreads, self._height, self._slack, self._min_piece, self._clear(carry, bubbles)
-                )
+                cut = art_cut(spreads, self._height, self._slack, self._min_piece, self._clear(carry))
+                raised = cut < self._height
             if not is_blank(spreads[:cut], self._flatness):
                 piece = carry.crop((0, 0, carry.width, cut))
-                written.append(self._write(piece, out_dir, prefix, len(written) + 1))
+                shown = self._led_in(piece) if raised else piece
+                written.append(self._write(shown, out_dir, prefix, len(written) + 1))
+                self._last = piece
             carry = carry.crop((0, cut, carry.width, carry.height))
         return carry
 
-    def _clear(self, carry: Image.Image, bubbles: list[bool]) -> list[bool]:
-        """The rows a cut through the art must stay clear of: the bubbles, and every block of
-        lettering within reach of the cut (lines close together are one bubble)."""
+    def _clear(self, carry: Image.Image) -> list[bool]:
+        """The rows a cut through the art must stay clear of: every bubble within reach of the
+        cut, and every block of its lettering (lines close together are one bubble). Where the
+        lettering can be read, a bubble shape only counts with a line of it inside, and a
+        "line" taller than any lettering is a drawn sound effect, part of the art."""
+        spans = self.bubble_spans(carry)
         if self._lettering is None:
-            return bubbles
+            return self.bubble_rows(carry)
         top = max(0, self._height - self._slack - LETTERING_PAD - LETTERING_GAP * 4)
         bottom = min(carry.height, self._height + LETTERING_PAD + LETTERING_GAP * 4)
         lines = sorted(
             (top + first, top + last)
             for first, last in self._lettering(carry.crop((0, top, carry.width, bottom)))
+            if last - first <= LETTERING_MAX_H
         )
         blocks: list[list[int]] = []
         for first, last in lines:
@@ -272,16 +288,52 @@ class PillowPanelCutter:
                 blocks[-1][1] = max(blocks[-1][1], last)
             else:
                 blocks.append([first, last])
-        clear = list(bubbles)
-        for first, last in blocks:
-            for row in range(max(0, first - LETTERING_PAD), min(len(clear), last + LETTERING_PAD)):
+        guarded = [(first - LETTERING_PAD, last + LETTERING_PAD) for first, last in blocks]
+        guarded += [
+            (span_top - BUBBLE_PAD, span_bottom + BUBBLE_PAD)
+            for span_top, span_bottom in spans
+            if any(span_top <= (first + last) // 2 <= span_bottom for first, last in lines)
+        ]
+        clear = [False] * carry.height
+        for first, last in guarded:
+            for row in range(max(0, first), min(carry.height, last)):
                 clear[row] = True
         return clear
+
+    def _led_in(self, piece: Image.Image) -> Image.Image:
+        """A piece cut short of a full slide through the art (to keep a bubble whole), made up
+        to a full slide from the end of the one before rather than padded: a little art shows
+        twice instead of a blank band that says where the cut was."""
+        short = self._height - piece.height
+        if self._last is None or short <= 0:
+            return piece
+        start = max(0, self._last.height - short)
+        spreads = self.row_spreads(self._last.crop((0, start, piece.width, self._last.height)))
+        gutters = [
+            band
+            for band in gutter_bands(spreads, self._flatness)
+            if band[1] - band[0] >= self._min_gutter  # a gutter, not a panel's border line
+        ]
+        if gutters:
+            # open in the middle of a gutter (whose edge may be a panel's border), not on half
+            # of the last slide's bubble
+            start += sum(gutters[0]) // 2
+        lead = self._last.crop((0, start, piece.width, self._last.height))
+        colour = Counter(lead.crop((0, 0, lead.width, 1)).getdata()).most_common(1)[0][0]
+        slide = Image.new("RGB", (piece.width, short + piece.height), colour)
+        slide.paste(lead, (0, short - lead.height))
+        slide.paste(piece, (0, short))
+        return slide
 
     def _write(self, piece: Image.Image, out_dir: Path, prefix: str, n: int) -> Path:
         path = out_dir / f"{prefix}-{n:03d}.png"
         slide = Image.new("RGB", (self._width, self._height), _edge_colour(piece))
         slide.paste(piece.crop((0, 0, piece.width, min(piece.height, self._height))), (0, 0))
+        self._save(slide, path)
+        return path
+
+    @staticmethod
+    def _save(slide: Image.Image, path: Path) -> None:
         partial = path.with_name(path.name + ".part")
         try:
             slide.save(partial, format="PNG")  # the .part name tells Pillow nothing
@@ -289,7 +341,6 @@ class PillowPanelCutter:
         except OSError as e:
             partial.unlink(missing_ok=True)
             raise StorageError(f"could not save panel {path}: {e}") from e
-        return path
 
     def _drop_junk(
         self, written: list[Path], out_dir: Path, prefix: str, titles: Sequence[str]
@@ -319,6 +370,17 @@ class PillowPanelCutter:
         except OSError as e:
             raise StorageError(f"could not renumber the panels in {out_dir}: {e}") from e
         return renamed
+
+    def _paint_out_marks(self, written: list[Path]) -> None:
+        """Paint the website marks out of the slides kept — only after the junk check, which
+        knows a scanlator's banner slide by the very address this would paint out."""
+        if self._marks is None:
+            return
+        for path in written:
+            with Image.open(path) as img:
+                clean = self._marks(img.convert("RGB"))
+            if clean is not None:
+                self._save(clean, path)
 
     def _keep_story(
         self, path: Path, out_dir: Path, prefix: str, titles: Sequence[str], n: int, ends: bool

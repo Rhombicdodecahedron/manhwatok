@@ -146,12 +146,13 @@ def build_chapter_tools(settings: Settings, store: SqliteStore) -> ChapterTools:
     from manhwatok.adapters.lettering import Lettering
     from manhwatok.adapters.panel_cutter import PillowPanelCutter
     from manhwatok.adapters.panel_junk import PanelJunk
+    from manhwatok.adapters.watermark import Watermarks
     from manhwatok.app.chapter_post import ChapterTools
 
     sources = build_chapter_sources(settings, store.cache)
     return ChapterTools(
         pages=sources[ChapterSourceName.MANGADEX],
-        cutter=PillowPanelCutter(junk=PanelJunk(), lettering=Lettering()),
+        cutter=PillowPanelCutter(junk=PanelJunk(), lettering=Lettering(), marks=Watermarks()),
         chapters=store.chapters,
         pages_dir=settings.pages_dir,
         source=ChapterSourceName.MANGADEX,
