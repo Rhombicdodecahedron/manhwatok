@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Callable, NamedTuple, Protocol
+from typing import Callable, NamedTuple, Protocol, Sequence
 
 from manhwatok.domain.models import Manhwa
 
@@ -52,7 +52,15 @@ class ChapterPagesSource(Protocol):
 
 
 class PanelCutter(Protocol):
-    def cut(self, pages: list[Path], out_dir: Path, prefix: str = "panel") -> list[Path]:
+    def cut(
+        self,
+        pages: list[Path],
+        out_dir: Path,
+        prefix: str = "panel",
+        titles: Sequence[str] = (),
+    ) -> list[Path]:
         """The pages joined in reading order and cut into slide-sized panels, written into
-        `out_dir` and returned in order. A folder already cut is reused, not cut again."""
+        `out_dir` and returned in order, leaving out blank pages and what is not the story
+        (credits, website banners, the title card — `titles` are the manhwa's names). A folder
+        already cut is reused, not cut again."""
         ...

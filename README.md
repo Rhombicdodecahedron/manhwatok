@@ -161,9 +161,18 @@ uv run manhwatok chapter build "The Boxer" --number 13 --part 2
 ```
 
 `build` downloads the chapter's pages, joins them into the one long strip a
-webtoon really is, and cuts it into 1080×1920 slides — cutting only in a gutter, so a speech
-bubble or a face is never sliced. A chapter is far more than TikTok's 35 images, so it becomes
-several posts: chapter 12 of The Boxer is 27 slides of part 1 and 27 of part 2. The cover names
+webtoon really is, and cuts it into 1080×1920 slides. The cut goes in the lowest gutter within
+reach of a full slide, looking as far as half a slide up, and a short slide is padded with the
+page's own margin colour. Only when there is no gutter at all does it cut through the art: the
+slide is then kept full, like a crop, and the cut raised just enough to clear any speech bubble
+or lettering (found by shape, and by RapidOCR's text detector for bubbles with no closed
+outline) — never a short slide padded out to hide the cut. Long empty stretches are shortened
+and blank slides dropped. The first and last five slides are read with RapidOCR for what is not
+the story: scanlator credits, website banners and Discord ads, the title card, "To be
+continued" and the end card under it. Such a slide is dropped, or cut back to the gutter above
+the junk when the last story panel shares it; the first 25 are also searched for a title card
+after a cold open, dropped only when the slide is the title card and nothing else. A chapter is
+far more than TikTok's 35 images, so it becomes several posts: chapter 12 of The Boxer is 27 slides of part 1 and 27 of part 2. The cover names
 the chapter and the part, and every slide is signed like any other post's. The end slide reads
 the title, then what just ended ("Chapter 12 done", "Part 2 next"), then what to follow for
 ("Follow for part 3", or "Follow for chapter 13" once the last part is out) — worked out from
@@ -182,10 +191,11 @@ part to be built again.
 | --- | --- |
 | Pages | `$XDG_DATA_HOME/manhwatok/pages/<chapter id>/`, with the cut panels beside them |
 | Size | 30–100 MB a chapter, and about as much again in panels |
+| Re-cutting | a chapter's cut is kept, so later parts split the same way; one cut by an older version of the cutter is cut again on the next `build` (posts already built keep their own copies) |
 | Sources | `mangadex` (fan translations, wide catalogue), `webtoons` (the publisher's own English from episode 1, free episodes only) and `asura` (Asura's own translations, whole runs) |
 | Language | English only; a title the source has with nothing in English says so |
 | Gaps | `chapter list` says where the English run starts, what is missing inside it, and which languages have the rest |
-| Speed | about 20s a chapter, most of it downloading |
+| Speed | about 20s to download a chapter, and 10–30s to cut it |
 
 ### Where the pages come from
 
@@ -308,7 +318,7 @@ the better way to be wrong: nothing beats the wrong series' art on a slide.
 `--source pins` searches Pinterest, keeping only pins that name the title (see below):
 
 ```bash
-uv sync --extra pinterest --extra upload --extra tui       # once: gallery-dl + RapidOCR
+uv sync --extra pinterest --extra upload --extra tui       # once: gallery-dl
 uv run manhwatok art <id> 72579 --list --source pins
 uv run manhwatok art <id> 72579 --list --source pins --tag fanart
 ```
@@ -380,8 +390,8 @@ Posts built before this kept no alternative titles; the first search looks them 
 and saves them into the post.
 
 Pins that have **words on them** are passed over: speech bubbles, meme captions, tweet
-screenshots, posters, fake magazine covers. The picture itself is read with RapidOCR (in the
-`pinterest` extra, offline, ~0.1s a picture), and a word only counts when it is recognised with
+screenshots, posters, fake magazine covers. The picture itself is read with RapidOCR (offline,
+~0.1s a picture), and a word only counts when it is recognised with
 confidence, since text detection alone boxes hair and fabric on detailed art. Checked by hand
 against 80 of Pinterest's most-liked pins for four titles, it caught every bubble, caption,
 tweet, poster and collage and kept every clean picture, letting artists' @handles and small

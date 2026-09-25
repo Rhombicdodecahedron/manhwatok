@@ -172,6 +172,14 @@ def test_pages_already_cut_are_not_cut_again(tmp_path):
     assert len(ct.cutter.cuts) == 1
 
 
+def test_the_cutter_is_told_every_name_of_the_title_to_know_its_title_card(tmp_path):
+    ct = _chapter_tools(tmp_path)
+    build_chapter_post(
+        BOXER.model_copy(update={"synonyms": ["Deo Bokseo"]}), _tools(tmp_path), ct, None, NOW
+    )
+    assert ct.cutter.titles == ["The Boxer", "Deo Bokseo"]
+
+
 # --- listing ---------------------------------------------------------------------------------
 
 

@@ -321,7 +321,11 @@ def build_chapter_post(
     )
     pages = ct.pages.pages(info, tools.progress)
     ct.chapters.mark_downloaded(manhwa.anilist_id, chapter.number, language, now, ct.source)
-    panels = ct.cutter.cut(pages, ct.pages_dir / chapter.chapter_id / PANELS_DIR)
+    panels = ct.cutter.cut(
+        pages,
+        ct.pages_dir / chapter.chapter_id / PANELS_DIR,
+        titles=[manhwa.title, *(manhwa.synonyms or [])],
+    )
     if not panels:
         raise ManhwatokError(f"{manhwa.title} chapter {chapter.number}: nothing to cut into slides")
     slices = part_slices(len(panels))

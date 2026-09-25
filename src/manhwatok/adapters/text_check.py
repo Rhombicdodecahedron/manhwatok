@@ -1,7 +1,7 @@
 """Whether a picture has words on it: speech bubbles, meme captions, posters, tweets.
 
 A pin's caption says nothing about what is drawn on it, so the picture itself is read with
-RapidOCR (the `pinterest` extra), offline. Detection alone is no use here — on detailed art it
+RapidOCR, offline. Detection alone is no use here — on detailed art it
 boxes hair and fabric as "text" — so a word only counts once it is also recognised with
 confidence. Checked by hand against 80 of Pinterest's most-liked pins for four titles: every
 bubble, caption, tweet, poster and collage was caught, and no clean picture was, with artists'

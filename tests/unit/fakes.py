@@ -398,10 +398,14 @@ class FakeCutter:
     def __init__(self, panels=4):
         self.panels = panels
         self.cuts: list[Path] = []  # the folders it was asked to cut into
+        self.titles: list[str] = []  # the names it was last told the manhwa goes by
 
-    def cut(self, pages: list[Path], out_dir: Path, prefix: str = "panel") -> list[Path]:
+    def cut(
+        self, pages: list[Path], out_dir: Path, prefix: str = "panel", titles=()
+    ) -> list[Path]:
         from PIL import Image
 
+        self.titles = list(titles)
         found = sorted(out_dir.glob(f"{prefix}-*.png"))
         if len(found) == self.panels:
             return found

@@ -9,8 +9,11 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.27",
+    "numpy>=2",
+    "opencv-python>=4.8",
     "pillow>=10",
     "pydantic>=2.7",
+    "rapidocr-onnxruntime>=1.4",
     "typer>=0.12",
 ]
 
@@ -32,7 +35,6 @@ tui = [
 ]
 pinterest = [
     "gallery-dl>=1.27",
-    "rapidocr-onnxruntime>=1.4",
 ]
 
 [build-system]
