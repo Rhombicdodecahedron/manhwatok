@@ -43,6 +43,17 @@
 
 <section id="art-section" class="panel edit-section">
   <h2>Pictures</h2>
+  <form class="toolbar" hx-post="/posts/{{ post.id }}/art/fill" hx-swap="none" hx-disabled-elt="find button">
+    <label class="field">Fill every title from
+      <select name="source">{% for s in sources %}<option value="{{ s.value }}">{{ s.value }}</option>{% endfor %}</select>
+    </label>
+    <label class="field">Order
+      <select name="order">{% for o in orders %}<option value="{{ o.value }}">{{ o.value }}</option>{% endfor %}</select>
+    </label>
+    <label class="field">Tag <input name="tag" placeholder="optional"></label>
+    <label><input type="checkbox" name="replace"> Replace pictures already chosen</label>
+    <button class="button">Fill and render</button>
+  </form>
   <div id="art-titles" hx-get="/posts/{{ post.id }}/art" hx-trigger="load, changed-posts from:body"></div>
   <div id="art-panel"></div>
 </section>

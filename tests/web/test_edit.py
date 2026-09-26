@@ -235,3 +235,96 @@ def test_a_list_that_is_gone_asks_to_find_again(tmp_path):
     assert _notice(response) == {
         "text": "this list is gone — find pictures again", "level": "error"
     }
+
+
+import io  # noqa: E402
+
+from PIL import Image  # noqa: E402
+
+from manhwatok.web.routes import edit as edit_routes  # noqa: E402
+
+
+def _png() -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (40, 60), (200, 50, 50)).save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+def _item(ctx, anilist_id):
+    return next(i for i in ctx.tools.posts.get(PID).items if i.manhwa.anilist_id == anilist_id)
+
+
+def test_an_uploaded_picture_becomes_the_titles_art(tmp_path):
+    ctx, first = _arty(tmp_path)
+    with client_for(ctx) as client:
+        response = client.post(f"/posts/{PID}/art/{first}/own",
+                               files={"file": ("mine.png", _png(), "image/png")})
+        job = _last_job(client)
+    assert _item(ctx, first).custom_art == f"art-{first}.png"
+    assert not job.failed and _notice(response)["level"] == "info"
+
+
+@pytest.mark.parametrize(
+    ("name", "data", "said"),
+    [("notes.txt", b"hello", "picture"), ("empty.png", b"", "empty")],
+)
+def test_an_upload_that_isnt_a_picture_changes_nothing(tmp_path, name, data, said):
+    ctx, first = _arty(tmp_path)
+    before = _item(ctx, first).custom_art
+    with client_for(ctx) as client:
+        response = client.post(f"/posts/{PID}/art/{first}/own", files={"file": (name, data, "x/y")})
+    assert _notice(response)["level"] == "error" and said in _notice(response)["text"]
+    assert _item(ctx, first).custom_art == before
+
+
+def test_a_picture_from_a_url_is_downloaded_in_the_job(tmp_path, monkeypatch):
+    ctx, first = _arty(tmp_path)
+    seen = []
+
+    def fake_download(url, into, client=None, timeout=20.0):
+        seen.append(url)
+        into.mkdir(parents=True, exist_ok=True)
+        path = into / "picture.png"
+        path.write_bytes(_png())
+        return path
+
+    monkeypatch.setattr(edit_routes, "download_picture", fake_download)
+    with client_for(ctx) as client:
+        client.post(f"/posts/{PID}/art/{first}/own", data={"url": "https://i.pinimg.com/x.png"})
+        job = _last_job(client)
+    assert seen == ["https://i.pinimg.com/x.png"] and not job.failed
+    assert _item(ctx, first).custom_art == f"art-{first}.png"
+
+
+def test_neither_file_nor_url_says_so(tmp_path):
+    ctx, first = _arty(tmp_path)
+    with client_for(ctx) as client:
+        response = client.post(f"/posts/{PID}/art/{first}/own", data={"url": "not a link"})
+    assert _notice(response) == {"text": "give a picture file or an http(s) link", "level": "error"}
+
+
+def test_clearing_goes_back_to_the_anilist_cover(tmp_path):
+    ctx, first = _arty(tmp_path)
+    with client_for(ctx) as client:
+        client.post(f"/posts/{PID}/art/{first}/own", files={"file": ("m.png", _png(), "image/png")})
+        _last_job(client)
+        response = client.post(f"/posts/{PID}/art/{first}/clear")
+        job = _last_job(client)
+    assert _item(ctx, first).custom_art == ""
+    assert job.outcome.startswith("cleared the picture of")
+    assert _notice(response)["text"] == f"clearing post {PID}…"
+
+
+def test_filling_every_title_from_a_source(tmp_path):
+    options = {
+        i: [ArtOption(f"p{i}", f"https://pins.test/{i}.jpg", 800, 1200)] for i in range(1, 40)
+    }
+    ctx, _ = _arty(tmp_path, pins=FakeArtSource(options=options))
+    with client_for(ctx) as client:
+        response = client.post(f"/posts/{PID}/art/fill", data={
+            "source": "pins", "order": "portrait", "tag": "", "replace": "on"})
+        job = _last_job(client)
+    items = ctx.tools.posts.get(PID).items
+    assert all(i.custom_art for i in items)
+    assert job.outcome == f"filled {len(items)} titles from pins — rendered post {PID}"
+    assert _notice(response)["text"] == f"filling post {PID}…"

@@ -31,4 +31,16 @@
     <p class="empty">{{ source }} has no pictures of this title. Try another source or tag.</p>
     {% endif %}
   {% endif %}
+  {% if item %}
+  <form class="toolbar own-picture" hx-post="/posts/{{ post.id }}/art/{{ item.manhwa.anilist_id }}/own"
+        hx-encoding="multipart/form-data" hx-swap="none" hx-disabled-elt="find button">
+    <label class="field">Your own picture <input type="file" name="file" accept=".jpg,.jpeg,.png,.webp,.gif"></label>
+    <label class="field">or a link <input name="url" placeholder="https://i.pinimg.com/…"></label>
+    <button class="button">Use it</button>
+  </form>
+  {% if item.custom_art %}
+  <button type="button" class="button" hx-post="/posts/{{ post.id }}/art/{{ item.manhwa.anilist_id }}/clear"
+          hx-swap="none">Use the AniList cover again</button>
+  {% endif %}
+  {% endif %}
 </div>

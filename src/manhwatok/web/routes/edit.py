@@ -4,16 +4,22 @@ lane — one job per change, refused while another render runs."""
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 from dataclasses import replace
+from pathlib import Path
 from typing import Callable
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
+from starlette.datastructures import UploadFile  # what request.form() gives
 
+from manhwatok.adapters.picture_download import download_picture, looks_like_url
 from manhwatok.app.art_options import list_art, use_art
 from manhwatok.app.edit_post import TEXT_FIELDS, update_picks, update_post_texts
+from manhwatok.app.item_art import clear_item_art, set_item_art
 from manhwatok.app.post_tools import PostTools
-from manhwatok.app.render_post import render_post, restyle, set_cover
+from manhwatok.app.render_post import render_from_source, render_post, restyle, set_cover
 from manhwatok.domain.errors import DraftError, ManhwatokError, PostNotFound
 from manhwatok.domain.labels import chapter_label
 from manhwatok.domain.models import ArtOrder, ArtSourceName, ArtStyle, CoverStyle
@@ -231,3 +237,111 @@ async def use_picture(request: Request, post_id: str, anilist_id: int) -> Respon
         return f"changed the picture of {name}"
 
     return start_change(request, post_id, f"changed the picture of {name}", change)
+
+
+PICTURES = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+MAX_UPLOAD = 20 * 1024 * 1024
+
+
+def _title_of(ctx, post_id: str, anilist_id: int) -> str:
+    post = ctx.tools.posts.get(post_id)
+    if post.chapter:
+        raise ManhwatokError(chapter_refusal(post))
+    for item in post.items:
+        if item.manhwa.anilist_id == anilist_id:
+            return item.manhwa.title
+    raise ManhwatokError(f"post {post_id} has no title {anilist_id}")
+
+
+@router.post("/posts/{post_id}/art/{anilist_id}/own")
+async def own_picture(request: Request, post_id: str, anilist_id: int) -> Response:
+    if _rendering(request):
+        return done(request, STILL_RENDERING, "warning")
+    form = await request.form()
+    ctx = ctx_of(request)
+    upload = form.get("file")
+    url = str(form.get("url", "")).strip()
+    try:
+        name = _title_of(ctx, post_id, anilist_id)
+        if isinstance(upload, UploadFile) and upload.filename:
+            suffix = Path(upload.filename).suffix.lower()
+            if suffix not in PICTURES:
+                raise ManhwatokError(f"{upload.filename} isn't a picture ({', '.join(PICTURES)})")
+            data = await upload.read(MAX_UPLOAD + 1)
+            if not data:
+                raise ManhwatokError(f"{upload.filename} is empty")
+            if len(data) > MAX_UPLOAD:
+                raise ManhwatokError(f"{upload.filename} is over 20 MB")
+            folder = Path(tempfile.mkdtemp(prefix="manhwatok-upload-"))
+            given = folder / f"upload{suffix}"
+            given.write_bytes(data)
+        elif looks_like_url(url):
+            folder, given = Path(tempfile.mkdtemp(prefix="manhwatok-url-")), None
+        else:
+            raise ManhwatokError("give a picture file or an http(s) link")
+    except ManhwatokError as e:
+        return done(request, str(e), "error")
+
+    def change(tools) -> str:
+        try:
+            picture = given or download_picture(url, folder)
+            set_item_art(post_id, anilist_id, picture, tools)
+        finally:
+            shutil.rmtree(folder, ignore_errors=True)
+        return f"changed the picture of {name}"
+
+    return start_change(request, post_id, f"changed the picture of {name}", change)
+
+
+@router.post("/posts/{post_id}/art/{anilist_id}/clear")
+def clear_picture(request: Request, post_id: str, anilist_id: int) -> Response:
+    if _rendering(request):
+        return done(request, STILL_RENDERING, "warning")
+    try:
+        name = _title_of(ctx_of(request), post_id, anilist_id)
+    except ManhwatokError as e:
+        return done(request, str(e), "error")
+
+    def change(tools) -> str:
+        clear_item_art(post_id, anilist_id, tools)
+        return f"cleared the picture of {name}"
+
+    return start_change(request, post_id, f"cleared the picture of {name}", change)
+
+
+@router.post("/posts/{post_id}/art/fill")
+async def fill_pictures(request: Request, post_id: str) -> Response:
+    if _rendering(request):
+        return done(request, STILL_RENDERING, "warning")
+    form = await request.form()
+    ctx = ctx_of(request)
+    try:
+        post = ctx.tools.posts.get(post_id)
+        if post.chapter:
+            raise ManhwatokError(chapter_refusal(post))
+        chosen = ArtSourceName(str(form.get("source", "")))
+        tag = str(form.get("tag", "")).strip() or None
+        if tag and chosen is ArtSourceName.COVERS:
+            raise ManhwatokError(TAG_WITH_COVERS)
+        order = ArtOrder(str(form.get("order") or ArtOrder.RELEVANCE.value))
+        replace_all = bool(form.get("replace"))
+    except (ManhwatokError, ValueError) as e:
+        return done(request, str(e), "error")
+    bus = request.app.state.bus
+
+    def work(io) -> str:
+        tools = replace(ctx.tools, progress=io.progress)
+        filled, slides = render_from_source(
+            post_id, tools, ctx.art_sources[chosen], tag, order, replace=replace_all
+        )
+        io.progress(f"post {post_id} · {len(slides)} slides")
+        bus.publish("changed", what="posts")
+        what = f"filled the scenes from {chosen.value}" if filled is None else (
+            f"filled {filled} titles from {chosen.value}")
+        return f"{what} — rendered post {post_id}"
+
+    try:
+        request.app.state.jobs.start(RENDER, f"fill post {post_id}", work)
+    except Busy as e:
+        return done(request, str(e), "warning")
+    return done(request, f"filling post {post_id}…")
