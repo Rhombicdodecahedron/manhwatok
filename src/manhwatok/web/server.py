@@ -80,6 +80,7 @@ def create_app(
 
     origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
     hosts = {origin.split("//", 1)[1] for origin in origins}
+    app.state.origins = origins
 
     @app.middleware("http")
     async def only_this_computer(request: Request, call_next):

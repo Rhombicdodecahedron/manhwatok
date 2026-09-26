@@ -3,15 +3,15 @@ and a watcher that notices changes made elsewhere (the CLI, the TUI) and publish
 
 from __future__ import annotations
 
+import asyncio
 import json
 import queue
 import threading
-import time
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import AsyncIterator, Awaitable, Callable
 
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 
 from manhwatok.app.context import AppContext
 from manhwatok.web.jobs import EventBus
@@ -19,32 +19,49 @@ from manhwatok.web.jobs import EventBus
 router = APIRouter()
 
 
-def sse_stream(bus: EventBus, stop: threading.Event, heartbeat: float = 15.0) -> Iterator[str]:
-    """The stream's lines: events as they come, a ping after `heartbeat` quiet seconds (so a
-    dead tab is noticed), and the end within a second of `stop`."""
+async def sse_stream(
+    bus: EventBus,
+    stop: threading.Event,
+    disconnected: Callable[[], Awaitable[bool]],
+    heartbeat: float = 15.0,
+    poll: float = 0.25,
+) -> AsyncIterator[str]:
+    """The stream's lines: events as they come, a ping after `heartbeat` quiet seconds, and the
+    end within `poll` seconds of `stop` or of the tab going away. Async on purpose: waiting in a
+    thread would hold one of the server's worker threads per open tab."""
     q = bus.subscribe()
     try:
         yield "retry: 2000\n\n"
-        quiet_since = time.monotonic()
+        quiet = 0.0
         while not stop.is_set():
             try:
-                kind, data = q.get(timeout=min(1.0, heartbeat))
+                kind, data = q.get_nowait()
             except queue.Empty:
-                if time.monotonic() - quiet_since >= heartbeat:
-                    quiet_since = time.monotonic()
+                if await disconnected():
+                    return
+                await asyncio.sleep(poll)
+                quiet += poll
+                if quiet >= heartbeat:
+                    quiet = 0.0
                     yield ": ping\n\n"
                 continue
-            quiet_since = time.monotonic()
+            quiet = 0.0
             yield f"event: {kind}\ndata: {json.dumps(data)}\n\n"
     finally:
         bus.unsubscribe(q)
 
 
 @router.get("/events")
-def events(request: Request) -> StreamingResponse:
+async def events(request: Request) -> Response:
+    """Only for this app's own pages: a GET passes the Origin check, so another site could
+    otherwise open streams by the dozen."""
     state = request.app.state
+    site = request.headers.get("sec-fetch-site")
+    origin = request.headers.get("origin")
+    if (site and site not in ("same-origin", "none")) or (origin and origin not in state.origins):
+        return PlainTextResponse("not from this app's pages", status_code=403)
     return StreamingResponse(
-        sse_stream(state.bus, state.stop),
+        sse_stream(state.bus, state.stop, request.is_disconnected),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-store"},
     )

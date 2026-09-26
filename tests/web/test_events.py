@@ -13,20 +13,72 @@ from tests.unit.fakes import post  # noqa: E402
 from tests.web.helpers import client_for  # noqa: E402
 
 
+def _run(coro):
+    import asyncio
+
+    return asyncio.run(coro)
+
+
+def _connected():
+    async def disconnected() -> bool:
+        return False
+
+    return disconnected
+
+
 def test_the_stream_sends_events_and_pings_and_ends_when_stopped():
     bus, stop = EventBus(), threading.Event()
-    stream = sse_stream(bus, stop, heartbeat=0.05)
-    assert next(stream) == "retry: 2000\n\n"
-    bus.publish("changed", what="posts")
-    assert next(stream) == f"event: changed\ndata: {json.dumps({'what': 'posts'})}\n\n"
-    assert next(stream) == ": ping\n\n"  # nothing for a while
-    stop.set()
-    started = time.monotonic()
-    with pytest.raises(StopIteration):
-        while True:
-            next(stream)
-    assert time.monotonic() - started < 1.5  # the server's Ctrl-C isn't kept waiting
+
+    async def scenario():
+        stream = sse_stream(bus, stop, _connected(), heartbeat=0.05, poll=0.01)
+        assert await stream.__anext__() == "retry: 2000\n\n"
+        bus.publish("changed", what="posts")
+        assert await stream.__anext__() == (
+            f"event: changed\ndata: {json.dumps({'what': 'posts'})}\n\n"
+        )
+        assert await stream.__anext__() == ": ping\n\n"  # nothing for a while
+        stop.set()
+        started = time.monotonic()
+        with pytest.raises(StopAsyncIteration):
+            while True:
+                await stream.__anext__()
+        assert time.monotonic() - started < 1.0  # the server's Ctrl-C isn't kept waiting
+
+    _run(scenario())
     assert bus._queues == []  # unsubscribed
+
+
+def test_the_stream_ends_when_its_tab_goes():
+    """A closed tab frees its stream at once, not at the next event or ping."""
+    import inspect
+
+    bus, stop, gone = EventBus(), threading.Event(), []
+
+    async def disconnected() -> bool:
+        return bool(gone)
+
+    async def scenario():
+        stream = sse_stream(bus, stop, disconnected, heartbeat=60, poll=0.01)
+        await stream.__anext__()
+        gone.append(True)
+        with pytest.raises(StopAsyncIteration):
+            await stream.__anext__()
+
+    _run(scenario())
+    assert bus._queues == []
+    # Async, so an open stream holds no worker thread: forty tabs can't starve the routes.
+    assert inspect.isasyncgenfunction(sse_stream)
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [{"Sec-Fetch-Site": "cross-site"}, {"Origin": "https://evil.example"}],
+)
+def test_another_site_cannot_open_the_stream(tmp_path, headers):
+    with client_for(make_ctx(tmp_path)) as client:
+        client.app.state.stop.set()
+        assert client.get("/events", headers=headers).status_code == 403
+        assert client.get("/events", headers={"Sec-Fetch-Site": "same-origin"}).status_code == 200
 
 
 def test_the_events_route_streams(tmp_path):
