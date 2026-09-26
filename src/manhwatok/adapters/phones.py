@@ -89,6 +89,9 @@ def screencap(serial: str, run_bytes: RunBytes | None = None) -> bytes:
     argv = [_adb() if run_bytes is None else "adb", "-s", check_serial(serial),
             "exec-out", "screencap", "-p"]
     data = (run_bytes or _run_bytes)(argv)
+    start = data.find(PNG)  # a phone with two screens warns before the picture
+    if start > 0:
+        data = data[start:]
     if not data.startswith(PNG):
         said = data[:120].decode("utf-8", "replace").strip() or "no picture"
         raise ManhwatokError(f"could not see the screen of {serial}: {said}")

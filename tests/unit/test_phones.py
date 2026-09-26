@@ -59,3 +59,10 @@ def test_a_screen_is_a_png():
 def test_serials_are_checked_before_they_reach_adb(bad):
     with pytest.raises(ManhwatokError):
         phones.check_serial(bad)
+
+
+def test_a_warning_before_the_picture_is_skipped():
+    """A phone with two screens (a flip's cover screen) warns before the picture."""
+    png = b"\x89PNG\r\n\x1a\n" + b"rest"
+    said = b"[Warning] Multiple displays were found, but no display id was specified!\n" + png
+    assert phones.screencap("R5CY", lambda argv: said) == png
