@@ -219,13 +219,22 @@ def test_bulk_render_export_and_delete(tmp_path):
     assert _notice(nothing) == {"text": "tick some posts first", "level": "warning"}
 
 
-def test_a_bulk_action_stops_at_the_first_error_and_says_so(tmp_path):
+def test_a_bulk_action_carries_on_past_a_post_that_fails_as_the_tui_does(tmp_path):
     ctx = _posts(make_ctx(tmp_path))
     with client_for(ctx) as client:
         response = client.post("/posts/bulk", data={"action": "export", "ids": [NEW, DRAFT, OLD]})
+        client.post("/posts/bulk", data={"action": "render", "ids": [DRAFT, OLD]})
+        job = wait_job(client, _last_job(client).id)
     notice = _notice(response)
-    assert notice["level"] == "error"
-    assert notice["text"].startswith(f"exported 1 post, then: post {DRAFT} has no items")
+    assert notice["level"] == "warning"
+    assert notice["text"].startswith(
+        f"exported 1 post → {ctx.settings.export_dir}, 2 failed: {DRAFT} post {DRAFT} has no items"
+    )
+    assert f"; {OLD} post {OLD} has no up-to-date slides" in notice["text"]
+    # A draft ticked first doesn't stop the rest from rendering.
+    assert job.outcome.startswith(f"rendered 1 post, 1 failed: {DRAFT} post {DRAFT} has no items")
+    assert job.log[0].startswith(f"post {DRAFT} failed: post {DRAFT} has no items")
+    assert job.log[1] == f"post {OLD} · 5 slides"
 
 
 def test_the_detail_has_the_buttons(tmp_path):

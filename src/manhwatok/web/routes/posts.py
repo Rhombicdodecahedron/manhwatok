@@ -179,17 +179,43 @@ def _start_render(request: Request, ids: list[str], heading: str, started: str) 
 
     def work(io) -> str:
         tools = replace(ctx.tools, progress=io.progress)
-        for post_id in ids:
+        def one(post_id: str) -> None:
             slides = render_post(post_id, tools)
             io.progress(f"post {post_id} · {len(slides)} slides")
             bus.publish("changed", what="posts")
-        return f"rendered post {ids[0]}" if len(ids) == 1 else f"rendered {_plural(len(ids))}"
+
+        if len(ids) == 1:
+            one(ids[0])  # its error is the job's
+            return f"rendered post {ids[0]}"
+        done_count, failed = _each(ids, one, io.progress)
+        return _summary("rendered", done_count, failed)
 
     try:
         request.app.state.jobs.start(RENDER, heading, work)
     except Busy as e:
         return done(request, str(e), "warning")
     return done(request, started)
+
+
+def _each(ids: list[str], act, say=None) -> tuple[int, list[str]]:
+    """`act` on each post in turn, carrying on past one that fails, as the TUI's bulk
+    actions do; (how many went through, "<id> <why>" for each that didn't)."""
+    count, failed = 0, []
+    for post_id in ids:
+        try:
+            act(post_id)
+        except ManhwatokError as e:
+            failed.append(f"{post_id} {e}")
+            if say is not None:
+                say(f"post {post_id} failed: {e}")
+            continue
+        count += 1
+    return count, failed
+
+
+def _summary(verb: str, count: int, failed: list[str], where: str = "") -> str:
+    text = f"{verb} {_plural(count)}{where}"
+    return text + (f", {len(failed)} failed: " + "; ".join(failed) if failed else "")
 
 
 def _rendering(request: Request) -> bool:
@@ -207,19 +233,16 @@ def bulk(request: Request, action: str = Form(...), ids: list[str] = Form(defaul
         return done(request, f"no bulk action {action!r}", "error")
     if _rendering(request):
         return done(request, STILL_RENDERING, "warning")
-    ctx, finished = ctx_of(request), 0
-    verb = "exported" if action == "export" else "deleted"
-    try:
-        for post_id in ids:
-            if action == "export":
-                _export(request, post_id)
-            else:
-                delete_post(post_id, ctx.tools.posts, ctx.store.chapters)
-            finished += 1
-    except ManhwatokError as e:
-        return done(request, f"{verb} {_plural(finished)}, then: {e}", "error", changed=["posts"])
-    where = f" → {ctx.settings.export_dir}" if action == "export" else ""
-    return done(request, f"{verb} {_plural(finished)}{where}", changed=["posts"])
+    ctx = ctx_of(request)
+    if action == "export":
+        count, failed = _each(ids, lambda post_id: _export(request, post_id))
+        text = _summary("exported", count, failed, f" → {ctx.settings.export_dir}")
+    else:
+        count, failed = _each(
+            ids, lambda post_id: delete_post(post_id, ctx.tools.posts, ctx.store.chapters)
+        )
+        text = _summary("deleted", count, failed)
+    return done(request, text, "warning" if failed else "info", changed=["posts"])
 
 
 @router.post("/posts/{post_id}/render")
