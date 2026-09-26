@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from manhwatok.app.context import AppContext, open_context
 from manhwatok.config import Settings
+from manhwatok.web import events
 from manhwatok.web.jobs import EventBus, JobRunner
 
 HERE = Path(__file__).parent
@@ -49,12 +50,21 @@ def create_app(
     bus = EventBus()
     jobs = JobRunner(bus)
     stop = threading.Event()
+    watcher = (
+        events.ChangeWatcher(bus, events.change_probes(ctx), watch_interval)
+        if watch_interval
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        if watcher is not None:
+            watcher.start()
         yield
         stop.set()  # event streams end
         jobs.stop()  # questions answered no, no new jobs
+        if watcher is not None:
+            watcher.stop()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.ctx = ctx
@@ -80,6 +90,7 @@ def create_app(
         return await call_next(request)
 
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    app.include_router(events.router)
 
     @app.get("/")
     def home() -> RedirectResponse:
