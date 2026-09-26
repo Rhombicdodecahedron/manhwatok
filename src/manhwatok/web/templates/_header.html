@@ -1,5 +1,5 @@
 <form class="mode" hx-post="/mode" hx-trigger="change" hx-target="#header">
-  <label>Upload via
+  <label class="field">Upload via
     <select name="mode">
       {% for value, label in modes %}
       <option value="{{ value }}" {% if value == mode %}selected{% endif %}>{{ label }}</option>

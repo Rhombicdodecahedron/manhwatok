@@ -9,14 +9,13 @@
   <script src="/static/app.js" defer></script>
 </head>
 <body>
-  <nav class="sidebar">
+  <nav class="sidebar" aria-label="Pages">
     <a class="brand" href="/">manhwatok</a>
     <a href="/posts" {% if page == "posts" %}aria-current="page"{% endif %}>Posts</a>
+    <a href="/new" {% if page == "new" %}aria-current="page"{% endif %}>New post</a>
+    <div id="header" class="sidebar-foot">{% include "_header.html" %}</div>
   </nav>
-  <div class="main">
-    <header id="header" class="header">{% include "_header.html" %}</header>
-    <main>{% block content %}{% endblock %}</main>
-  </div>
+  <main class="main">{% block content %}{% endblock %}</main>
   <div id="toasts" aria-live="polite"></div>
   <dialog id="lightbox">
     <img alt="">

@@ -99,6 +99,9 @@ def create_app(
         return response
 
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
+    # The slides' own font, so the pages and the slides read as one thing.
+    fonts = HERE.parent / "assets" / "fonts"
+    app.mount("/fonts", StaticFiles(directory=fonts), name="fonts")
     app.include_router(events.router)
     app.include_router(header.router)
     app.include_router(posts.router)
