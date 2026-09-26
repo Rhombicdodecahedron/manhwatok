@@ -17,3 +17,6 @@ wheels/
 
 # Superpowers scratch (SDD ledgers, brainstorm mockups)
 /.superpowers/
+
+# IDE settings
+.idea/
