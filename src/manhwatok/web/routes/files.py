@@ -14,7 +14,7 @@ from manhwatok.web.routes.common import ctx_of
 router = APIRouter()
 
 POST_ID = re.compile(r"^[0-9A-Za-z_-]+$")
-PICTURE = re.compile(r"^[0-9A-Za-z_-][0-9A-Za-z_.-]*\.(png|jpe?g|webp)$")
+PICTURE = re.compile(r"^[0-9A-Za-z_-][0-9A-Za-z_.-]*\.(png|jpe?g|webp|gif)$")
 
 
 def file_url(path: Path) -> str:

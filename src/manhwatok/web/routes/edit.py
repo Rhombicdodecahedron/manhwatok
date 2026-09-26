@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, Response
 from starlette.datastructures import UploadFile  # what request.form() gives
 
 from manhwatok.adapters.picture_download import download_picture, looks_like_url
-from manhwatok.app.art_options import list_art, use_art
+from manhwatok.app.art_options import list_art, looks, use_art
 from manhwatok.app.edit_post import TEXT_FIELDS, update_picks, update_post_texts
 from manhwatok.app.item_art import clear_item_art, set_item_art
 from manhwatok.app.post_tools import PostTools
@@ -152,7 +152,7 @@ async def save_picks(request: Request, post_id: str) -> Response:
                 kept[pid].model_copy(update={"hook": hook}) if pid in kept
                 else PostItem(manhwa=by_id[pid], hook=hook)
             )
-        title = str(form.get("title", post.title))
+        title = post.title  # as saved now: the texts form may have changed it since
     except ManhwatokError as e:
         return done(request, str(e), "error")
 
@@ -275,6 +275,9 @@ async def own_picture(request: Request, post_id: str, anilist_id: int) -> Respon
             folder = Path(tempfile.mkdtemp(prefix="manhwatok-upload-"))
             given = folder / f"upload{suffix}"
             given.write_bytes(data)
+            if looks(given) is None:  # checked before the title's old art is removed
+                shutil.rmtree(folder, ignore_errors=True)
+                raise ManhwatokError(f"{upload.filename} isn't a picture that can be read")
         elif looks_like_url(url):
             folder, given = Path(tempfile.mkdtemp(prefix="manhwatok-url-")), None
         else:
@@ -285,6 +288,8 @@ async def own_picture(request: Request, post_id: str, anilist_id: int) -> Respon
     def change(tools) -> str:
         try:
             picture = given or download_picture(url, folder)
+            if looks(picture) is None:  # before the title's old art is removed
+                raise ManhwatokError(f"{url} didn't give a picture that can be read")
             set_item_art(post_id, anilist_id, picture, tools)
         finally:
             shutil.rmtree(folder, ignore_errors=True)

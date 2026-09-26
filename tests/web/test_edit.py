@@ -339,3 +339,62 @@ def test_a_label_that_already_says_the_size_isnt_repeated(tmp_path):
     assert "800x1569 91 likes (no artist recorded)" in html
     meta = html[html.index('<div class="meta">'):]
     assert "800×1569" not in html and meta[: meta.index("</div>")].count("91 likes") == 1
+
+
+def test_saving_picks_keeps_a_title_changed_since_the_page_opened(tmp_path):
+    ctx = _picky(tmp_path)
+    with client_for(ctx) as client:
+        editor = client.get(f"/posts/{PID}/picks").text  # loaded with the old title
+        client.post(f"/posts/{PID}/settings", data={"title": "Newer title"})
+        _last_job(client)
+        form = {"pick": ["2", "1"], "hook-2": "two", "hook-1": "one"}
+        if 'name="title"' in editor:  # what the page would send back
+            form["title"] = editor.split('name="title" value="')[1].split('"')[0]
+        client.post(f"/posts/{PID}/picks", data=form)
+        _last_job(client)
+    assert ctx.tools.posts.get(PID).title == "Newer title"
+
+
+def test_a_file_that_only_looks_like_a_picture_changes_nothing(tmp_path):
+    ctx, first = _arty(tmp_path)
+    with client_for(ctx) as client:
+        client.post(f"/posts/{PID}/art/{first}/own", files={"file": ("m.png", _png(), "image/png")})
+        _last_job(client)
+        response = client.post(f"/posts/{PID}/art/{first}/own",
+                               files={"file": ("fake.png", b"not a picture at all", "image/png")})
+    assert _notice(response)["level"] == "error" and "picture" in _notice(response)["text"]
+    assert _item(ctx, first).custom_art == f"art-{first}.png"
+    assert (ctx.tools.posts.folder(PID) / f"art-{first}.png").read_bytes() == _png()
+
+
+def test_a_link_that_isnt_a_picture_keeps_the_old_art(tmp_path, monkeypatch):
+    ctx, first = _arty(tmp_path)
+
+    def junk(url, into, client=None, timeout=20.0):
+        into.mkdir(parents=True, exist_ok=True)
+        path = into / "picture.png"
+        path.write_bytes(b"<html>not a picture</html>")
+        return path
+
+    with client_for(ctx) as client:
+        client.post(f"/posts/{PID}/art/{first}/own", files={"file": ("m.png", _png(), "image/png")})
+        _last_job(client)
+        monkeypatch.setattr(edit_routes, "download_picture", junk)
+        client.post(f"/posts/{PID}/art/{first}/own", data={"url": "https://x.test/p.png"})
+        job = _last_job(client)
+    assert job.failed and "picture" in job.outcome
+    assert _item(ctx, first).custom_art == f"art-{first}.png"
+
+
+def test_a_gif_of_ones_own_shows_on_its_card(tmp_path):
+    ctx, first = _arty(tmp_path)
+    buffer = io.BytesIO()
+    Image.new("RGB", (40, 60), (10, 200, 10)).save(buffer, "GIF")
+    with client_for(ctx) as client:
+        gif = {"file": ("m.gif", buffer.getvalue(), "image/gif")}
+        client.post(f"/posts/{PID}/art/{first}/own", files=gif)
+        _last_job(client)
+        card = client.get(f"/posts/{PID}/art").text
+        url = card.split(f'/files/{PID}/art-{first}.gif')[0].rsplit('src="', 1)[1]
+        served = client.get(f"/files/{PID}/art-{first}.gif")
+    assert url == "" and served.status_code == 200

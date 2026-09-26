@@ -1,6 +1,5 @@
 <form id="picks-form" class="new" hx-post="/posts/{{ post.id }}/picks" hx-swap="none"
       hx-disabled-elt="find button.primary">
-  <input type="hidden" name="title" value="{{ post.title }}">
   {% include "_picks_candidates.html" %}
   <section class="panel">
     {% include "_picks_list.html" %}
