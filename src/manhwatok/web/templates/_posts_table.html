@@ -15,10 +15,10 @@
     <td class="link" hx-get="/posts/{{ row.post.id }}" hx-target="#detail" hx-swap="innerHTML"
         hx-push-url="/posts?post={{ row.post.id }}">{{ row.post.id }}</td>
     <td>{{ "@" ~ row.post.account if row.post.account else "-" }}</td>
-    <td>{{ row.post.title or "(untitled)" }}</td>
-    <td><span class="status">{{ row.status }}</span></td>
-    <td>{{ row.planned }}</td>
-    <td>{{ row.sent }}</td>
+    <td>{{ row.post.title | plain or "(untitled)" }}</td>
+    <td class="nowrap"><span class="status">{{ row.status }}</span></td>
+    <td class="nowrap">{{ row.planned }}</td>
+    <td class="nowrap">{{ row.sent }}</td>
   </tr>
   {% endfor %}
   </tbody>

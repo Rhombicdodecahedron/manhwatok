@@ -21,6 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from manhwatok.app.context import AppContext, open_context
 from manhwatok.config import Settings
+from manhwatok.domain.text import plain_title
 from manhwatok.web import events
 from manhwatok.web.jobs import EventBus, JobRunner
 from manhwatok.web.routes import files, header, posts
@@ -74,6 +75,8 @@ def create_app(
     app.state.stop = stop
     app.state.clock = clock
     app.state.templates = Jinja2Templates(directory=HERE / "templates")
+    # Titles carry *accent* marks for the slides; pages show them plain, as the TUI does.
+    app.state.templates.env.filters["plain"] = plain_title
 
     origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
     hosts = {origin.split("//", 1)[1] for origin in origins}
@@ -103,9 +106,21 @@ def create_app(
     return app
 
 
+def stop_streams_on_exit(server, stop: threading.Event) -> None:
+    """End the tabs' event streams as soon as Ctrl-C arrives. Uvicorn waits for open requests
+    before the app's own shutdown runs, and an event stream never ends by itself."""
+    handle_exit = server.handle_exit
+
+    def exiting(sig, frame) -> None:
+        stop.set()
+        handle_exit(sig, frame)
+
+    server.handle_exit = exiting
+
+
 def run(settings: Settings, port: int = DEFAULT_PORT, open_browser: bool = True) -> None:
-    """Serve the app on 127.0.0.1:`port` until Ctrl-C. Open event streams are cut after two
-    seconds on the way out, so Ctrl-C doesn't wait on the tabs."""
+    """Serve the app on 127.0.0.1:`port` until Ctrl-C, which ends the tabs' event streams at
+    once so it doesn't wait on them (anything else still open gets two seconds)."""
     import uvicorn
 
     ctx = open_context(settings)
@@ -115,8 +130,12 @@ def run(settings: Settings, port: int = DEFAULT_PORT, open_browser: bool = True)
         if open_browser:
             threading.Timer(1.0, webbrowser.open, (url,)).start()
         print(f"manhwatok web on {url} — Ctrl-C stops it")
-        uvicorn.run(
-            app, host="127.0.0.1", port=port, log_level="warning", timeout_graceful_shutdown=2
+        server = uvicorn.Server(
+            uvicorn.Config(
+                app, host="127.0.0.1", port=port, log_level="warning", timeout_graceful_shutdown=2
+            )
         )
+        stop_streams_on_exit(server, app.state.stop)
+        server.run()
     finally:
         ctx.close()

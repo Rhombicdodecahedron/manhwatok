@@ -844,6 +844,22 @@ used at the same time.
   e.g. `sqlite3 ~/.local/share/manhwatok/manhwatok.db "DELETE FROM accounts WHERE handle = '__'"`
   (its posting history is kept, as with `account remove`).
 
+## Web app
+
+```bash
+uv sync --extra web          # once
+uv run manhwatok web         # opens http://127.0.0.1:8421 in your browser (--port, --no-open)
+```
+
+The web app runs on this computer only (127.0.0.1) and does what the TUI does, with the mouse:
+so far the **Posts** page — every post with its status, filters by account and status, and for
+the selected post its slides full size (click one, then ← →), its cover versions (click one to
+use it), what TikTok gets as title and description, its sounds and who can see it. Render,
+Export, Delete and visibility work on the post, and Render/Export/Delete on ticked posts too.
+The header switches how uploads go (as `b` in the TUI) and shows what is running. Changes made
+with the CLI or the TUI show up by themselves. Uploads, Build, Accounts, Themes and the plan
+come next.
+
 ## Tests
 
 ```bash
@@ -857,3 +873,6 @@ installed (`uv sync --extra upload --extra tui` installs both extras).
 `tests/browser` (marker `browser`) drives a headless Chromium against local fixture pages — never
 tiktok.com. It is skipped unless the upload extra and its Chromium are installed; `-m "not
 browser"` skips it anyway.
+
+`tests/web` drives the web app with FastAPI's test client against the same fakes; it is skipped
+unless the web extra is installed.

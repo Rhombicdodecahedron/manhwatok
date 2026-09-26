@@ -32,6 +32,9 @@ tr.selected td { background: var(--bg); }
 td.link { cursor: pointer; color: var(--accent); }
 .status { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--bg); }
 .posts { display: grid; grid-template-columns: minmax(420px, 2fr) 3fr; gap: 16px; }
+.posts > section { min-width: 0; }
+#posts-table { overflow-x: auto; }
+td.link, td.nowrap { white-space: nowrap; }
 .filters { display: flex; gap: 12px; margin-bottom: 10px; align-items: center; }
 .detail { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
           padding: 14px; min-height: 200px; }

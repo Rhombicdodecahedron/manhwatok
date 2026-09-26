@@ -236,3 +236,13 @@ def test_the_detail_has_the_buttons(tmp_path):
     assert f'hx-post="/posts/{NEW}/visibility"' in html
     assert f'hx-post="/posts/{NEW}/cover"' in html
     assert "hx-confirm" in html  # delete asks first
+
+
+def test_titles_read_without_their_accent_marks(tmp_path):
+    ctx = _posts(make_ctx(tmp_path))
+    ctx.tools.posts.save(ctx.tools.posts.get(NEW).model_copy(update={"title": "Love *hurts*"}))
+    with client_for(ctx) as client:
+        table = client.get("/posts/table").text
+        detail = client.get(f"/posts/{NEW}").text
+    assert "Love hurts" in table and "Love hurts" in detail
+    assert "*hurts*" not in table + detail

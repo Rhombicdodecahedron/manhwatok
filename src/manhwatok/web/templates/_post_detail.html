@@ -1,6 +1,6 @@
 <div id="post-detail" data-post="{{ d.post.id }}" hx-get="/posts/{{ d.post.id }}"
      hx-trigger="changed-posts from:body, changed-store from:body" hx-swap="outerHTML">
-  <h2>{{ d.post.title or "(untitled)" }}</h2>
+  <h2>{{ d.post.title | plain or "(untitled)" }}</h2>
   <p class="muted">{{ d.post.id }} · {{ d.account_label }} · <span class="status">{{ d.status }}</span>
     · planned {{ d.planned }} · sent {{ d.sent }} · visible to {{ d.visibility }}</p>
 

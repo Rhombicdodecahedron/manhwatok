@@ -67,3 +67,24 @@ def test_web_command_runs_the_server(monkeypatch):
     result = CliRunner().invoke(cli, ["web", "--port", "9000", "--no-open"])
     assert result.exit_code == 0
     assert calls == [(9000, False)]
+
+
+def test_ctrl_c_ends_the_event_streams_first():
+    """Uvicorn waits for open requests before the app's own shutdown runs, and a tab's event
+    stream never ends by itself: without this, Ctrl-C waits for the grace period and then
+    prints the cancelled streams' tracebacks."""
+    import threading
+
+    from manhwatok.web.server import stop_streams_on_exit
+
+    class Server:
+        def __init__(self):
+            self.exits = []
+
+        def handle_exit(self, sig, frame):
+            self.exits.append(sig)
+
+    server, stop = Server(), threading.Event()
+    stop_streams_on_exit(server, stop)
+    server.handle_exit(2, None)
+    assert stop.is_set() and server.exits == [2]
