@@ -246,7 +246,9 @@ def test_a_failed_save_keeps_the_search_for_another_try(tmp_path):
 
 
 def test_every_candidate_comes_with_its_hook_and_the_page_knows_the_cap(tmp_path):
-    many = [manhwa(anilist_id=n, title=f"T{n}", description=f"Hook {n}. More.") for n in range(1, 4)]
+    many = [
+        manhwa(anilist_id=n, title=f"T{n}", description=f"Hook {n}. More.") for n in range(1, 4)
+    ]
     with client_for(_ctx(tmp_path, results=many)) as client:
         html = client.post("/new/search", data={"tags": "x"}).text
     templates = html.split("<template")[1:]
