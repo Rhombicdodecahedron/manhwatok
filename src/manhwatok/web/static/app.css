@@ -157,6 +157,7 @@ details > summary { cursor: pointer; font-weight: 700; color: var(--muted); marg
 .art-title img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .art-title .name { font-weight: 700; font-size: 13px; margin: 6px 0; }
 .art-title .own { font-size: 12px; color: var(--accent); }
+.art-title .button { white-space: nowrap; padding: 8px 12px; font-size: 13px; }
 .art-picker { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 16px; }
 .art-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
 .art-option { all: unset; cursor: pointer; display: block; }

@@ -859,7 +859,13 @@ its sounds and who can see it. Render, Export, Delete and visibility work on the
 Render/Export/Delete on ticked posts too. **New post** searches like the TUI's Build — an
 account, then a theme or tags/genres — and shows the titles as covers, all picked: click one to
 drop it or pick it again, drag the picks (or use ↑↓) to order them, edit their hook lines, give
-the post a title, then Save and render opens the new post. The sidebar switches how uploads go
+the post a title, then Save and render opens the new post. **Edit** (on any post) changes
+anything about it and renders it again: its title, hashtags, emojis, byline, end-slide texts and
+accent (a colour picker); its art style (background, panel, character, scene, quad…) and cover;
+its picks (drop, add back from its candidates, reorder, hooks — each kept title keeps its
+picture); and each title's picture, found in MangaDex covers, fanart, Pinterest or Reddit
+(sorted by relevance, size, portrait fit or popularity, narrowed by a tag), or your own file or
+link — or every title at once from one source. Chapter posts change their texts only. The sidebar switches how uploads go
 (as `b` in the TUI) and shows what is running. Changes made with the CLI or the TUI show up by
 themselves. Uploads, art, Accounts, Themes and the plan come next.
 

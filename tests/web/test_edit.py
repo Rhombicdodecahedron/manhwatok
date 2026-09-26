@@ -328,3 +328,14 @@ def test_filling_every_title_from_a_source(tmp_path):
     assert all(i.custom_art for i in items)
     assert job.outcome == f"filled {len(items)} titles from pins — rendered post {PID}"
     assert _notice(response)["text"] == f"filling post {PID}…"
+
+
+def test_a_label_that_already_says_the_size_isnt_repeated(tmp_path):
+    label = "800x1569 91 likes (no artist recorded)"
+    pinned = [ArtOption(label, "https://pins.test/p.jpg", 800, 1569, 91)]
+    ctx, first = _arty(tmp_path, pins=FakeArtSource(options={1: pinned}))
+    with client_for(ctx) as client:
+        html = client.get(f"/posts/{PID}/art/{first}", params={"source": "pins"}).text
+    assert "800x1569 91 likes (no artist recorded)" in html
+    meta = html[html.index('<div class="meta">'):]
+    assert "800×1569" not in html and meta[: meta.index("</div>")].count("91 likes") == 1

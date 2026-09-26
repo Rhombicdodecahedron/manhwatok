@@ -23,7 +23,8 @@
               hx-vals='{"list": "{{ found.id }}", "index": {{ loop.index0 }}}' hx-swap="none"
               title="Use this picture">
         <div class="thumb"><img src="{{ o.url }}" alt="{{ o.label }}" loading="lazy" referrerpolicy="no-referrer"></div>
-        <div class="meta">{{ o.label }}{% if o.width %} · {{ o.width }}×{{ o.height }}{% endif %}{% if o.likes %} · {{ o.likes }} likes{% endif %}</div>
+        {% set says = o.width and (o.width ~ "x") in o.label %}
+        <div class="meta">{{ o.label }}{% if o.width and not says %} · {{ o.width }}×{{ o.height }}{% endif %}{% if o.likes and not says %} · {{ o.likes }} likes{% endif %}</div>
       </button>
       {% endfor %}
     </div>
