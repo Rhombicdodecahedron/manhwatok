@@ -230,6 +230,8 @@ def render(request: Request, post_id: str) -> Response:
 
 @router.post("/posts/{post_id}/cover")
 def cover(request: Request, post_id: str, style: str = Form(...)) -> Response:
+    if _rendering(request):  # the renderer is writing 01.png from the post it read
+        return done(request, STILL_RENDERING, "warning")
     ctx = ctx_of(request)
     try:
         chosen = CoverStyle(style)
@@ -244,6 +246,8 @@ def cover(request: Request, post_id: str, style: str = Form(...)) -> Response:
 
 @router.post("/posts/{post_id}/visibility")
 def visibility(request: Request, post_id: str, visibility: str = Form("")) -> Response:
+    if _rendering(request):  # a quad render saves the post it read at the start again
+        return done(request, STILL_RENDERING, "warning")
     ctx = ctx_of(request)
     try:
         who = Visibility(visibility) if visibility else None

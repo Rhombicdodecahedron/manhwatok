@@ -246,3 +246,28 @@ def test_titles_read_without_their_accent_marks(tmp_path):
         detail = client.get(f"/posts/{NEW}").text
     assert "Love hurts" in table and "Love hurts" in detail
     assert "*hurts*" not in table + detail
+
+
+def test_cover_and_visibility_wait_for_a_running_render(tmp_path):
+    """The renderer writes 01.png from the post it read at the start, and a quad render saves
+    that post again at the end: a cover or visibility set meanwhile would be lost or torn."""
+    import threading
+
+    from manhwatok.web.jobs import RENDER
+
+    ctx = _posts(make_ctx(tmp_path))
+    with client_for(ctx) as client:
+        release = threading.Event()
+        job = client.app.state.jobs.start(
+            RENDER, "render post a", lambda io: release.wait(5) and "ok"
+        )
+        cover = client.post(f"/posts/{NEW}/cover", data={"style": "hero"})
+        seen = client.post(f"/posts/{NEW}/visibility", data={"visibility": "private"})
+        release.set()
+        wait_job(client, job.id)
+    for response in (cover, seen):
+        assert _notice(response) == {
+            "text": "still rendering — try again when it's done", "level": "warning"
+        }
+    assert ctx.tools.posts.get(NEW).cover.value == "fan"
+    assert ctx.tools.posts.get(NEW).visibility is None
