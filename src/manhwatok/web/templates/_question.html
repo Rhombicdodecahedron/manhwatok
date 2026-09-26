@@ -1,0 +1,10 @@
+{% if q %}
+<form class="question" hx-post="/questions/{{ q.id }}" hx-swap="none">
+  <h2>{{ q.text }}</h2>
+  <div class="actions">
+    {% for label, value in q.choices %}
+    <button class="button {{ 'primary' if loop.first else '' }}" name="value" value="{{ value }}">{{ label }}</button>
+    {% endfor %}
+  </div>
+</form>
+{% endif %}

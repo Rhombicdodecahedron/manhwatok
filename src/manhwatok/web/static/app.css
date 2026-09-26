@@ -172,3 +172,11 @@ details > summary { cursor: pointer; font-weight: 700; color: var(--muted); marg
 .screen { display: block; height: 520px; aspect-ratio: 9 / 20; object-fit: contain; border-radius: 14px; background: #000; }
 ul.plain { list-style: none; padding: 0; margin: 0; }
 .job-screen .screen { height: 600px; }
+
+.job { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: start; }
+#job-log { max-height: 70vh; overflow: auto; }
+.log { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.outcome { font-weight: 700; margin-top: 14px; }
+.outcome.failed { color: var(--danger); }
+#question { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--paper); padding: 22px; min-width: 360px; }
+#question::backdrop { background: rgba(12, 11, 16, .7); }

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}{{ job.heading if job else "Job" }} · manhwatok{% endblock %}
+{% block content %}
+{% if not job %}<p class="empty">Job {{ job_id }} is gone — only the latest jobs are kept.</p>
+{% else %}
+<div class="toolbar"><h1>{{ job.heading }}</h1><span class="spacer"></span>
+  <a class="button" href="/posts">Back to posts</a></div>
+<div class="job">
+  <section class="panel"><div id="job-log" hx-get="/jobs/{{ job.id }}/log" hx-trigger="log from:body, job from:body">{% include "_job_log.html" %}</div></section>
+  {% if job.screen %}
+  <section class="job-screen"><div class="screen-frame">
+    <img class="screen" alt="The phone's screen" data-live="/phones/{{ job.screen }}/screen.png">
+    <p class="muted screen-lost" hidden>Can't see the phone's screen right now.</p></div></section>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

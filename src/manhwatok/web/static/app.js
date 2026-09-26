@@ -180,4 +180,18 @@
   }
   setInterval(refreshScreens, 1000);
   refreshScreens();
+
+  // A job's question: the dialog opens when it has one, closes when it's answered anywhere.
+  const asking = document.getElementById("question");
+  document.body.addEventListener("htmx:afterSwap", (e) => {
+    if (e.detail.target !== asking) return;
+    const has = asking.innerHTML.trim() !== "";
+    if (has && !asking.open) asking.showModal();
+    if (!has && asking.open) asking.close();
+  });
+  asking.addEventListener("cancel", (e) => e.preventDefault());  // answer it; Escape doesn't
+  // Keep a job's log scrolled to its latest line.
+  document.body.addEventListener("htmx:afterSwap", (e) => {
+    if (e.detail.target.id === "job-log") e.detail.target.scrollTop = e.detail.target.scrollHeight;
+  });
 })();

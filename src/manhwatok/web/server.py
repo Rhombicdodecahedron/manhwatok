@@ -26,7 +26,7 @@ from manhwatok.web import events
 from manhwatok.web.jobs import EventBus, JobRunner
 from manhwatok.web.drafts import ArtLists, Drafts
 from manhwatok.web.phones import Phones
-from manhwatok.web.routes import edit, files, header, new, posts
+from manhwatok.web.routes import edit, files, header, jobs as job_routes, new, posts
 from manhwatok.web.routes import phones as phone_routes
 
 HERE = Path(__file__).parent
@@ -115,6 +115,7 @@ def create_app(
     app.include_router(posts.router)
     app.include_router(files.router)
     app.include_router(phone_routes.router)
+    app.include_router(job_routes.router)
     app.include_router(new.router)
 
     @app.get("/")

@@ -1,0 +1,5 @@
+{% if job %}
+<ol class="log">{% for line in job.log %}<li>{{ line }}</li>{% endfor %}</ol>
+{% if job.running %}<p class="muted">Working…</p>
+{% else %}<p class="outcome {{ 'failed' if job.failed else '' }}">{{ job.outcome }}</p>{% endif %}
+{% endif %}

@@ -18,6 +18,7 @@
     <div id="header" class="sidebar-foot">{% include "_header.html" %}</div>
   </nav>
   <main class="main">{% block content %}{% endblock %}</main>
+  <dialog id="question" hx-get="/questions" hx-trigger="load, question from:body, answered from:body"></dialog>
   <div id="toasts" aria-live="polite"></div>
   <dialog id="lightbox">
     <img alt="">

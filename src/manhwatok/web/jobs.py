@@ -65,6 +65,7 @@ class Job:
     outcome: str | None = None
     failed: bool = False
     question: Question | None = None
+    screen: str | None = None  # a phone whose screen the job page shows
     done: threading.Event = field(default_factory=threading.Event, repr=False)
 
     @property
