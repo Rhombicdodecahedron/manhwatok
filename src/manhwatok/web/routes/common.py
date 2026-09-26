@@ -46,8 +46,11 @@ def trigger(
 def done(
     request: Request, text: str, level: str = "info", changed: Iterable[str] = ()
 ) -> Response:
-    """An empty answer for a button that only reports; other tabs hear about `changed` too."""
+    """An empty answer for a button that only reports; other tabs hear about `changed` too.
+    Nothing on the page is swapped for it — a failed search leaves the last results there."""
     changed = list(changed)
     for what in changed:
         request.app.state.bus.publish("changed", what=what)
-    return trigger(Response(status_code=200), text, level, changed)
+    response = trigger(Response(status_code=200), text, level, changed)
+    response.headers["HX-Reswap"] = "none"
+    return response

@@ -35,6 +35,11 @@ class Drafts:
                 self._drafts.popitem(last=False)
         return draft
 
+    def take(self, draft_id: str) -> None:
+        """Retire a search once it made a post, so a double click or Back can't make another."""
+        with self._lock:
+            self._drafts.pop(draft_id, None)
+
     def get(self, draft_id: str) -> Draft:
         with self._lock:
             draft = self._drafts.get(draft_id)

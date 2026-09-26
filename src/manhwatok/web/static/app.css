@@ -76,6 +76,7 @@ a.button { text-decoration: none; display: inline-block; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
 .card { position: relative; }
 .card .open { all: unset; cursor: pointer; display: block; }
+.card .open:focus-visible .thumb { outline-color: var(--accent); }
 .card .thumb {
   aspect-ratio: 9 / 16; border-radius: var(--radius-card); overflow: hidden; background: var(--panel);
   outline: 2px solid transparent; outline-offset: 3px;

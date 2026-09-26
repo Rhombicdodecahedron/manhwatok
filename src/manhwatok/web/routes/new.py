@@ -16,7 +16,7 @@ from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.labels import chapter_label
 from manhwatok.domain.models import ArtStyle, CoverStyle, SearchQuery, Sort
 from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS, MAX_ITEMS, PostItem
-from manhwatok.domain.text import split_names
+from manhwatok.domain.text import first_sentence, split_names
 from manhwatok.web.jobs import RENDER, Busy
 from manhwatok.web.routes.common import ctx_of, done, page, trigger
 
@@ -115,6 +115,7 @@ def search(
         picks=prefill_items(results),
         picked={m.anilist_id for m in results[:MAX_ITEMS]},
         label=chapter_label,
+        hook=first_sentence,
         title=title,
         account=who,
         defaults={"hashtags": DEFAULT_HASHTAGS, "accent": DEFAULT_ACCENT},
@@ -158,6 +159,7 @@ async def save(request: Request) -> Response:
         )
     except (ManhwatokError, ValueError) as e:
         return done(request, str(e), "error")
+    request.app.state.drafts.take(draft.id)
     request.app.state.bus.publish("changed", what="posts")
     bus = request.app.state.bus
 

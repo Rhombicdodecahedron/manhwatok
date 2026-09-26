@@ -38,6 +38,15 @@ class _Row:
     thumb: str | None = None  # the rendered cover (01.png), for the card
 
 
+def _url_or_none(path: Path) -> str | None:
+    """The picture's URL, or None when it isn't there — a render removes each slide before
+    drawing it again, and a refresh can land in between."""
+    try:
+        return file_url(path)
+    except OSError:
+        return None
+
+
 def _rows(ctx: AppContext, account: str, status: str) -> list[_Row]:
     zones = {a.handle: a.timezone for a in ctx.store.accounts.list()}
     wanted = account.strip().lstrip("@")
@@ -49,9 +58,9 @@ def _rows(ctx: AppContext, account: str, status: str) -> list[_Row]:
         if status and state != status:
             continue
         zone = zones.get(post.account or "", DEFAULT_TIMEZONE)
-        first = ctx.tools.posts.folder(post.id) / "01.png"
-        drawn = state not in ("draft", "not rendered") and first.is_file()
-        thumb = file_url(first) if drawn else None
+        thumb = None
+        if state not in ("draft", "not rendered"):
+            thumb = _url_or_none(ctx.tools.posts.folder(post.id) / "01.png")
         rows.append(_Row(post, state, scheduled_text(post, zone), sent_text(post, zone), thumb))
     return rows
 
@@ -132,14 +141,13 @@ def _detail(ctx: AppContext, post_id: str) -> _Detail:
     post = posts.get(post_id)
     account, label = _account(ctx, post)
     try:
-        slides = [file_url(p) for p in rendered_files(post, posts)[0]]
+        slides = [url for p in rendered_files(post, posts)[0] if (url := _url_or_none(p))]
     except NotRendered:
         slides = []
     covers = []
     for style in CoverStyle:
         path: Path = cover_version(post.id, style, ctx.tools)
-        covers.append(_Cover(style.value, file_url(path) if path.is_file() else None,
-                             style is post.cover))
+        covers.append(_Cover(style.value, _url_or_none(path), style is post.cover))
     caption, rendered = caption_text(post, posts)
     if account is not None:
         shown = visibility_for(post, account)

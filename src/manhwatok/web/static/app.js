@@ -92,9 +92,21 @@
     const id = card.dataset.id;
     const picked = card.getAttribute("aria-pressed") === "true";
     if (picked) {
-      list.querySelector(`.pick[data-id="${id}"]`)?.remove();
+      const li = list.querySelector(`.pick[data-id="${id}"]`);
+      if (li) {
+        // Keep the hook as edited, for when the title is picked again.
+        const hook = li.querySelector(`input[name="hook-${id}"]`);
+        const kept = card.querySelector("template").content.querySelector(`input[name="hook-${id}"]`);
+        if (hook && kept) kept.setAttribute("value", hook.value);
+        li.remove();
+      }
       card.setAttribute("aria-pressed", "false");
     } else {
+      const max = Number(document.getElementById("candidates").dataset.max);
+      if (list.querySelectorAll(".pick").length >= max) {
+        toast(`A post holds at most ${max} titles — drop one first`, "warning");
+        return;
+      }
       const template = card.querySelector("template");
       list.append(template.content.firstElementChild.cloneNode(true));
       card.setAttribute("aria-pressed", "true");
@@ -125,7 +137,10 @@
   let dragged = null;
   document.addEventListener("dragstart", (e) => {
     dragged = e.target.closest?.("#picks .pick");
-    if (dragged) dragged.classList.add("dragging");
+    if (!dragged) return;
+    dragged.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", dragged.dataset.id);  // Firefox won't drag without it
   });
   document.addEventListener("dragend", () => { dragged?.classList.remove("dragging"); dragged = null; ranks(); });
   document.addEventListener("dragover", (e) => {
@@ -134,6 +149,10 @@
     e.preventDefault();
     const box = over.getBoundingClientRect();
     if (e.clientY < box.top + box.height / 2) over.before(dragged); else over.after(dragged);
+  });
+  // Enter in a hook or style field must not save a half-edited post.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.matches?.("#picks-form input")) e.preventDefault();
   });
   document.body.addEventListener("htmx:afterSwap", (e) => { if (e.detail.target.id === "results") ranks(); });
 })();

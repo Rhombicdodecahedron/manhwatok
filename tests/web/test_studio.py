@@ -81,3 +81,19 @@ def test_the_detail_takes_the_accounts_accent(tmp_path):
     with client_for(ctx) as client:
         html = client.get(f"/posts/{RENDERED}").text
     assert 'style="--accent: #ff5588"' in html
+
+
+def test_a_cover_redrawn_mid_request_doesnt_break_the_list_or_the_detail(tmp_path, monkeypatch):
+    """The renderer removes 01.png before drawing it again; a refresh can land in between."""
+    from manhwatok.web.routes import posts as posts_routes
+
+    def gone(path):
+        raise FileNotFoundError(path)
+
+    ctx = _two(make_ctx(tmp_path))
+    monkeypatch.setattr(posts_routes, "file_url", gone)
+    with client_for(ctx) as client:
+        table = client.get("/posts/table")
+        detail = client.get(f"/posts/{RENDERED}")
+    assert table.status_code == 200 and "Not rendered yet" in table.text
+    assert detail.status_code == 200

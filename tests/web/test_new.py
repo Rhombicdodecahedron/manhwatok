@@ -220,3 +220,43 @@ def test_a_save_during_another_render_saves_and_says_to_render_later(tmp_path):
         "level": "warning",
     }
     assert ctx.tools.posts.get(post_id).items[0].manhwa.anilist_id == 1
+
+
+def test_a_search_is_used_up_by_its_save_so_a_double_click_makes_one_post(tmp_path):
+    ctx = _ctx(tmp_path)
+    with client_for(ctx) as client:
+        draft = _search(client)
+        form = {"draft": draft, "title": "T", "pick": ["1"]}
+        first = client.post("/new/save", data=form)
+        second = client.post("/new/save", data=form)
+        wait_job(client, client.app.state.jobs.recent()[0].id)
+    assert "HX-Redirect" in first.headers
+    assert _notice(second) == {"text": "this search is gone — search again", "level": "error"}
+    assert len(ctx.tools.posts.list()) == 1
+
+
+def test_a_failed_save_keeps_the_search_for_another_try(tmp_path):
+    ctx = _ctx(tmp_path)
+    with client_for(ctx) as client:
+        draft = _search(client)
+        client.post("/new/save", data={"draft": draft, "title": "", "pick": ["1"]})
+        retry = client.post("/new/save", data={"draft": draft, "title": "T", "pick": ["1"]})
+        wait_job(client, client.app.state.jobs.recent()[0].id)
+    assert "HX-Redirect" in retry.headers
+
+
+def test_every_candidate_comes_with_its_hook_and_the_page_knows_the_cap(tmp_path):
+    many = [manhwa(anilist_id=n, title=f"T{n}", description=f"Hook {n}. More.") for n in range(1, 4)]
+    with client_for(_ctx(tmp_path, results=many)) as client:
+        html = client.post("/new/search", data={"tags": "x"}).text
+    templates = html.split("<template")[1:]
+    assert len(templates) == 3
+    for n, template in enumerate(templates, 1):
+        assert f'name="hook-{n}" value="Hook {n}."' in template
+    assert 'data-max="33"' in html
+
+
+def test_a_failed_search_leaves_the_results_on_the_page(tmp_path):
+    with client_for(_ctx(tmp_path)) as client:
+        response = client.post("/new/search", data={})
+    assert response.headers["HX-Reswap"] == "none"
