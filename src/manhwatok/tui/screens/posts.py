@@ -15,10 +15,10 @@ from manhwatok.app.delete_post import delete_post
 from manhwatok.app.edit_post import update_picks
 from manhwatok.app.export_post import export_post
 from manhwatok.app.render_post import choose_cover, render_post, rendered_files
-from manhwatok.app.upload_post import schedule_for, sounds_for, upload_post
+from manhwatok.app.upload_post import schedule_for, set_visibility, sounds_for, upload_post
 from manhwatok.domain.account import DEFAULT_TIMEZONE
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered
-from manhwatok.domain.models import CoverStyle
+from manhwatok.domain.models import CoverStyle, Visibility
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 from manhwatok.tui.screens.art import ArtScreen
@@ -33,6 +33,7 @@ ALL = "*"
 HEADING = "account:"  # row key prefix of an account's heading row
 NO_ACCOUNT = "no account"
 MARK = "●"  # what the leading column shows on a marked row
+ACCOUNTS = "account"  # the visibility choice that leaves it to the post's account
 
 # What a bulk action does to one post; what it returns is the line shown for that post.
 BulkFn = Callable[[AppContext, ListPost], str]
@@ -117,6 +118,7 @@ class PostsPane(Vertical):
         Binding("x", "export", "Export"),
         Binding("a", "art", "Art"),
         Binding("c", "cover", "Cover"),
+        Binding("v", "visibility", "Visibility"),
         Binding("u", "upload", "Upload"),
         Binding("U", "upload(True)", "Upload (debug)", show=False),
         Binding("d", "delete", "Delete"),
@@ -466,6 +468,42 @@ class PostsPane(Vertical):
             self.reload(select=pid)
 
         self.app.push_screen(ChoiceModal(f"Cover for post {pid}", choices), chosen)
+
+    def action_visibility(self) -> None:
+        """Choose who can see the post once it is up, or leave it to its account again."""
+        post = self._selected()
+        if post is None:
+            return
+        if self.app.refuse_while_rendering():
+            return
+        pid, own = post.id, post.visibility
+        accounts = self.app.ctx.store.accounts
+        try:
+            default = accounts.get(post.account).visibility if post.account else None
+        except AccountNotFound:
+            default = None
+        default = default or Visibility.EVERYONE
+
+        def label(text: str, current: bool) -> str:
+            return text + (" (current)" if current else "")
+
+        choices = [(label(f"the account's — {default.value}", own is None), ACCOUNTS)]
+        choices += [(label(who.value, who is own), who.value) for who in Visibility]
+
+        def chosen(value: str | None) -> None:
+            if value is None:
+                return
+            who = None if value == ACCOUNTS else Visibility(value)
+            try:
+                set_visibility(self.app.ctx.tools.posts, pid, who)
+            except ManhwatokError as e:
+                self.app.fail(e)
+                return
+            seen = f"{default.spoken} (the account's)" if who is None else who.spoken
+            self.app.notify(f"post {pid} · visible to {seen}")
+            self.reload(select=pid)
+
+        self.app.push_screen(ChoiceModal(f"Who can see post {pid}", choices), chosen)
 
     def action_upload(self, debug: bool = False) -> None:
         """`u` uploads the post under the cursor, with its log screen; `U` does the same in

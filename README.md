@@ -704,7 +704,8 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   opens the slide in your image viewer), the sounds it would be offered, its art style, who
   can see it and emojis (each when set), caption and picks — or, for a chapter post, which chapter and part it is. `e` edit
   picks, `r` render, `a` art, `c` cover version (fan, quad or
-  hero; swapped in at once when already rendered), `x` export, `u` upload — filling TikTok's
+  hero; swapped in at once when already rendered), `v` who can see it (everyone, friends,
+  private, or back to the account's own — as `manhwatok visibility`), `x` export, `u` upload — filling TikTok's
   schedule from the post's slot and its visibility from the post (else its account), as
   `manhwatok upload` does — (`U` with `--debug`),
   `d` delete, `f` show one account's posts. The scheduled column is when a post goes out, in

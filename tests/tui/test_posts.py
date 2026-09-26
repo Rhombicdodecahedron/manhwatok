@@ -7,7 +7,7 @@ pytest.importorskip("textual")
 
 from manhwatok.app.render_post import render_post  # noqa: E402
 from manhwatok.domain.account import Account  # noqa: E402
-from manhwatok.domain.models import ArtStyle, CoverStyle  # noqa: E402
+from manhwatok.domain.models import ArtStyle, CoverStyle, Visibility  # noqa: E402
 from manhwatok.tui.screens.posts import PostsPane, PostTable  # noqa: E402
 from manhwatok.tui.widgets.slide_preview import SlidePreview  # noqa: E402
 from tests.tui.helpers import NOW, Opened, make_ctx, notes, run_app, wait_for  # noqa: E402
@@ -403,6 +403,69 @@ def test_escaping_the_cover_choice_changes_nothing(tmp_path):
         await pilot.pause()
         assert ctx.tools.posts.get(NEW).cover is CoverStyle.FAN
         assert "Cover:" not in _details(app)
+
+    run_app(ctx, scenario)
+
+
+def _visibility_labels(app):
+    return [str(o.prompt) for o in app.screen.query_one("OptionList")._options]
+
+
+def test_visibility_sets_who_can_see_the_post(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+    ctx.store.accounts.update(
+        ctx.store.accounts.get("reads").model_copy(update={"visibility": Visibility.FRIENDS})
+    )
+
+    async def scenario(app, pilot):
+        await pilot.press("v")
+        await pilot.pause()
+        labels = _visibility_labels(app)
+        assert labels[0] == "the account's — friends (current)"
+        assert labels[1:] == ["everyone", "friends", "private"]
+        await pilot.press("down", "down", "down", "enter")  # private
+        await pilot.pause()
+        assert ctx.tools.posts.get(NEW).visibility is Visibility.PRIVATE
+        assert f"post {NEW} · visible to you alone" in notes(app)
+        assert "Visible to: you alone" in _details(app)
+        await pilot.press("v")
+        await pilot.pause()
+        assert _visibility_labels(app)[3] == "private (current)"
+        await pilot.press("enter")  # back to the account's
+        await pilot.pause()
+        assert ctx.tools.posts.get(NEW).visibility is None
+        assert f"post {NEW} · visible to friends (the account's)" in notes(app)
+        assert "Visible to:" not in _details(app)
+
+    run_app(ctx, scenario)
+
+
+def test_visibility_of_a_post_without_an_account_defaults_to_everyone(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        await pilot.press("down", "v")
+        await pilot.pause()
+        assert _visibility_labels(app)[0] == "the account's — everyone (current)"
+        await pilot.press("down", "down", "enter")  # friends
+        await pilot.pause()
+        assert ctx.tools.posts.get(OLD).visibility is Visibility.FRIENDS
+
+    run_app(ctx, scenario)
+
+
+def test_escaping_the_visibility_choice_changes_nothing(tmp_path):
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        await pilot.press("v")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        assert ctx.tools.posts.get(NEW).visibility is None
 
     run_app(ctx, scenario)
 
