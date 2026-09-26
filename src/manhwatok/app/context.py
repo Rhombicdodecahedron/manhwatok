@@ -12,6 +12,7 @@ from manhwatok.app.chapter_post import ChapterTools
 from manhwatok.app.names import AniListNames
 from manhwatok.app.post_tools import PostTools, ProgressFn
 from manhwatok.config import Settings
+from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import ArtSourceName
 from manhwatok.ports.art import ArtSource
 from manhwatok.ports.metadata import ChapterSource, MetadataSource
@@ -19,6 +20,14 @@ from manhwatok.ports.uploader import Uploader
 
 if TYPE_CHECKING:
     from manhwatok.adapters.sqlite_store import SqliteStore
+
+
+# The upload modes the app switches between, as its header names them.
+UPLOAD_MODE_LABELS = {
+    "browser": "browser",
+    "phone": "phone",
+    "phone-post": "phone, posting and sharing to the Story",
+}
 
 
 def _no_editor(_: str) -> str | None:
@@ -43,8 +52,28 @@ class AppContext:
         return AniListNames(self.metadata, self.store.cache, warn)
 
     def uploader(self) -> Uploader:
-        """A new browser helper for one login or upload (it closes its own browser)."""
+        """A new browser (or phone) helper for one login or upload; it closes its own."""
         return self.uploader_factory()
+
+    @property
+    def upload_mode(self) -> str:
+        """How logins and uploads go: "browser", "phone", or "phone-post" — the phone, tapping
+        Post itself (MANHWATOK_UPLOADER and MANHWATOK_AUTO_POST to start with)."""
+        mode = self.settings.uploader
+        return f"{mode}-post" if mode == "phone" and self.settings.auto_post else mode
+
+    @property
+    def upload_mode_label(self) -> str:
+        return UPLOAD_MODE_LABELS.get(self.upload_mode, self.upload_mode)
+
+    def set_upload_mode(self, mode: str) -> None:
+        """Switch the next logins and uploads to `mode`, for as long as the app stays open;
+        one already under way keeps going the way it started."""
+        if mode not in UPLOAD_MODE_LABELS:
+            modes = ", ".join(UPLOAD_MODE_LABELS)
+            raise ManhwatokError(f"no upload mode {mode!r} — use one of: {modes}")
+        self.settings.uploader = mode.removesuffix("-post")
+        self.settings.auto_post = mode.endswith("-post")
 
     def close(self) -> None:
         """Close every adapter once; later calls do nothing."""

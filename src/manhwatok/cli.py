@@ -1023,6 +1023,12 @@ RANDOM_SOUND = typer.Option(
     "post's theme's own) for every upload, instead of asking. `upload --ask-sound` still "
     "asks, and `upload --sound`/`--no-sound` still decide for one post.",
 )
+STORY_TEXT = typer.Option(
+    None,
+    "--story-text",
+    help='What the phone upload writes on the Story that shares a new post, e.g. "new post, '
+    'check it out !!". "" shares the bare post.',
+)
 ACCOUNT_ACCENT = typer.Option(None, "--accent", help="Accent colour, e.g. #43c9e4.")
 BYLINE = typer.Option(
     None,
@@ -1090,6 +1096,7 @@ def _account_fields(
     slots: Optional[str] = None,
     visibility: Optional[Visibility] = None,
     byline: Optional[str] = None,
+    story_text: Optional[str] = None,
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -1102,6 +1109,7 @@ def _account_fields(
         "random_sound": random_sound,
         "accent": accent,
         "byline": byline,
+        "story_text": story_text,
         "cta_title": cta_title,
         "cta_follow": cta_follow,
         "repeat_days": repeat_days,
@@ -1136,6 +1144,7 @@ def _print_account(a) -> None:
         ("sounds", " | ".join(a.sounds) or "-"),
         ("default sound", a.default_sound or "-"),
         ("random sound", "yes" if a.random_sound else "no"),
+        ("story text", a.story_text or "-"),
         ("accent", a.accent),
         ("byline", a.byline or f"@{a.handle}"),
         ("cta title", a.cta_title),
@@ -1198,6 +1207,7 @@ def account_add(
     art_source: Optional[str] = ART_SOURCE,
     slots: Optional[str] = SLOTS,
     visibility: Optional[Visibility] = ACCOUNT_VISIBILITY,
+    story_text: Optional[str] = STORY_TEXT,
 ) -> None:
     """Add an account; unset options get the defaults."""
     from manhwatok.app.accounts import add_account
@@ -1205,7 +1215,7 @@ def account_add(
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
         emojis, sound, default_sound, random_sound, rotation, time_zone, art_source,
-        slots, visibility, byline,
+        slots, visibility, byline, story_text,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -1232,6 +1242,7 @@ def account_set(
     art_source: Optional[str] = ART_SOURCE,
     slots: Optional[str] = SLOTS,
     visibility: Optional[Visibility] = ACCOUNT_VISIBILITY,
+    story_text: Optional[str] = STORY_TEXT,
 ) -> None:
     """Change an account; only the given options change."""
     from manhwatok.app.accounts import update_account
@@ -1239,7 +1250,7 @@ def account_set(
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
         emojis, sound, default_sound, random_sound, rotation, time_zone, art_source,
-        slots, visibility, byline,
+        slots, visibility, byline, story_text,
     )
     _save_account(update_account, "updated", handle, fields)
 

@@ -50,6 +50,9 @@ class Account(BaseModel):
     # Pick one of the sounds on offer at random instead of asking, as `upload --random-sound`.
     # Defaulted, so accounts saved before it load.
     random_sound: bool = False
+    # The caption the phone upload writes on the Story that shares a new post, e.g. "new post,
+    # check it out !!"; blank shares the bare post. Defaulted, so accounts saved before it load.
+    story_text: str = ""
     # The mark every slide carries. Blank draws "@handle"; anything else is drawn as written.
     # Defaulted, so accounts saved before it load.
     byline: str = ""

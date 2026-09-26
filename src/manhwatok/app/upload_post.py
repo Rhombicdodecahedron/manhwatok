@@ -204,7 +204,9 @@ def upload_post(
             progress("typed the description")
         if report.sound:
             progress(f"added the sound {report.sound}")
-        if report.visibility is not None and report.visibility is not Visibility.EVERYONE:
+        # Said for everyone too: TikTok may open on the account's last choice, so it is worth
+        # knowing it was checked, not left alone.
+        if report.visibility is not None:
             progress(f"TikTok will show it to {report.visibility.spoken}")
         for note in report.notes:
             progress(note)
@@ -222,10 +224,30 @@ def upload_post(
         progress(f"slides and caption.txt: {posts.folder(post_id)}")
         # The question follows what the browser really managed: a schedule TikTok refused
         # leaves an ordinary "post it now" page, and the user is asked about that instead.
-        button = "Schedule" if report.scheduled_at else "Post"
-        progress(f"check the post in the browser and click {button} yourself")
-        asked = "Scheduled" if report.scheduled_at else "Posted"
-        posted = confirm(f"{asked} on {account.display}?")
+        if report.posted:
+            progress(f"tapped Post — TikTok is posting it on {account.display}")
+            posted = True
+        else:
+            button = "Schedule" if report.scheduled_at else "Post"
+            progress(f"check the post in the browser and click {button} yourself")
+            asked = "Scheduled" if report.scheduled_at else "Posted"
+            posted = confirm(f"{asked} on {account.display}?")
+        # The phone can go on to put the new post in the account's Story; a scheduled post
+        # isn't out yet, and the browser can't. A phone that tapped Post itself does it
+        # without asking too.
+        add_to_story = getattr(uploader, "add_to_story", None)
+        if posted and add_to_story and not report.scheduled_at:
+            if report.posted or confirm("Add it to your Story?"):
+                progress("opening the post's Story screen, once TikTok has finished posting it")
+                story = add_to_story(
+                    account.handle, upload_title(post), debug, account.story_text
+                )
+                for problem in story.problems:
+                    progress(problem)
+                if story.shared:
+                    progress("added it to your Story")
+                elif not story.problems:
+                    progress("check the Story on the phone and share it yourself")
     finally:
         uploader.close()
     if posted:

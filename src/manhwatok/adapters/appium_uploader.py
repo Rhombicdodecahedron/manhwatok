@@ -14,25 +14,36 @@ Every TikTok app text and selector lives in `tiktok_app.py`."""
 from __future__ import annotations
 
 import base64
+import json
+import os
 import random
 import re
 import shutil
 import subprocess
 import time
+import urllib.request
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from manhwatok.adapters.tiktok_app import TikTokApp
 from manhwatok.domain.errors import ManhwatokError, NotLoggedIn, UploadUnavailable
 from manhwatok.domain.models import Visibility
-from manhwatok.ports.uploader import UploadReport
+from manhwatok.ports.uploader import StoryReport, UploadReport
 
 INSTALL_HINT = "phone upload needs: uv sync --extra phone"
-ADB_HINT = "phone upload needs adb (Android platform-tools) on the PATH"
+ADB_HINT = "phone upload needs adb (Android platform-tools) on the PATH, or ANDROID_HOME set"
 SERVER_HINT = (
-    "phone upload needs Appium with its UiAutomator2 driver running at {url} "
-    "(npm i -g appium && appium driver install uiautomator2, then: appium)"
+    "phone upload needs Appium with its UiAutomator2 driver at {url} — install it once "
+    "(npm i -g appium && appium driver install uiautomator2); manhwatok starts it by itself"
 )
+SERVER_FAILED = "Appium didn't start at {url}: {why}"
+# Where Android's SDK and a global `appium` usually are when the PATH doesn't say (the app
+# may be started from a shell that predates them).
+SDK_DIRS = ("~/Android/Sdk", "~/Library/Android/sdk")
+APPIUM_PATHS = ("~/.local/share/pnpm/bin/appium", "~/.npm-global/bin/appium")
+LOCAL_HOSTS = ("127.0.0.1", "localhost", "::1")
+SERVER_WAIT_S = 60.0  # seconds for a freshly started Appium to answer
 NO_PHONE_HINT = "no Android phone found — plug it in with USB debugging on (check: adb devices)"
 UIAUTOMATOR = "-android uiautomator"  # AppiumBy.ANDROID_UIAUTOMATOR
 XPATH = "xpath"
@@ -59,6 +70,34 @@ def _load_appium():
     return Remote, UiAutomator2Options, WebDriverException
 
 
+def _android_home() -> str | None:
+    """The Android SDK: ANDROID_HOME, ANDROID_SDK_ROOT, else where it usually is."""
+    for name in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
+        if os.environ.get(name):
+            return os.environ[name]
+    for folder in SDK_DIRS:
+        if Path(folder).expanduser().is_dir():
+            return str(Path(folder).expanduser())
+    return None
+
+
+def _find_adb() -> str | None:
+    if found := shutil.which("adb"):
+        return found
+    sdk = _android_home()
+    adb = Path(sdk) / "platform-tools" / "adb" if sdk else None
+    return str(adb) if adb and adb.is_file() else None
+
+
+def _find_appium() -> str | None:
+    if found := shutil.which("appium"):
+        return found
+    for path in APPIUM_PATHS:
+        if Path(path).expanduser().is_file():
+            return str(Path(path).expanduser())
+    return None
+
+
 def _first_line(error: Exception) -> str:
     text = str(error).strip()
     return text.splitlines()[0] if text else type(error).__name__
@@ -79,12 +118,16 @@ class AppiumUploader:
         pause: tuple[float, float] = (0.5, 1.5),
         push_gap: float = 1.1,
         adb: list[str] | None = None,
+        appium: list[str] | None = None,
+        auto_post: bool = False,
     ) -> None:
         """`server`: the Appium server; `phone`: the phone's adb serial ("": the only one
         plugged in). `pause`: seconds to wait between steps, picked at random in that range.
         `push_gap`: seconds between two pushed slides, so the gallery dates them apart and
-        lists them in order. `adb` (the command `login` runs; default: adb on the PATH) exists
-        for the tests."""
+        lists them in order. `adb` (the command `login` runs; default: adb on the PATH or in
+        the SDK) and `appium` (the server started when none answers at a local `server`;
+        default: the installed one, [] for never) exist for the tests. `auto_post`: tap Post
+        — and share to the Story — itself once every step went fine."""
         self._debug_dir = debug_dir
         self._server = server
         self._phone = phone
@@ -92,6 +135,9 @@ class AppiumUploader:
         self._pause_s = pause
         self._push_gap = push_gap
         self._adb = adb
+        self._appium = appium
+        self._auto_post = auto_post
+        self._server_process: subprocess.Popen | None = None  # the Appium this one started
         self._driver = None
         self._error: type[Exception] = Exception  # selenium's WebDriverException, once loaded
 
@@ -132,7 +178,7 @@ class AppiumUploader:
     def _adb_command(self) -> list[str]:
         if self._adb is not None:
             adb = list(self._adb)
-        elif found := shutil.which("adb"):
+        elif found := _find_adb():
             adb = [found]
         else:
             raise UploadUnavailable(ADB_HINT)
@@ -192,18 +238,28 @@ class AppiumUploader:
             problems.append("title and description not typed — paste caption.txt yourself")
         else:
             self._fill_editor(report, title, description, sound, schedule_at, visibility)
+            if self._auto_post:
+                self._post(report)
         if debug and problems:
             report.debug_dir = self._save_debug(slides, problems)
         return report
 
     def close(self) -> None:
-        """End the Appium session, best effort; TikTok stays open on the phone for the user."""
+        """End the Appium session, and the Appium server if this one started it; best effort.
+        TikTok stays open on the phone for the user."""
         driver, self._driver = self._driver, None
         if driver is not None:
             try:
                 driver.quit()
             except Exception:
                 pass  # the server or the phone is already gone
+        server, self._server_process = self._server_process, None
+        if server is not None:
+            server.terminate()
+            try:
+                server.wait(10)
+            except subprocess.TimeoutExpired:
+                server.kill()
 
     # --- steps ---------------------------------------------------------------------------
 
@@ -216,14 +272,73 @@ class AppiumUploader:
         options.no_reset = True  # never clear TikTok's data: that is its logins
         options.new_command_timeout = 600
         try:
-            self._driver = remote(self._server, options=options)
+            try:
+                self._driver = remote(self._server, options=options)
+            except Exception as e:
+                if isinstance(e, self._error) or not self._start_server():
+                    raise
+                self._driver = remote(self._server, options=options)
+        except UploadUnavailable:
+            raise
         except Exception as e:  # the server's down: urllib3's errors, not selenium's
+            self.close()
             message = str(e)
             if "connected Android device" in message or "not found in the list" in message:
                 raise UploadUnavailable(NO_PHONE_HINT) from e
             if isinstance(e, self._error):
                 raise ManhwatokError(f"Appium couldn't start on the phone: {_first_line(e)}") from e
             raise UploadUnavailable(SERVER_HINT.format(url=self._server)) from e
+
+    def _start_server(self) -> bool:
+        """Start Appium when `server` is on this computer and nothing answers there; True once
+        it answers. False when it's elsewhere or not installed (the caller then says how)."""
+        where = urlsplit(self._server)
+        command = self._appium
+        if command is None:
+            found = _find_appium()
+            command = [found] if found else []
+        if where.hostname not in LOCAL_HOSTS or not command:
+            return False
+        env = dict(os.environ)
+        sdk = _android_home()
+        if sdk:
+            env.setdefault("ANDROID_HOME", sdk)
+            tools = str(Path(sdk) / "platform-tools")
+            env["PATH"] = os.pathsep.join([tools, env.get("PATH", "")])
+        try:
+            self._server_process = subprocess.Popen(
+                [*command, "--address", where.hostname, "--port", str(where.port or 4723),
+                 "--log-level", "error"],
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                start_new_session=True,  # a Ctrl-C in the terminal is for manhwatok to handle
+            )
+        except OSError as e:
+            raise UploadUnavailable(SERVER_FAILED.format(url=self._server, why=e)) from e
+        deadline = time.monotonic() + SERVER_WAIT_S
+        while True:
+            if self._server_process.poll() is not None:
+                said = (self._server_process.stderr.read() or b"").decode(errors="replace")
+                self._server_process = None
+                why = said.strip().splitlines()[-1] if said.strip() else "it stopped at once"
+                raise UploadUnavailable(SERVER_FAILED.format(url=self._server, why=why))
+            if self._answers():
+                return True
+            if time.monotonic() >= deadline:
+                self.close()
+                raise UploadUnavailable(
+                    SERVER_FAILED.format(url=self._server, why="no answer in time")
+                )
+            time.sleep(POLL_S)
+
+    def _answers(self) -> bool:
+        try:
+            with urllib.request.urlopen(self._server.rstrip("/") + "/status", timeout=2):
+                return True
+        except OSError:
+            return False
 
     def _mobile(self, command: str, **args):
         return self._driver.execute_script(f"mobile: {command}", args)
@@ -606,6 +721,193 @@ class AppiumUploader:
                 f'TikTok\'s "Who can see this post" reads {shown or "nothing"}, not {label} '
                 f"— {fix}"
             )
+
+    def _post(self, report: UploadReport) -> None:
+        """Tap Post — only when nothing is left for the user to finish (a problem, a planned
+        time the app can't hold): then it is theirs to post. Posted once the post screen
+        goes away."""
+        if report.problems:
+            report.notes.append("Post not tapped: finish the above on the phone, then tap it")
+            return
+        app = self._app
+        try:
+            button = self._find([app.post_ready], app.field_timeout)
+            if button is None:
+                report.problems.append("TikTok's Post button wasn't there — tap it yourself")
+                return
+            self._tap(button)
+            if self._gone(app.post_ready, app.editor_timeout):
+                report.posted = True
+            else:
+                report.problems.append(
+                    "tapped Post, but TikTok stayed on the post screen — check the phone"
+                )
+        except self._error as e:
+            report.problems.append(f"couldn't tap Post ({_first_line(e)}) — check the phone")
+
+    def _gone(self, selector: str, timeout: float) -> bool:
+        """Whether `selector` stops finding anything within `timeout` seconds."""
+        deadline = time.monotonic() + timeout
+        while self._driver.find_elements(UIAUTOMATOR, selector):
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(POLL_S)
+        return True
+
+    # --- the Story ---------------------------------------------------------------------------
+
+    def add_to_story(
+        self, handle: str, title: str, debug: bool = False, text: str = ""
+    ) -> StoryReport:
+        """Once the post is out: open the account's newest post, Share → Add to Story, and
+        stop on TikTok's Story screen for the user to share it — or, with `auto_post`, share
+        it too. `text` is written on the Story above the post. Never opens a post whose text
+        doesn't show `title`, so no other post is ever shared."""
+        fix = "add it yourself: open the post → Share → Add to Story"
+        report = StoryReport()
+        if self._driver is None:
+            report.problems.append(f"the phone isn't connected any more — {fix}")
+            return report
+        app, problems = self._app, report.problems
+        try:
+            # A post's video keeps the screen busy: don't wait for it to settle before each look.
+            self._driver.update_settings({"waitForIdleTimeout": 100})
+            self._snap(debug, "story-1-after-post")
+            cell = self._newest_post(handle, problems, fix)
+            if cell is None:
+                return report
+            self._tap(cell)
+            if not self._shows_title(title):
+                self._snap(debug, "story-2-post")
+                self._mobile("pressKey", keycode=BACK)
+                problems.append(f"the newest post of @{handle} doesn't read \"{title}\" — {fix}")
+                return report
+            share = self._find([app.share_button], app.field_timeout)
+            if share is None:
+                self._snap(debug, "story-2-post")
+                problems.append(f"TikTok's Share button wasn't there — {fix}")
+                return report
+            self._tap(share)
+            story = self._story_button()
+            if story is None:
+                self._snap(debug, "story-3-share")
+                problems.append(f"TikTok's share sheet has no Add to Story — {fix}")
+                return report
+            self._tap(story)
+            button = self._find([app.story_share], app.editor_timeout)
+            if button is not None and text.strip() and not self._story_text(text.strip()):
+                problems.append(f'couldn\'t write "{text.strip()}" on the Story — do it yourself')
+            self._snap(debug, "story-4-story")
+            if button is None:
+                problems.append(f"TikTok's Story screen didn't open — {fix}")
+            elif problems:
+                pass  # the user finishes it: never share a Story that isn't what was asked
+            elif self._auto_post:
+                self._tap(button)
+                if self._gone(app.story_share, app.editor_timeout):
+                    report.shared = True
+                else:
+                    problems.append("tapped Add to Story, but TikTok stayed there — check it")
+        except self._error as e:
+            problems.append(f"couldn't add it to the Story ({_first_line(e)}) — {fix}")
+        return report
+
+    def _story_text(self, text: str) -> bool:
+        """Write `text` on the open Story screen with its "Aa" tool and move it above the
+        post's card; False if the tool didn't open as expected."""
+        app = self._app
+        size = self._driver.get_window_size()
+        spot_x, spot_y = app.story_text_button_spot
+        self._tap_at(size["width"] * spot_x, size["height"] * spot_y)
+        box = self._find([app.story_text_box], app.field_timeout)
+        done = self._find([app.story_text_done], app.field_timeout)
+        if box is None or done is None:
+            if box is not None or done is not None:
+                self._mobile("pressKey", keycode=BACK)
+            return False
+        box.send_keys(text)
+        self._tap(done)
+        written = self._find([app.story_text_box], app.field_timeout)
+        if written is None or (written.text or "").strip() != text:
+            return False
+        box = written.rect
+        to_x, to_y = app.story_text_spot
+        self._pause()
+        self._mobile(
+            "dragGesture",
+            startX=box["x"] + box["width"] // 2, startY=box["y"] + box["height"] // 2,
+            endX=round(size["width"] * to_x), endY=round(size["height"] * to_y), speed=1500,
+        )
+        return True
+
+    def _newest_post(self, handle: str, problems: list[str], fix: str):
+        """The profile's newest post — the first cell that isn't pinned — once TikTok has
+        finished posting it; None (and a problem) when it doesn't show up in time."""
+        app = self._app
+        if self._profile_top() is None:
+            problems.append(f"couldn't open @{handle}'s profile — {fix}")
+            return None
+        tab = self._find([app.videos_tab], app.field_timeout)
+        if tab is not None:  # the profile opens on whichever tab was last used
+            self._tap(tab)
+        deadline = time.monotonic() + app.posting_timeout
+        while True:
+            grids = self._driver.find_elements(UIAUTOMATOR, app.gallery_grid)
+            cells = []
+            if grids:
+                grid = max(grids, key=lambda g: g.rect["width"] * g.rect["height"])
+                cells = [
+                    c for c in _in_order(grid.find_elements(XPATH, "/*/*"))
+                    if c.find_elements(UIAUTOMATOR, app.post_cell_marker)
+                    and not c.find_elements(UIAUTOMATOR, app.pinned_label)
+                ]
+            if cells and not cells[0].find_elements(UIAUTOMATOR, app.posting_label):
+                return cells[0]
+            if time.monotonic() >= deadline:
+                problems.append(f"TikTok hadn't finished posting after a while — {fix}")
+                return None
+            time.sleep(2)
+
+    def _shows_title(self, title: str) -> bool:
+        """Whether the open post shows `title` — its words, emojis aside."""
+        words = re.sub(r"[^\w' -]+", " ", title).split()
+        if not words:
+            return True  # nothing to check it by
+        start = " ".join(words[:3])
+        selector = f"new UiSelector().textContains({json.dumps(start)})"
+        return self._find([selector], self._app.field_timeout) is not None
+
+    def _story_button(self):
+        """"Add to Story", scrolling the share sheet's second row to it."""
+        app = self._app
+        for _ in range(4):
+            found = self._find([app.add_to_story], 1)
+            if found is not None:
+                return found
+            anchor = self._find([app.share_row_anchor], 0)
+            if anchor is None:
+                return None
+            size = self._driver.get_window_size()
+            box = anchor.rect
+            self._mobile(
+                "swipeGesture", left=size["width"] // 10, top=box["y"],
+                width=size["width"] * 8 // 10, height=box["height"], direction="left",
+                percent=0.8,
+            )
+        return None
+
+    def _snap(self, debug: bool, name: str) -> None:
+        """With `debug`, keep the screen as <debug_dir>/story-<time>/<name>.xml/.png."""
+        if not debug:
+            return
+        if not hasattr(self, "_story_dir"):
+            self._story_dir = self._debug_dir / f"story-{datetime.now():%Y%m%d-%H%M%S}"
+        try:
+            self._story_dir.mkdir(parents=True, exist_ok=True)
+            (self._story_dir / f"{name}.xml").write_text(self._driver.page_source, "utf-8")
+            self._driver.get_screenshot_as_file(str(self._story_dir / f"{name}.png"))
+        except (OSError, self._error):
+            pass
 
     def _save_debug(self, slides: list[Path], problems: list[str]) -> Path | None:
         """screenshot.png and screen.xml (every text and content-desc on the phone's screen)

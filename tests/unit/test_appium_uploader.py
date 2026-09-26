@@ -143,6 +143,9 @@ class FakeDriver:
         if (name, args) == BACK:
             self.screen.pop(APP.visibility_sheet, None)
 
+    def update_settings(self, settings):
+        self.log.append(("settings", settings))
+
     def get_window_size(self):
         return {"width": 1080, "height": 2640}
 
@@ -174,6 +177,8 @@ def _fake(monkeypatch, driver=None, error: Exception | None = None):
 
 
 def _uploader(tmp_path, **options) -> AppiumUploader:
+    """Never starts a real Appium: `appium=[]` unless a test gives a stand-in."""
+    options.setdefault("appium", [])
     return AppiumUploader(tmp_path / "debug", app=APP, pause=(0, 0), push_gap=0, **options)
 
 
@@ -213,7 +218,7 @@ def test_without_a_running_appium_it_says_how_to_start_one(tmp_path, monkeypatch
     _fake(monkeypatch, error=ConnectionRefusedError("Connection refused"))
     with pytest.raises(UploadUnavailable) as e:
         _upload(_uploader(tmp_path, server="http://127.0.0.1:9"), tmp_path)
-    assert "running at http://127.0.0.1:9" in str(e.value)
+    assert "UiAutomator2 driver at http://127.0.0.1:9" in str(e.value)
 
 
 def test_without_a_phone_it_says_to_plug_one_in(tmp_path, monkeypatch):
@@ -470,6 +475,237 @@ def test_close_is_safe_without_a_phone_and_after_it_is_gone(tmp_path, monkeypatc
     _upload(uploader, tmp_path)
     uploader.close()
     uploader.close()
+
+
+def test_auto_post_taps_post_once_all_went_fine(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    driver.screen[APP.post_ready][0].on_click = lambda: driver.screen.pop(APP.post_ready)
+    _fake(monkeypatch, driver)
+    report = _upload(_uploader(tmp_path, auto_post=True), tmp_path)
+    assert report.posted and report.problems == []
+    assert _clicks(driver)[-1] == "post"
+
+
+def test_without_auto_post_post_is_never_tapped(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    _fake(monkeypatch, driver)
+    report = _upload(_uploader(tmp_path), tmp_path)
+    assert not report.posted and "post" not in _clicks(driver)
+
+
+@pytest.mark.parametrize("planned", [False, True])
+def test_auto_post_leaves_anything_unfinished_or_planned_to_the_user(
+    tmp_path, monkeypatch, planned
+):
+    driver = FakeDriver()
+    if not planned:
+        for selector in APP.caption_candidates:
+            driver.screen.pop(selector, None)  # the description couldn't be typed
+    _fake(monkeypatch, driver)
+    when = datetime(2026, 9, 27, 17, 0, tzinfo=timezone.utc) if planned else None
+    report = _upload(_uploader(tmp_path, auto_post=True), tmp_path, schedule_at=when)
+    assert not report.posted and "post" not in _clicks(driver)
+    assert report.notes[-1].startswith("Post not tapped")
+
+
+def test_auto_post_that_tiktok_doesnt_take_is_a_problem(tmp_path, monkeypatch):
+    _fake(monkeypatch, FakeDriver())  # the post screen stays after the tap
+    report = _upload(_uploader(tmp_path, auto_post=True), tmp_path)
+    assert not report.posted
+    assert report.problems == [
+        "tapped Post, but TikTok stayed on the post screen — check the phone"
+    ]
+
+
+def _profile(driver, title="My title"):
+    """The profile after posting: a banner, a pinned post, then the new post, whose page
+    shows `title`; its Share → Add to Story opens the Story screen."""
+    marker = [APP.post_cell_marker]
+    banner = FakeElement(driver, "banner", rect=_box(0, 100, 1080, 90))
+    pinned = FakeElement(driver, "pinned", rect=_box(0, 200, 358, 477),
+                         inner=marker + [APP.pinned_label])
+    newest = FakeElement(driver, "newest", rect=_box(361, 200, 358, 477), inner=marker)
+
+    def opened():
+        driver.put(f"new UiSelector().textContains(\"{title}\")", "title text")
+        driver.put(APP.share_button, "share", on_click=lambda: driver.put(
+            APP.add_to_story, "sheet story", on_click=lambda: driver.put(
+                APP.story_share, "story share",
+                on_click=lambda: driver.screen.pop(APP.story_share))))
+
+    newest.on_click = opened
+    driver.screen[APP.gallery_grid] = [
+        FakeElement(driver, "grid", rect=_box(0, 100, 1080, 2000),
+                    children=[banner, newest, pinned])
+    ]
+    driver.put(APP.videos_tab, "videos")
+
+
+def _story(tmp_path, monkeypatch, driver, **options):
+    _fake(monkeypatch, driver)
+    uploader = _uploader(tmp_path, **options)
+    uploader._open()
+    return uploader.add_to_story("reads", "My title 💗", debug=False)
+
+
+def test_the_new_post_is_taken_to_the_story_screen_for_the_user(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    _profile(driver)
+    story = _story(tmp_path, monkeypatch, driver)
+    assert (story.shared, story.problems) == (False, [])
+    # Never the banner, never the pinned post; the Story screen is left for the user.
+    assert _clicks(driver) == ["profile", "videos", "newest", "share", "sheet story"]
+
+
+def test_with_auto_post_the_story_is_shared_too(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    _profile(driver)
+    story = _story(tmp_path, monkeypatch, driver, auto_post=True)
+    assert story.shared and _clicks(driver)[-1] == "story share"
+
+
+def _text_tool(driver, takes=True):
+    """The Story screen's "Aa": a tap at its spot opens a text box and Done; Done leaves the
+    typed text on the Story (or, when it doesn't `take`, nothing)."""
+
+    def opened():
+        box = driver.put(APP.story_text_box, "text box", rect=_box(0, 1127, 1080, 259))
+
+        def done():
+            if not takes:
+                driver.screen.pop(APP.story_text_box)
+            driver.screen.pop(APP.story_text_done)
+
+        driver.put(APP.story_text_done, "done", on_click=done)
+        return box
+
+    driver.targets.append((_box(950, 560, 90, 80), opened))
+
+
+def test_the_story_gets_its_text_above_the_post(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    _profile(driver)
+    _text_tool(driver)
+    _fake(monkeypatch, driver)
+    uploader = _uploader(tmp_path, auto_post=True)
+    uploader._open()
+    story = uploader.add_to_story("reads", "My title 💗", text="new post, check it out !!")
+    assert story.shared and story.problems == []
+    assert ("type", "text box", "new post, check it out !!") in driver.log
+    assert _taps(driver)[-1] == (996, 597)  # the "Aa" tool, at its place on the screen
+    [drag] = [e[1] for e in driver.log if e[0] == "dragGesture"]
+    assert (drag["startY"], drag["endX"], drag["endY"]) == (1256, 540, 449)
+    # Written first, then shared.
+    clicks = _clicks(driver)
+    assert clicks.index("done") < clicks.index("story share")
+
+
+def test_a_story_whose_text_didnt_take_is_left_to_the_user(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    _profile(driver)
+    _text_tool(driver, takes=False)
+    _fake(monkeypatch, driver)
+    uploader = _uploader(tmp_path, auto_post=True)
+    uploader._open()
+    story = uploader.add_to_story("reads", "My title", text="new post")
+    assert not story.shared
+    assert story.problems == ['couldn\'t write "new post" on the Story — do it yourself']
+    assert "story share" not in _clicks(driver)
+
+
+def test_a_newest_post_that_isnt_this_one_is_never_shared(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    _profile(driver, title="Another post")
+    story = _story(tmp_path, monkeypatch, driver, auto_post=True)
+    assert not story.shared
+    assert story.problems[0].startswith("the newest post of @reads doesn't read")
+    assert "share" not in _clicks(driver)
+
+
+# A stand-in for the `appium` command: answers GET /status on the --port it is given, or — with
+# FAIL set — says why it can't start and quits, as Appium does without its driver.
+FAKE_APPIUM = """
+import http.server, os, sys
+if os.environ.get("FAIL"):
+    sys.stderr.write("Error: Could not find a driver for automationName 'UiAutomator2'\\n")
+    sys.exit(1)
+port = int(sys.argv[sys.argv.index("--port") + 1])
+class Status(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200 if self.path == "/status" else 404)
+        self.end_headers()
+    def log_message(self, *args):
+        pass
+http.server.HTTPServer(("127.0.0.1", port), Status).serve_forever()
+"""
+
+
+def _free_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _down_then(driver):
+    """Appium's connect: refused until a server is started, then `driver`."""
+    calls = []
+
+    def remote(url, options):
+        calls.append(url)
+        if len(calls) == 1:
+            raise ConnectionRefusedError("Connection refused")
+        return driver
+
+    return remote, calls
+
+
+def test_a_local_appium_that_isnt_running_is_started_and_stopped_again(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    remote, calls = _down_then(driver)
+    monkeypatch.setattr(appium_uploader, "_load_appium", lambda: (remote, FakeOptions, FakeError))
+    url = f"http://127.0.0.1:{_free_port()}"
+    uploader = _uploader(tmp_path, server=url, appium=[sys.executable, "-c", FAKE_APPIUM])
+    assert _upload(uploader, tmp_path).attached
+    server = uploader._server_process
+    assert calls == [url, url] and server.poll() is None
+    uploader.close()
+    assert server.poll() is not None  # stopped with the upload
+    assert driver.quits == 1
+
+
+def test_an_appium_that_cant_start_says_why(tmp_path, monkeypatch):
+    remote, _ = _down_then(FakeDriver())
+    monkeypatch.setattr(appium_uploader, "_load_appium", lambda: (remote, FakeOptions, FakeError))
+    monkeypatch.setenv("FAIL", "1")
+    uploader = _uploader(tmp_path, server=f"http://127.0.0.1:{_free_port()}",
+                         appium=[sys.executable, "-c", FAKE_APPIUM])
+    with pytest.raises(UploadUnavailable) as e:
+        _upload(uploader, tmp_path)
+    assert str(e.value).endswith("Could not find a driver for automationName 'UiAutomator2'")
+    assert uploader._server_process is None
+
+
+def test_an_appium_on_another_computer_is_never_started(tmp_path, monkeypatch):
+    _fake(monkeypatch, error=ConnectionRefusedError("Connection refused"))
+    uploader = _uploader(tmp_path, server="http://10.0.0.9:4723",
+                         appium=[sys.executable, "-c", "raise SystemExit('started')"])
+    with pytest.raises(UploadUnavailable) as e:
+        _upload(uploader, tmp_path)
+    assert "at http://10.0.0.9:4723" in str(e.value)
+    assert uploader._server_process is None
+
+
+def test_adb_and_appium_are_found_off_the_path(tmp_path, monkeypatch):
+    sdk = tmp_path / "sdk"
+    (sdk / "platform-tools").mkdir(parents=True)
+    (sdk / "platform-tools" / "adb").write_text("")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    monkeypatch.setenv("ANDROID_HOME", str(sdk))
+    monkeypatch.setattr(appium_uploader, "APPIUM_PATHS", (str(sdk / "platform-tools" / "adb"),))
+    assert appium_uploader._find_adb() == str(sdk / "platform-tools" / "adb")
+    assert appium_uploader._find_appium() == str(sdk / "platform-tools" / "adb")
 
 
 # login() uses adb alone: nothing automates TikTok while the user logs in. This stand-in adb

@@ -22,7 +22,10 @@ from manhwatok.tui.widgets.dialogs import ConfirmModal
 from manhwatok.tui.widgets.form import FormModal
 
 LISTS = ("genres", "block_genres", "block_tags")
-TEXTS = ("hashtags", "emojis", "default_sound", "accent", "byline", "cta_title", "cta_follow")
+TEXTS = (
+    "hashtags", "emojis", "default_sound", "accent", "byline", "cta_title", "cta_follow",
+    "story_text",
+)
 ART_CHOICES = ", ".join(style.value for style in ArtStyle)
 SOURCE_CHOICES = ", ".join(source.value for source in ArtSourceName)
 VISIBILITY_CHOICES = ", ".join(who.value for who in Visibility)
@@ -65,6 +68,9 @@ LABELS = {
     "visibility": (
         f"Who can see this account's posts: {VISIBILITY_CHOICES} (empty = everyone, which is "
         "TikTok's own default; one post can say otherwise)"
+    ),
+    "story_text": (
+        "Caption on the Story the phone upload shares a new post to (empty = the bare post)"
     ),
 }
 

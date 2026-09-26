@@ -576,12 +576,16 @@ def test_the_given_visibility_beats_the_post_and_the_account(tmp_path, store):
     assert uploader.uploads[0][7] is Visibility.EVERYONE
 
 
-def test_what_tiktok_ends_up_showing_is_said_unless_it_is_everyone(tmp_path, store):
+def test_what_tiktok_ends_up_showing_is_said_everyone_too(tmp_path, store):
     posts = _posts(tmp_path)
     report = UploadReport(True, True, [], titled=True, visibility=Visibility.FRIENDS)
     messages = []
     _upload(posts, store, FakeUploader(report), messages=messages, visibility=Visibility.FRIENDS)
     assert "TikTok will show it to friends" in messages
+    report = UploadReport(True, True, [], titled=True, visibility=Visibility.EVERYONE)
+    messages = []
+    _upload(posts, store, FakeUploader(report), messages=messages)
+    assert "TikTok will show it to everyone" in messages  # checked, not left alone
     messages = []
     _upload(posts, store, FakeUploader(), messages=messages)  # report.visibility is None
     assert not [m for m in messages if "show it to" in m]
@@ -604,3 +608,73 @@ def test_set_visibility_saves_it_on_the_post_and_clears_it_with_none(tmp_path):
     assert set_visibility(posts, POST_ID, Visibility.FRIENDS).visibility is Visibility.FRIENDS
     assert posts.get(POST_ID).visibility is Visibility.FRIENDS
     assert set_visibility(posts, POST_ID, None).visibility is None  # back to the account's
+
+
+class PhoneUploader(FakeUploader):
+    """A FakeUploader that can go on to the Story, as the phone upload can."""
+
+    def __init__(self, report=None, story=None):
+        super().__init__(report)
+        from manhwatok.ports.uploader import StoryReport
+
+        self.story = story or StoryReport()
+        self.stories: list[tuple] = []
+
+    def add_to_story(self, handle, title, debug=False, text=""):
+        self.events.append("story")
+        self.stories.append((handle, title, debug, text))
+        return self.story
+
+
+def test_a_confirmed_phone_upload_offers_the_story(tmp_path, store):
+    posts = _posts(tmp_path)
+    uploader = PhoneUploader()
+    messages = []
+    posted, answer = _upload(posts, store, uploader, messages=messages)
+    assert posted
+    assert answer.questions == ["Posted on @reads?", "Add it to your Story?"]
+    assert uploader.stories == [("reads", uploader.uploads[0][2], False, "")]
+    assert uploader.events == ["upload", "confirm", "confirm", "story", "close"]
+    assert "check the Story on the phone and share it yourself" in messages
+
+
+def test_no_story_for_a_post_that_didnt_go_out_or_a_browser(tmp_path, store):
+    posts = _posts(tmp_path)
+    uploader = PhoneUploader()
+    _, answer = _upload(posts, store, uploader, yes=False)
+    assert answer.questions == ["Posted on @reads?"] and uploader.stories == []
+    _, answer = _upload(posts, store, FakeUploader())  # the browser can't
+    assert answer.questions == ["Posted on @reads?"]
+
+
+def test_a_post_the_phone_posted_itself_is_recorded_without_asking(tmp_path, store):
+    from manhwatok.ports.uploader import StoryReport
+
+    posts = _posts(tmp_path)
+    report = UploadReport(True, True, [], titled=True, posted=True)
+    uploader = PhoneUploader(report, story=StoryReport(shared=True))
+    messages = []
+    posted, answer = _upload(posts, store, uploader, messages=messages)
+    assert posted and posts.get(POST_ID).sent_at == NOW
+    assert answer.questions == []  # neither "Posted on @reads?" nor the Story: it just does
+    assert uploader.stories and uploader.events == ["upload", "story", "close"]
+    assert "tapped Post — TikTok is posting it on @reads" in messages
+    assert "added it to your Story" in messages
+
+
+def test_story_problems_are_said(tmp_path, store):
+    from manhwatok.ports.uploader import StoryReport
+
+    posts = _posts(tmp_path)
+    uploader = PhoneUploader(story=StoryReport(problems=["TikTok's Share button wasn't there"]))
+    messages = []
+    _upload(posts, store, uploader, messages=messages)
+    assert "TikTok's Share button wasn't there" in messages
+    assert "check the Story on the phone and share it yourself" not in messages
+
+
+def test_the_accounts_story_text_goes_on_the_story(tmp_path, store):
+    store.accounts.update(Account(handle="reads", story_text="new post, check it out !!"))
+    uploader = PhoneUploader()
+    _upload(_posts(tmp_path), store, uploader)
+    assert uploader.stories[0][3] == "new post, check it out !!"

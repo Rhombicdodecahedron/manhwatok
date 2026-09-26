@@ -550,7 +550,8 @@ class PostsPane(Vertical):
             posted = self._upload_one(app.ctx, post, progress, debug)
             return f"recorded post {pid} as sent" if posted else "nothing recorded"
 
-        heading = f"Upload post {pid}" + (" (debug)" if debug else "")
+        heading = f"Upload post {pid} via {app.ctx.upload_mode_label}"
+        heading += " (debug)" if debug else ""
         app.push_screen(BrowserScreen(heading, job), lambda _: self.reload(select=pid))
 
     def _refuse_browser(self) -> bool:

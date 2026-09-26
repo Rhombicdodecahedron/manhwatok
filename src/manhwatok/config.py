@@ -45,6 +45,9 @@ class Settings:
     )
     # The phone's adb serial (`adb devices`); empty: the only phone plugged in.
     phone: str = field(default_factory=lambda: _env("MANHWATOK_PHONE"))
+    # The phone upload taps Post (and, when asked, shares to the Story) itself once every step
+    # went fine, instead of leaving it to the user: MANHWATOK_AUTO_POST=1.
+    auto_post: bool = field(default_factory=lambda: _env("MANHWATOK_AUTO_POST") in ("1", "yes"))
     # TikTok's package on the phone; empty: the global app, com.zhiliaoapp.musically.
     tiktok_app: str = field(default_factory=lambda: _env("MANHWATOK_TIKTOK_APP"))
 

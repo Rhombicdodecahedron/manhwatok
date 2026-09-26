@@ -53,6 +53,7 @@ class ManhwatokApp(App[None]):
         Binding("3", "tab('accounts')", "Accounts"),
         Binding("4", "tab('themes')", "Themes"),
         Binding("5", "tab('queue')", "Queue"),
+        Binding("b", "upload_mode", "Upload via"),
         Binding("q", "quit", "Quit"),
     ]
 
@@ -86,7 +87,37 @@ class ManhwatokApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._show_upload_mode()
         self._focus_pane("posts")
+
+    # --- how uploads go ------------------------------------------------------------------
+
+    UPLOAD_MODES = [
+        ("Browser — Google Chrome on this computer", "browser"),
+        ("Phone — TikTok's app on the Android phone; you tap Post", "phone"),
+        ("Phone, all by itself — taps Post, then shares the post to the Story", "phone-post"),
+    ]
+
+    def action_upload_mode(self) -> None:
+        """`b`: choose whether logins and uploads go through Chrome or the phone, until the app
+        closes. The header says which."""
+        current = self.ctx.upload_mode
+
+        def chosen(mode: str | None) -> None:
+            if mode is None or mode == current:
+                return
+            self.ctx.set_upload_mode(mode)
+            self._show_upload_mode()
+            self.notify(f"uploads and logins now go through the {self.ctx.upload_mode_label}")
+
+        choices = [
+            (label + ("  (now)" if mode == current else ""), mode)
+            for label, mode in self.UPLOAD_MODES
+        ]
+        self.push_screen(ChoiceModal("Upload via", choices), chosen)
+
+    def _show_upload_mode(self) -> None:
+        self.sub_title = f"upload via {self.ctx.upload_mode_label}"
 
     def action_tab(self, tab: str) -> None:
         self.query_one("#tabs", TabbedContent).active = tab

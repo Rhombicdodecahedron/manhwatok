@@ -175,7 +175,8 @@ def build_uploader(settings: Settings) -> Uploader:
 
         app = TikTokApp(package=settings.tiktok_app) if settings.tiktok_app else TikTokApp()
         return AppiumUploader(
-            settings.debug_dir, server=settings.appium_url, phone=settings.phone, app=app
+            settings.debug_dir, server=settings.appium_url, phone=settings.phone, app=app,
+            auto_post=settings.auto_post,
         )
     if settings.uploader != "browser":
         raise ManhwatokError(

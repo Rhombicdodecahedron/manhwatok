@@ -316,3 +316,49 @@ def test_tui_command_without_the_extra_says_how_to_install(monkeypatch):
     result = runner.invoke(cli, ["tui"])
     assert result.exit_code == 1
     assert "error: the TUI needs the tui extra — run: uv sync --extra tui" in result.output
+
+
+def test_b_chooses_how_uploads_go_until_the_app_closes(tmp_path):
+    ctx = make_ctx(tmp_path)
+
+    async def scenario(app, pilot):
+        assert app.sub_title == "upload via browser"  # MANHWATOK_UPLOADER's, to start with
+        await pilot.press("b")
+        modal = app.screen
+        assert isinstance(modal, ChoiceModal)
+        assert [value for _, value in modal.choices] == ["browser", "phone", "phone-post"]
+        assert modal.choices[0][0].endswith("(now)")
+        modal.dismiss("phone")
+        await pilot.pause()
+        assert ctx.upload_mode == "phone"
+        assert app.sub_title == "upload via phone"
+        assert "uploads and logins now go through the phone" in notes(app)
+        await pilot.press("b")
+        app.screen.dismiss(None)  # escape changes nothing
+        await pilot.pause()
+        assert ctx.upload_mode == "phone"
+        await pilot.press("b")
+        app.screen.dismiss("phone-post")
+        await pilot.pause()
+        assert (ctx.settings.uploader, ctx.settings.auto_post) == ("phone", True)
+        assert app.sub_title == "upload via phone, posting and sharing to the Story"
+        await pilot.press("b")
+        app.screen.dismiss("browser")  # and back: nothing taps Post in the browser
+        await pilot.pause()
+        assert (ctx.settings.uploader, ctx.settings.auto_post) == ("browser", False)
+
+    run_app(ctx, scenario)
+
+
+def test_the_chosen_mode_is_what_the_next_upload_is_built_with(tmp_path):
+    from manhwatok.adapters.appium_uploader import AppiumUploader
+    from manhwatok.adapters.playwright_uploader import PlaywrightUploader
+    from manhwatok.app import container
+
+    ctx = make_ctx(tmp_path)
+    ctx.uploader_factory = lambda: container.build_uploader(ctx.settings)
+    assert isinstance(ctx.uploader(), PlaywrightUploader)
+    ctx.set_upload_mode("phone")
+    assert isinstance(ctx.uploader(), AppiumUploader)
+    with pytest.raises(ManhwatokError):
+        ctx.set_upload_mode("fax")

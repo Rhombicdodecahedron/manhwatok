@@ -91,6 +91,31 @@ class TikTokApp:
     visibility_sheet: str = 'new UiSelector().text("Who can view this post")'
     # What the app calls each Visibility, in its order.
     visibility_names: tuple[str, ...] = ("Everyone", "Friends", "Only you")
+    # --- adding the new post to the Story, once the user has posted it ---
+    # The profile grid's pinned posts come first and say so; the newest post is the first
+    # cell without it. While TikTok is still posting, its cell shows how far it got ("45%").
+    pinned_label: str = 'new UiSelector().text("Pinned")'
+    # A post's cell shows its view count; banners in the grid ("View expired Stories") don't.
+    post_cell_marker: str = _id("tv_play_count")
+    videos_tab: str = 'new UiSelector().description("Videos")'
+    posting_label: str = 'new UiSelector().textMatches("[0-9]+%")'
+    share_button: str = 'new UiSelector().descriptionStartsWith("Share")'
+    # The share sheet's second row scrolls sideways; "Add to Story" is past its first screen.
+    # "Download" is always on its first screen, so it says where the row is.
+    share_row_anchor: str = 'new UiSelector().description("Download")'
+    add_to_story: str = 'new UiSelector().description("Add to Story")'
+    # The Story screen that opens then: its own "Add to Story" button (a text, not a
+    # description, unlike the sheet's) is what shares it.
+    story_share: str = 'new UiSelector().text("Add to Story")'
+    # The Story screen's tools are unlabelled icons down the right: "Aa" (text) is the fourth,
+    # tapped at this fraction of the screen. It opens a text box and a "Done" button.
+    story_text_button_spot: tuple[float, float] = (0.922, 0.226)
+    story_text_box: str = 'new UiSelector().className("android.widget.EditText")'
+    story_text_done: str = 'new UiSelector().text("Done")'
+    # The text lands over the middle of the post's card; it is dragged up above the card, to
+    # this fraction of the screen.
+    story_text_spot: tuple[float, float] = (0.5, 0.17)
+    posting_timeout: float = 180.0  # seconds: TikTok finishes posting after the user tapped Post
     launch_timeout: float = 20.0  # seconds: the app opens, a tab or screen shows up
     switch_timeout: float = 15.0  # seconds: the app reloads on another account
     gallery_timeout: float = 20.0  # seconds: the picker lists the pushed slides

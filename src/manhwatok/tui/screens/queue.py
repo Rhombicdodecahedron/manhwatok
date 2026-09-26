@@ -331,7 +331,7 @@ class QueuePane(Vertical):
             posted = upload_in_app(app, app.ctx, post, progress, debug=False)
             return f"recorded post {post.id} as sent" if posted else "nothing recorded"
 
-        screen = BrowserScreen(f"Upload post {post.id}", job)
+        screen = BrowserScreen(f"Upload post {post.id} via {app.ctx.upload_mode_label}", job)
         app.push_screen(screen, lambda _: self.reload(select=f"post:{post.id}"))
 
     def _schedule(self, post_id: str, when: str | None, done: str) -> None:

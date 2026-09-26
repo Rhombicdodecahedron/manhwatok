@@ -701,13 +701,16 @@ same; you tap **Post** on the phone.
 ```bash
 uv sync --extra phone                                  # once: Appium's Python client
 npm i -g appium && appium driver install uiautomator2  # once: the Appium server
-appium                                                 # leave it running in another terminal
 
 export MANHWATOK_UPLOADER=phone
 uv run manhwatok login @manhwa.daily      # log in (or add the account) in TikTok on the phone
 uv run manhwatok upload <id>
 ```
 
+- manhwatok starts Appium by itself when nothing answers at `MANHWATOK_APPIUM_URL` on this
+  computer, and stops it after the upload; one you started yourself is used and left running.
+  `appium` and `adb` are found on the PATH, else in `~/.local/share/pnpm/bin` and the Android SDK
+  (`ANDROID_HOME`, else `~/Android/Sdk`).
 - The phone needs USB debugging on (`adb devices` lists it; adb comes with Android's
   platform-tools and has to be on the PATH, and Appium needs `ANDROID_HOME` set to the SDK) and
   TikTok in English. With several
@@ -722,6 +725,18 @@ uv run manhwatok upload <id>
   picker lists them newest-first in order; the upload then selects the first cells. Don't take
   a screenshot in the meantime, and check the order before tapping Post. The pushed files stay
   there — clear the folder now and then.
+- **All by itself** (`MANHWATOK_AUTO_POST=1`, or "Phone, all by itself" under `b` in the
+  terminal app): once every step went fine, the upload taps Post itself, records the post as
+  sent and shares it to the account's Story (with its `--story-text`), without asking. Anything left to finish by hand — a box not found, a visibility that
+  didn't take, a post planned for later (the app can't schedule) — and it leaves Post to you
+  as usual.
+- **Your Story**: after a post you posted yourself goes out, the upload asks `Add it to your
+  Story?`. Yes opens
+  the account's newest post (it must show the post's title, so no other post is shared),
+  Share → Add to Story, and leaves the Story screen for you — or shares it too when it taps
+  Post for you. It waits for TikTok to finish posting first. `account set @x --story-text "new
+  post, check it out !!"` writes that on the Story, above the post (the Accounts tab has it too);
+  if the text doesn't take, the Story is left for you, never shared without it.
 - TikTok's app has no schedule of its own (only TikTok Studio on the web does): a planned post
   says so and goes out when you tap Post. Use the browser upload to schedule.
 - TikTok's app adds a sound to photos by itself. With no sound asked for, `upload` says which one
@@ -803,7 +818,10 @@ Slides show as real pictures in terminals with image support (kitty, WezTerm, Ko
 other sixel terminals); elsewhere as coloured blocks. Uploading works as with `manhwatok upload`:
 if the account has sounds, a dialog first asks which one to add (or "no sound"; `esc` adds
 none) — unless the account picks at random, or a preset sound decides — the log shows what the
-browser did, and a dialog asks whether you posted it. A bulk `U` asks the same questions, post
+browser did, and a dialog asks whether you posted it. `b` (any tab) chooses whether logins
+and uploads go through Chrome or the phone ([Appium](#on-an-android-phone-instead-appium));
+the header says which (`upload via phone`); a third choice has the phone post and share to the Story by itself. It starts from `MANHWATOK_UPLOADER` and lasts
+until the app closes. A bulk `U` asks the same questions, post
 after post, without the log screen. Only one render and one
 browser run at a time (a bulk run counts as the render); quitting waits for both. The TUI and the commands can be
 used at the same time.

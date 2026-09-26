@@ -28,6 +28,18 @@ class UploadReport:
     # when it was left alone — everyone, TikTok's own default — or when it couldn't be read.
     visibility: Visibility | None = None
     notes: list[str] = field(default_factory=list)
+    # True once the uploader tapped Post itself (the phone upload, when told to) and TikTok
+    # took it: nobody has to be asked whether it went out.
+    posted: bool = False
+
+
+@dataclass
+class StoryReport:
+    """What adding a new post to the account's Story came to: `shared` once it is on the
+    Story, else `problems` say what the user has to finish by hand."""
+
+    shared: bool = False
+    problems: list[str] = field(default_factory=list)
 
 
 class Uploader(Protocol):
@@ -52,7 +64,8 @@ class Uploader(Protocol):
         `schedule_at`, also switch TikTok to "Schedule" and fill in that date and time (rounded
         to what its picker takes). `visibility` sets "Who can see this post", and is left alone
         for EVERYONE — what TikTok opens on. Then leave the window open for the user to review
-        and post — the final button is never clicked here. Raises NotLoggedIn,
+        and post — the final button is never clicked here, unless the uploader was made to
+        (then `posted` says whether it went out). Raises NotLoggedIn,
         UploadUnavailable, or ManhwatokError if the browser is gone before the slides are
         attached; anything not found later is reported in `problems`."""
         ...

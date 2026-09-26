@@ -71,7 +71,7 @@ def test_no_records_nothing_and_debug_is_passed_on(tmp_path):
 
     async def scenario(app, pilot):
         await _upload_until_asked(app, pilot, key="U")
-        assert app.screen_stack[-2].heading == f"Upload post {PID} (debug)"
+        assert app.screen_stack[-2].heading == f"Upload post {PID} via browser (debug)"
         await pilot.press("n")
         await wait_for(pilot, lambda: "nothing recorded" in _log(app))
 
