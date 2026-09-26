@@ -1,0 +1,10 @@
+<form class="mode" hx-post="/mode" hx-trigger="change" hx-target="#header">
+  <label>Upload via
+    <select name="mode">
+      {% for value, label in modes %}
+      <option value="{{ value }}" {% if value == mode %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </label>
+</form>
+<div id="busy" hx-get="/busy" hx-trigger="job from:body">{% include "_busy.html" %}</div>

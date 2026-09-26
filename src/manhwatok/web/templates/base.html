@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}manhwatok{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <nav class="sidebar">
+    <a class="brand" href="/">manhwatok</a>
+    <a href="/posts" {% if page == "posts" %}aria-current="page"{% endif %}>Posts</a>
+  </nav>
+  <div class="main">
+    <header id="header" class="header">{% include "_header.html" %}</header>
+    <main>{% block content %}{% endblock %}</main>
+  </div>
+  <div id="toasts" aria-live="polite"></div>
+  <dialog id="lightbox">
+    <img alt="">
+    <button type="button" class="prev" aria-label="Previous slide">‹</button>
+    <button type="button" class="next" aria-label="Next slide">›</button>
+    <button type="button" class="close" aria-label="Close">✕</button>
+  </dialog>
+</body>
+</html>
