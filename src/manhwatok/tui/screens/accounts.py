@@ -24,7 +24,7 @@ from manhwatok.tui.widgets.form import FormModal
 LISTS = ("genres", "block_genres", "block_tags")
 TEXTS = (
     "hashtags", "emojis", "default_sound", "accent", "byline", "cta_title", "cta_follow",
-    "story_text",
+    "story_text", "phone",
 )
 ART_CHOICES = ", ".join(style.value for style in ArtStyle)
 SOURCE_CHOICES = ", ".join(source.value for source in ArtSourceName)
@@ -71,6 +71,10 @@ LABELS = {
     ),
     "story_text": (
         "Caption on the Story the phone upload shares a new post to (empty = the bare post)"
+    ),
+    "phone": (
+        "The phone this account is logged in on — its serial, see adb devices "
+        "(empty = the only one)"
     ),
 }
 

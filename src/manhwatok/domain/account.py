@@ -53,6 +53,9 @@ class Account(BaseModel):
     # The caption the phone upload writes on the Story that shares a new post, e.g. "new post,
     # check it out !!"; blank shares the bare post. Defaulted, so accounts saved before it load.
     story_text: str = ""
+    # The phone (its adb serial, `adb devices`) this account's TikTok app is logged in on: the
+    # phone upload uses it unless told otherwise. Blank: the only phone plugged in.
+    phone: str = ""
     # The mark every slide carries. Blank draws "@handle"; anything else is drawn as written.
     # Defaulted, so accounts saved before it load.
     byline: str = ""
