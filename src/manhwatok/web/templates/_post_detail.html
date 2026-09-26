@@ -25,7 +25,7 @@
       {% if d.post.sent_at %}hx-confirm="Post {{ d.post.id }} was already sent. Render it again?"{% endif %}>Render</button>
     <a class="button" href="/posts/{{ d.post.id }}/edit">Edit</a>
     <button class="button" hx-post="/posts/{{ d.post.id }}/export" hx-swap="none">Export</button>
-    <button class="button" hx-get="/posts/{{ d.post.id }}/upload" hx-target="#upload-panel">Upload</button>
+    <button class="button" hx-get="/posts/{{ d.post.id }}/upload" hx-target="#upload-panel" hx-swap="innerHTML">Upload</button>
     <form hx-post="/posts/{{ d.post.id }}/visibility" hx-trigger="change" hx-swap="none">
       <select name="visibility" aria-label="Who can see it">
         <option value="" {% if d.post.visibility is none %}selected{% endif %}>Visible as the account says</option>

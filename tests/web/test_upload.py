@@ -155,3 +155,13 @@ def test_log_in_runs_on_the_accounts_phone(tmp_path):
         job = wait_job(client, response.headers["HX-Redirect"].rsplit("/", 1)[1])
     assert uploader.logins == ["reads"] and built == [("phone", False, PHONE)]
     assert not job.failed
+
+
+def test_the_upload_dialog_fills_its_panel_instead_of_replacing_it(tmp_path):
+    """The detail pane swaps itself whole (hx-swap="outerHTML"), and htmx hands that to the
+    buttons inside it unless they say otherwise — the dialog would take the panel's place."""
+    ctx, _, _, phones = _world(tmp_path)
+    with client_for(ctx, phones=phones) as client:
+        html = client.get(f"/posts/{PID}").text
+    button = html[html.index(f'hx-get="/posts/{PID}/upload"'):]
+    assert 'hx-swap="innerHTML"' in button[: button.index(">")]

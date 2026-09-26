@@ -865,7 +865,16 @@ accent (a colour picker); its art style (background, panel, character, scene, qu
 its picks (drop, add back from its candidates, reorder, hooks — each kept title keeps its
 picture); and each title's picture, found in MangaDex covers, fanart, Pinterest or Reddit
 (sorted by relevance, size, portrait fit or popularity, narrowed by a tag), or your own file or
-link — or every title at once from one source. Chapter posts change their texts only. The sidebar switches how uploads go
+link — or every title at once from one source. Chapter posts change their texts only.
+**Upload** (on a post, or "Upload ticked") asks how — browser, phone, or phone all by itself —
+which phone, and as which account (another account moves the post to it and renders it again
+first), then opens the upload's own page: its log as it happens, the phone's screen live, and
+the upload's questions (which sound, "Posted?", the Story) in a dialog on whatever page is open.
+**Phones** lists the phones plugged in (ready, or what's wrong: USB debugging not allowed,
+offline), whether TikTok is installed, each phone's screen live, and the accounts that live on
+it — `account set @x --phone SERIAL` ties an account to its phone (the Accounts tab has it too),
+and uploads use that phone unless you pick another. "Log in here" opens TikTok on that phone for
+an account. The sidebar switches how uploads go
 (as `b` in the TUI) and shows what is running. Changes made with the CLI or the TUI show up by
 themselves. Uploads, art, Accounts, Themes and the plan come next.
 
