@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import secrets
 from datetime import date
@@ -74,6 +75,25 @@ class FsPostRepository:
             except (ValidationError, OSError, UnicodeDecodeError):
                 continue  # a corrupt or unreadable folder shouldn't hide the others
         return sorted(posts, key=lambda p: p.created_at, reverse=True)
+
+    def stamp(self) -> tuple:
+        """A fingerprint of every post on disk, cheap to take: it changes when a post is added,
+        saved, deleted or rendered again (by this process or any other), so a screen that shows
+        posts can tell when to read them again."""
+        if not self._dir.is_dir():
+            return ()
+        marks = []
+        for folder in sorted(self._dir.iterdir(), key=lambda p: p.name):
+            if not _ID.fullmatch(folder.name):
+                continue
+            try:
+                with os.scandir(folder) as entries:
+                    times = [e.stat().st_mtime_ns for e in entries if e.is_file()]
+                # every file's time counts: one slide written over changes the sum
+                marks.append((folder.name, folder.stat().st_mtime_ns, len(times), sum(times)))
+            except OSError:
+                continue  # removed while looking: the next stamp will say so
+        return tuple(marks)
 
     def save_draft(self, post_id: str, text: str) -> None:
         folder = self.folder(post_id)

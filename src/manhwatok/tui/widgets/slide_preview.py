@@ -44,8 +44,11 @@ class SlidePreview(Vertical):
     def current(self) -> Path | None:
         return self.slides[self.index] if self.slides else None
 
-    def show(self, slides: list[Path], note: str = "") -> None:
-        self.slides, self.index = list(slides), 0
+    def show(self, slides: list[Path], note: str = "", index: int = 0) -> None:
+        """Show `slides` from the `index`th (the first, when there are fewer now), reading the
+        pictures again even when the paths are the same: they may have been rendered anew."""
+        self.slides = list(slides)
+        self.index = index if 0 <= index < len(self.slides) else 0
         self._note = note
         self._update()
 

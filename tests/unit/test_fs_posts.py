@@ -105,3 +105,46 @@ def test_draft_save_load_clear(tmp_path):
     repo.clear_draft("20260914-a3f9")
     repo.clear_draft("20260914-a3f9")  # idempotent
     assert repo.load_draft("20260914-a3f9") is None
+
+
+# --- noticing changes made from elsewhere -------------------------------------------------------
+
+
+def test_the_stamp_stays_the_same_while_nothing_changes(tmp_path):
+    repo = FsPostRepository(tmp_path)
+    repo.save(post(id="20260914-0001"))
+    assert repo.stamp() == repo.stamp()
+
+
+def test_the_stamp_changes_when_a_post_is_added_saved_or_deleted(tmp_path):
+    import os
+    import shutil
+
+    repo = FsPostRepository(tmp_path)
+    before = repo.stamp()
+    repo.save(post(id="20260914-0001"))
+    added = repo.stamp()
+    assert added != before
+    path = repo.folder("20260914-0001") / "post.json"
+    os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 1_000_000))
+    assert repo.stamp() != added
+    shutil.rmtree(repo.folder("20260914-0001"))
+    assert repo.stamp() == before
+
+
+def test_the_stamp_changes_when_a_slide_is_written_over_in_place(tmp_path):
+    import os
+
+    repo = FsPostRepository(tmp_path)
+    repo.save(post(id="20260914-0001"))
+    slide = repo.folder("20260914-0001") / "01.png"
+    slide.write_bytes(b"old")
+    (repo.folder("20260914-0001") / "02.png").write_bytes(b"written after")
+    before = repo.stamp()
+    slide.write_bytes(b"new")
+    os.utime(slide, ns=(slide.stat().st_atime_ns, slide.stat().st_mtime_ns + 1_000_000))
+    assert repo.stamp() != before
+
+
+def test_the_stamp_of_no_posts_folder_is_empty(tmp_path):
+    assert FsPostRepository(tmp_path / "none").stamp() == ()

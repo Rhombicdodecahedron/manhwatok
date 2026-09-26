@@ -129,6 +129,45 @@ def test_a_heading_row_is_no_post(tmp_path):
     run_app(ctx, scenario)
 
 
+def test_a_post_built_outside_the_app_shows_up_on_its_own(tmp_path, monkeypatch):
+    """A `chapter build` in another terminal: the list picks the new post up, no key pressed."""
+    monkeypatch.setattr(PostsPane, "POLL_SECONDS", 0.05)
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+
+    async def scenario(app, pilot):
+        later = datetime(2026, 9, 15, tzinfo=timezone.utc)
+        ctx.tools.posts.save(post(id=DRAFT, account="reads", created_at=later))
+        await wait_for(pilot, lambda: DRAFT in [r[1] for r in _posts(app)])
+        assert app.query_one(PostTable).current_key == NEW  # the cursor stays where it was
+
+    run_app(ctx, scenario)
+
+
+def test_slides_rendered_again_outside_the_app_are_shown_where_you_were(tmp_path, monkeypatch):
+    """A re-render writes the slides over in place: the preview reads them again, and stays on
+    the slide being looked at."""
+    import os
+
+    monkeypatch.setattr(PostsPane, "POLL_SECONDS", 0.05)
+    ctx = make_ctx(tmp_path)
+    _two_posts(ctx)
+    folder = ctx.tools.posts.folder(NEW)
+    shown = []
+
+    async def scenario(app, pilot):
+        preview = app.query_one(SlidePreview)
+        await pilot.press("right", "right")
+        monkeypatch.setattr(preview, "_update", lambda: shown.append(preview.current))
+        slide = folder / "03.png"
+        stat = slide.stat()
+        os.utime(slide, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
+        await wait_for(pilot, lambda: bool(shown))
+        assert shown[-1] == folder / "03.png"
+
+    run_app(ctx, scenario)
+
+
 def test_the_preview_flips_through_the_highlighted_posts_slides(tmp_path):
     ctx = make_ctx(tmp_path)
     _two_posts(ctx)

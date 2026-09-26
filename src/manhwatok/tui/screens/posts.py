@@ -128,11 +128,15 @@ class PostsPane(Vertical):
         Binding("escape", "unmark_all", "Clear marks", show=False),
     ]
 
+    POLL_SECONDS = 2.0  # how often the posts folder is looked at for changes made elsewhere
+
     def __init__(self) -> None:
         super().__init__()
         self.account_filter: str | None = None
         self.posts: dict[str, ListPost] = {}
         self.marked: set[str] = set()  # the ids `r`, `x` and `U` act on, when there are any
+        self._stamp: tuple | None = None  # the posts folder as last read, to notice changes
+        self._shown: str | None = None  # the post in the preview
 
     def compose(self) -> ComposeResult:
         yield PostTable(id="posts-table", cursor_type="row", zebra_stripes=True)
@@ -148,6 +152,18 @@ class PostsPane(Vertical):
         )
         self.mark_column = columns[0]
         self.reload()
+        self.set_interval(self.POLL_SECONDS, self._poll)
+
+    def _poll(self) -> None:
+        """Read the posts again when they changed on disk: a build, a render or a delete in
+        another terminal (or a worker here) shows up without a key pressed, the cursor and
+        the slide being looked at staying put."""
+        try:
+            stamp = self.app.ctx.tools.posts.stamp()
+        except OSError:
+            return
+        if stamp != self._stamp:
+            self.reload(keep_place=True)
 
     def focus_main(self) -> None:
         self.query_one(PostTable).focus()
@@ -155,10 +171,16 @@ class PostsPane(Vertical):
     def refresh_data(self) -> None:
         self.reload()
 
-    def reload(self, select: str | None = None) -> None:
-        """Read the posts again; keep (or move) the cursor to `select` or the current post."""
+    def reload(self, select: str | None = None, keep_place: bool = False) -> None:
+        """Read the posts again; keep (or move) the cursor to `select` or the current post —
+        and, with `keep_place`, the preview on the slide it was showing."""
         ctx = self.app.ctx
         keep = select or self.current_id
+        slide = self.query_one(SlidePreview).index if keep_place else 0
+        try:
+            self._stamp = ctx.tools.posts.stamp()
+        except OSError:
+            self._stamp = None
         try:
             posts = ctx.tools.posts.list()
             if self.account_filter:
@@ -190,7 +212,7 @@ class PostsPane(Vertical):
         if keep in self.posts:
             table.move_cursor(row=table.get_row_index(keep))
         table.skip_headings(1)  # the first row is a heading; start on the post under it
-        self.show_post(self.current_id)
+        self.show_post(self.current_id, slide if self.current_id == keep else 0)
 
     @property
     def current_id(self) -> str | None:
@@ -202,9 +224,12 @@ class PostsPane(Vertical):
         return self.posts.get(self.current_id or "")
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        self.show_post(self.current_id)
+        # the table highlights its row again after every reload: the same post stays on its slide
+        same = self.current_id is not None and self.current_id == self._shown
+        self.show_post(self.current_id, self.query_one(SlidePreview).index if same else 0)
 
-    def show_post(self, post_id: str | None) -> None:
+    def show_post(self, post_id: str | None, slide: int = 0) -> None:
+        self._shown = post_id
         preview = self.query_one(SlidePreview)
         details = self.query_one("#details", Static)
         post = self.posts.get(post_id or "")
@@ -220,7 +245,7 @@ class PostsPane(Vertical):
         except NotRendered:
             slides = []
             note = "no picks — press e" if post.is_unfinished else "not rendered — press r"
-        preview.show(slides, note)
+        preview.show(slides, note, slide)
         details.update(post_details(post, ctx.tools.posts, self._sounds(post)))
 
     def _sounds(self, post: ListPost) -> list[str]:

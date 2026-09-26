@@ -712,7 +712,9 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   its account's time zone; the sent one is the day it did. `space` marks the post under the
   cursor (`●` in the first column), `ctrl+a` marks every post shown, `esc` clears the marks;
   with marks, `r`, `x` and `U` work through all of them in one run, in the order shown, going
-  on past a failure and ending with one summary (`rendered 3, 1 failed: <id> <why>`).
+  on past a failure and ending with one summary (`rendered 3, 1 failed: <id> <why>`). The list
+  and the preview keep up on their own: a post built, rendered or deleted from another terminal
+  shows up within two seconds, the cursor and the slide being looked at staying put.
 - **Art** (`a` on a post) — the post's titles on the left, with the picture each one is drawn
   with. `enter` on a title lists MangaDex's volume covers for it, `enter` on one of those
   downloads it and re-renders; `s` steps through the sources (covers, fan art, pins), `u` takes
