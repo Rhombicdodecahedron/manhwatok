@@ -24,7 +24,7 @@ from manhwatok.config import Settings
 from manhwatok.domain.text import plain_title
 from manhwatok.web import events
 from manhwatok.web.jobs import EventBus, JobRunner
-from manhwatok.web.drafts import Drafts
+from manhwatok.web.drafts import ArtLists, Drafts
 from manhwatok.web.routes import edit, files, header, new, posts
 
 HERE = Path(__file__).parent
@@ -76,6 +76,7 @@ def create_app(
     app.state.stop = stop
     app.state.clock = clock
     app.state.drafts = Drafts()
+    app.state.art_lists = ArtLists()
     app.state.templates = Jinja2Templates(directory=HERE / "templates")
     # Titles carry *accent* marks for the slides; pages show them plain, as the TUI does.
     app.state.templates.env.filters["plain"] = plain_title

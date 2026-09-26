@@ -10,6 +10,7 @@ from typing import Callable
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
 
+from manhwatok.app.art_options import list_art, use_art
 from manhwatok.app.edit_post import TEXT_FIELDS, update_picks, update_post_texts
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_post, restyle, set_cover
@@ -20,6 +21,7 @@ from manhwatok.domain.post import MAX_ITEMS, ListPost, PostItem
 from manhwatok.domain.text import first_sentence
 from manhwatok.web.jobs import RENDER, Busy
 from manhwatok.web.routes.common import ctx_of, done, page
+from manhwatok.web.routes.files import file_url
 from manhwatok.web.routes.posts import STILL_RENDERING
 
 router = APIRouter()
@@ -153,3 +155,79 @@ async def save_picks(request: Request, post_id: str) -> Response:
         return "saved the picks"
 
     return start_change(request, post_id, "saved the picks", change, render=False)
+
+
+TAG_WITH_COVERS = "a tag narrows fanart, pins or reddit; covers has no such vocabulary"
+
+
+def _picture(ctx, post: ListPost, item) -> str | None:
+    """The title's picture as the slides draw it: its own art, else its AniList cover."""
+    if item.custom_art:
+        try:
+            return file_url(ctx.tools.posts.folder(post.id) / item.custom_art)
+        except OSError:
+            pass
+    return item.manhwa.cover_url
+
+
+@router.get("/posts/{post_id}/art", response_class=HTMLResponse)
+def art_titles(request: Request, post_id: str) -> HTMLResponse:
+    ctx = ctx_of(request)
+    post = ctx.tools.posts.get(post_id)
+    titles = [(item, _picture(ctx, post, item)) for item in post.items]
+    return page(request, "_edit_art_titles.html", post=post, titles=titles)
+
+
+@router.get("/posts/{post_id}/art/{anilist_id}", response_class=HTMLResponse)
+def art_picker(
+    request: Request,
+    post_id: str,
+    anilist_id: int,
+    source: str = "",
+    order: str = "",
+    tag: str = "",
+) -> HTMLResponse:
+    ctx = ctx_of(request)
+    post = ctx.tools.posts.get(post_id)
+    item = next((i for i in post.items if i.manhwa.anilist_id == anilist_id), None)
+    context = dict(post=post, item=item, sources=list(ArtSourceName), orders=list(ArtOrder),
+                   source=source, order=order or ArtOrder.RELEVANCE.value, tag=tag,
+                   found=None, error="")
+    if item is None:
+        context["error"] = f"post {post_id} has no title {anilist_id}"
+    elif source:
+        try:
+            chosen = ArtSourceName(source)
+            if tag.strip() and chosen is ArtSourceName.COVERS:
+                raise ManhwatokError(TAG_WITH_COVERS)
+            options = list_art(post_id, anilist_id, ctx.tools, ctx.art_sources[chosen],
+                               tag.strip() or None, ArtOrder(context["order"]))
+            context["found"] = request.app.state.art_lists.add(post_id, anilist_id, source, options)
+        except (ManhwatokError, ValueError) as e:
+            context["error"] = str(e)
+    return page(request, "_art_picker.html", **context)
+
+
+@router.post("/posts/{post_id}/art/{anilist_id}/use")
+async def use_picture(request: Request, post_id: str, anilist_id: int) -> Response:
+    if _rendering(request):
+        return done(request, STILL_RENDERING, "warning")
+    form = await request.form()
+    ctx = ctx_of(request)
+    try:
+        found = request.app.state.art_lists.get(str(form.get("list", "")))
+        if (found.post_id, found.anilist_id) != (post_id, anilist_id):
+            raise ManhwatokError("this list is for another title — find pictures again")
+        option = found.options[int(str(form.get("index", "-1")))]
+        source = ctx.art_sources[ArtSourceName(found.source)]
+        name = next(i.manhwa.title for i in ctx.tools.posts.get(post_id).items
+                    if i.manhwa.anilist_id == anilist_id)
+    except (ManhwatokError, ValueError, IndexError, StopIteration) as e:
+        text = str(e) if isinstance(e, ManhwatokError) else "that picture isn't in the list"
+        return done(request, text, "error")
+
+    def change(tools) -> str:
+        use_art(post_id, anilist_id, option, tools, source)
+        return f"changed the picture of {name}"
+
+    return start_change(request, post_id, f"changed the picture of {name}", change)

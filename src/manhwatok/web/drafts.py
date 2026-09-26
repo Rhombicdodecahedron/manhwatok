@@ -46,3 +46,36 @@ class Drafts:
         if draft is None:
             raise ManhwatokError("this search is gone — search again")
         return draft
+
+
+@dataclass
+class ArtList:
+    id: str
+    post_id: str
+    anilist_id: int
+    source: str  # an ArtSourceName value
+    options: list  # list[ArtOption]
+
+
+class ArtLists:
+    """The pictures a source offered for one title, kept until one is chosen."""
+
+    def __init__(self, keep: int = 20) -> None:
+        self._keep = keep
+        self._lock = threading.Lock()
+        self._lists: OrderedDict[str, ArtList] = OrderedDict()
+
+    def add(self, post_id: str, anilist_id: int, source: str, options: list) -> ArtList:
+        found = ArtList(secrets.token_urlsafe(8), post_id, anilist_id, source, list(options))
+        with self._lock:
+            self._lists[found.id] = found
+            while len(self._lists) > self._keep:
+                self._lists.popitem(last=False)
+        return found
+
+    def get(self, list_id: str) -> ArtList:
+        with self._lock:
+            found = self._lists.get(list_id)
+        if found is None:
+            raise ManhwatokError("this list is gone — find pictures again")
+        return found

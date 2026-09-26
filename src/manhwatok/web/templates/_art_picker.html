@@ -1,0 +1,34 @@
+<div class="art-picker">
+  <h3>{{ item.manhwa.title if item else "Picture" }}</h3>
+  {% if item %}
+  <form class="toolbar" hx-get="/posts/{{ post.id }}/art/{{ item.manhwa.anilist_id }}" hx-target="#art-panel"
+        hx-indicator="#finding">
+    <label class="field">Source
+      <select name="source">{% for s in sources %}<option value="{{ s.value }}" {% if s.value == source %}selected{% endif %}>{{ s.value }}</option>{% endfor %}</select>
+    </label>
+    <label class="field">Order
+      <select name="order">{% for o in orders %}<option value="{{ o.value }}" {% if o.value == order %}selected{% endif %}>{{ o.value }}</option>{% endfor %}</select>
+    </label>
+    <label class="field">Tag <input name="tag" value="{{ tag }}" placeholder="fanart, pins or reddit only"></label>
+    <span id="finding" class="htmx-indicator muted">Looking…</span>
+    <button class="button primary">Find pictures</button>
+  </form>
+  {% endif %}
+  {% if error %}<p class="art-error">{{ error }}</p>{% endif %}
+  {% if found is not none %}
+    {% if found.options %}
+    <div class="art-options">
+      {% for o in found.options %}
+      <button type="button" class="art-option" hx-post="/posts/{{ post.id }}/art/{{ item.manhwa.anilist_id }}/use"
+              hx-vals='{"list": "{{ found.id }}", "index": {{ loop.index0 }}}' hx-swap="none"
+              title="Use this picture">
+        <div class="thumb"><img src="{{ o.url }}" alt="{{ o.label }}" loading="lazy" referrerpolicy="no-referrer"></div>
+        <div class="meta">{{ o.label }}{% if o.width %} · {{ o.width }}×{{ o.height }}{% endif %}{% if o.likes %} · {{ o.likes }} likes{% endif %}</div>
+      </button>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">{{ source }} has no pictures of this title. Try another source or tag.</p>
+    {% endif %}
+  {% endif %}
+</div>

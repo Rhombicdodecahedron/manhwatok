@@ -156,3 +156,82 @@ def test_a_pick_that_is_not_a_candidate_is_refused(tmp_path):
         response = client.post(f"/posts/{PID}/picks", data={"title": "T", "pick": ["99"]})
     assert _notice(response)["level"] == "error"
     assert [i.manhwa.anilist_id for i in ctx.tools.posts.get(PID).items] == [1, 2]
+
+
+from manhwatok.ports.art import ArtOption  # noqa: E402
+from tests.unit.fakes import FakeArtSource  # noqa: E402
+
+OPTIONS = [
+    ArtOption("small", "https://pins.test/a.jpg", 400, 600, likes=5),
+    ArtOption("big", "https://pins.test/b.jpg", 1200, 1800, likes=50),
+]
+
+
+def _arty(tmp_path, pins=None):
+    ctx = _ctx(tmp_path, pins=pins or FakeArtSource(options={1: OPTIONS}))
+    first = ctx.tools.posts.get(PID).items[0].manhwa.anilist_id
+    return ctx, first
+
+
+def test_each_pick_shows_its_picture_and_a_way_to_change_it(tmp_path):
+    ctx, first = _arty(tmp_path)
+    with client_for(ctx) as client:
+        html = client.get(f"/posts/{PID}/art").text
+    assert html.count('class="art-title"') == len(ctx.tools.posts.get(PID).items)
+    assert f'hx-get="/posts/{PID}/art/{first}"' in html
+
+
+def test_a_source_lists_its_pictures_in_the_order_asked(tmp_path):
+    ctx, first = _arty(tmp_path)
+    with client_for(ctx) as client:
+        query = {"source": "pins", "order": "popular"}
+        html = client.get(f"/posts/{PID}/art/{first}", params=query).text
+    assert html.index("https://pins.test/b.jpg") < html.index("https://pins.test/a.jpg")
+    assert html.count('class="art-option"') == 2
+    assert "1200×1800" in html and "50 likes" in html
+
+
+def test_a_failing_source_says_why_in_the_picker(tmp_path):
+    from manhwatok.domain.errors import ManhwatokError
+
+    why = "pinterest art needs gallery-dl: uv sync --extra pinterest"
+    broken = FakeArtSource(error=ManhwatokError(why))
+    ctx, first = _arty(tmp_path, pins=broken)
+    with client_for(ctx) as client:
+        response = client.get(f"/posts/{PID}/art/{first}", params={"source": "pins"})
+    assert response.status_code == 200
+    assert 'class="art-error"' in response.text and "gallery-dl" in response.text
+
+
+def test_a_tag_with_covers_is_refused(tmp_path):
+    ctx, first = _arty(tmp_path)
+    with client_for(ctx) as client:
+        html = client.get(f"/posts/{PID}/art/{first}", params={"source": "covers", "tag": "x"}).text
+    assert "covers has no such vocabulary" in html
+
+
+def test_using_a_picture_downloads_it_as_the_titles_art_and_renders(tmp_path):
+    ctx, first = _arty(tmp_path)
+    from manhwatok.domain.models import ArtSourceName
+
+    pins = ctx.art_sources[ArtSourceName.PINS]
+    with client_for(ctx) as client:
+        html = client.get(f"/posts/{PID}/art/{first}", params={"source": "pins"}).text
+        list_id = html.split('"list": "')[1].split('"')[0]
+        chosen = {"list": list_id, "index": "1"}
+        response = client.post(f"/posts/{PID}/art/{first}/use", data=chosen)
+        job = _last_job(client)
+    item = next(i for i in ctx.tools.posts.get(PID).items if i.manhwa.anilist_id == first)
+    assert item.custom_art.startswith(f"art-{first}")
+    assert pins.fetched == ["https://pins.test/b.jpg"]
+    assert _notice(response)["text"] == f"changing post {PID}…"
+    assert job.outcome == f"changed the picture of {item.manhwa.title} — rendered post {PID}"
+
+
+def test_a_list_that_is_gone_asks_to_find_again(tmp_path):
+    ctx, first = _arty(tmp_path)
+    with client_for(ctx) as client:
+        response = client.post(f"/posts/{PID}/art/{first}/use", data={"list": "old", "index": "0"})
+    assert _notice(response) == {
+        "text": "this list is gone — find pictures again", "level": "error"
+    }

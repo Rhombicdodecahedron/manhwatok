@@ -1,0 +1,11 @@
+<div class="art-titles">
+  {% for item, picture in titles %}
+  <div class="art-title">
+    <div class="thumb">{% if picture %}<img src="{{ picture }}" alt="" loading="lazy" referrerpolicy="no-referrer">{% endif %}</div>
+    <div class="name">{{ loop.index }}. {{ item.manhwa.title }}</div>
+    {% if item.custom_art %}<div class="own">Own picture</div>{% endif %}
+    <button type="button" class="button" hx-get="/posts/{{ post.id }}/art/{{ item.manhwa.anilist_id }}"
+            hx-target="#art-panel">Change picture</button>
+  </div>
+  {% endfor %}
+</div>
