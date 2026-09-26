@@ -1,0 +1,15 @@
+    <h3>Picks, in order</h3>
+    <ol class="picks" id="picks">
+      {% for item in picks %}
+      <li class="pick" draggable="true" data-id="{{ item.manhwa.anilist_id }}">
+        <input type="hidden" name="pick" value="{{ item.manhwa.anilist_id }}">
+        {% if item.manhwa.cover_url %}<img src="{{ item.manhwa.cover_url }}" alt="" referrerpolicy="no-referrer">{% else %}<span></span>{% endif %}
+        <div><div class="name">{{ item.manhwa.title }}</div>
+          <input name="hook-{{ item.manhwa.anilist_id }}" value="{{ item.hook }}" placeholder="Hook line" aria-label="Hook for {{ item.manhwa.title }}"></div>
+        <div class="moves">
+          <button type="button" data-move="up" aria-label="Move {{ item.manhwa.title }} up">↑</button>
+          <button type="button" data-move="down" aria-label="Move {{ item.manhwa.title }} down">↓</button>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>

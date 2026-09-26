@@ -106,3 +106,53 @@ def test_changes_wait_for_a_running_render(tmp_path):
         wait_job(client, job.id)
     assert _notice(response)["level"] == "warning"
     assert ctx.tools.posts.get(PID).title != "Changed"
+
+
+from tests.unit.fakes import manhwa  # noqa: E402
+
+
+def _picky(tmp_path):
+    """PID with three candidates: 1 and 2 picked (1 with its own picture), 3 not."""
+    from manhwatok.domain.post import PostItem
+
+    ctx = _ctx(tmp_path)
+    cands = [
+        manhwa(anilist_id=n, title=f"Title {n}", description=f"Hook {n}. More.") for n in (1, 2, 3)
+    ]
+    items = [PostItem(manhwa=cands[0], hook="one", custom_art="art-1.jpg"),
+             PostItem(manhwa=cands[1], hook="two")]
+    fresh = ctx.tools.posts.get(PID).model_copy(update={"candidates": cands, "items": items})
+    ctx.tools.posts.save(fresh)
+    (ctx.tools.posts.folder(PID) / "art-1.jpg").write_bytes(b"jpg")
+    return ctx
+
+
+def test_the_picks_editor_shows_the_posts_picks_and_its_other_candidates(tmp_path):
+    with client_for(_picky(tmp_path)) as client:
+        html = client.get(f"/posts/{PID}/picks").text
+    assert f'hx-post="/posts/{PID}/picks"' in html and 'id="picks-form"' in html
+    assert html.count('aria-pressed="true"') == 2 and html.count('aria-pressed="false"') == 1
+    assert 'name="hook-1" value="one"' in html
+    assert 'name="hook-3" value="Hook 3."' in html  # ready in its template
+
+
+def test_editing_picks_keeps_each_kept_titles_picture(tmp_path):
+    ctx = _picky(tmp_path)
+    with client_for(ctx) as client:
+        response = client.post(f"/posts/{PID}/picks", data={
+            "title": "T", "pick": ["3", "1"], "hook-3": "three", "hook-1": "first now",
+        })
+        job = _last_job(client)
+    items = ctx.tools.posts.get(PID).items
+    assert [(i.manhwa.anilist_id, i.hook, i.custom_art) for i in items] == [
+        (3, "three", ""), (1, "first now", "art-1.jpg")]
+    assert _notice(response)["text"] == f"saving post {PID}…"
+    assert job.outcome == f"saved the picks — rendered post {PID}"
+
+
+def test_a_pick_that_is_not_a_candidate_is_refused(tmp_path):
+    ctx = _picky(tmp_path)
+    with client_for(ctx) as client:
+        response = client.post(f"/posts/{PID}/picks", data={"title": "T", "pick": ["99"]})
+    assert _notice(response)["level"] == "error"
+    assert [i.manhwa.anilist_id for i in ctx.tools.posts.get(PID).items] == [1, 2]

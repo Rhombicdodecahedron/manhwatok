@@ -154,7 +154,7 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.matches?.("#picks-form input")) e.preventDefault();
   });
-  document.body.addEventListener("htmx:afterSwap", (e) => { if (e.detail.target.id === "results") ranks(); });
+  document.body.addEventListener("htmx:afterSwap", () => { if (document.getElementById("picks")) ranks(); });
 
   // Edit: the colour well and the accent field say the same thing.
   document.addEventListener("input", (e) => {

@@ -10,12 +10,14 @@ from typing import Callable
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
 
-from manhwatok.app.edit_post import TEXT_FIELDS, update_post_texts
+from manhwatok.app.edit_post import TEXT_FIELDS, update_picks, update_post_texts
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_post, restyle, set_cover
-from manhwatok.domain.errors import ManhwatokError, PostNotFound
+from manhwatok.domain.errors import DraftError, ManhwatokError, PostNotFound
+from manhwatok.domain.labels import chapter_label
 from manhwatok.domain.models import ArtOrder, ArtSourceName, ArtStyle, CoverStyle
-from manhwatok.domain.post import ListPost
+from manhwatok.domain.post import MAX_ITEMS, ListPost, PostItem
+from manhwatok.domain.text import first_sentence
 from manhwatok.web.jobs import RENDER, Busy
 from manhwatok.web.routes.common import ctx_of, done, page
 from manhwatok.web.routes.posts import STILL_RENDERING
@@ -103,3 +105,51 @@ async def save_settings(request: Request, post_id: str) -> Response:
     except (ManhwatokError, ValueError, KeyError) as e:
         return done(request, str(e), "error")
     return start_change(request, post_id, "saved texts and look", None)
+
+
+@router.get("/posts/{post_id}/picks", response_class=HTMLResponse)
+def picks_editor(request: Request, post_id: str) -> HTMLResponse:
+    post = ctx_of(request).tools.posts.get(post_id)
+    return page(
+        request,
+        "_edit_picks.html",
+        post=post,
+        candidates=post.candidates,
+        picks=post.items,
+        picked={i.manhwa.anilist_id for i in post.items},
+        label=chapter_label,
+        hook=first_sentence,
+        max_items=MAX_ITEMS,
+    )
+
+
+@router.post("/posts/{post_id}/picks")
+async def save_picks(request: Request, post_id: str) -> Response:
+    if _rendering(request):
+        return done(request, STILL_RENDERING, "warning")
+    form = await request.form()
+    ctx = ctx_of(request)
+    try:
+        post = ctx.tools.posts.get(post_id)
+        if post.chapter:
+            raise ManhwatokError(f"post {post_id} is a chapter post — it has no picks to edit")
+        kept = {str(i.manhwa.anilist_id): i for i in post.items}
+        by_id = {str(m.anilist_id): m for m in post.candidates}
+        items = []
+        for pid in (str(p) for p in form.getlist("pick")):
+            if pid not in by_id:
+                raise DraftError(f"title {pid} is not one of this post's candidates")
+            hook = str(form.get(f"hook-{pid}", "")).strip()
+            items.append(
+                kept[pid].model_copy(update={"hook": hook}) if pid in kept
+                else PostItem(manhwa=by_id[pid], hook=hook)
+            )
+        title = str(form.get("title", post.title))
+    except ManhwatokError as e:
+        return done(request, str(e), "error")
+
+    def change(tools) -> str:
+        update_picks(post_id, title, items, tools)  # checks the picks, saves, renders
+        return "saved the picks"
+
+    return start_change(request, post_id, "saved the picks", change, render=False)

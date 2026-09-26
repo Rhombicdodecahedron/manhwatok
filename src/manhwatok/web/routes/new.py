@@ -112,6 +112,7 @@ def search(
         request,
         "_new_results.html",
         draft=draft,
+        candidates=results,
         picks=prefill_items(results),
         picked={m.anilist_id for m in results[:MAX_ITEMS]},
         label=chapter_label,
