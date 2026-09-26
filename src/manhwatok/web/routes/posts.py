@@ -22,6 +22,7 @@ from manhwatok.domain.post import ListPost
 from manhwatok.web.jobs import RENDER, Busy
 from manhwatok.web.routes.common import ctx_of, done, page
 from manhwatok.web.routes.files import file_url
+from manhwatok.web.routes.upload import bulk_upload
 
 router = APIRouter()
 
@@ -98,7 +99,6 @@ def posts_table(
     return page(request, "_posts_table.html", rows=rows, selected=selected, ticked=set(ids))
 
 
-from manhwatok.web.routes.files import file_url
 
 
 @dataclass
@@ -247,6 +247,8 @@ def _rendering(request: Request) -> bool:
 def bulk(request: Request, action: str = Form(...), ids: list[str] = Form(default=[])) -> Response:
     if not ids:
         return done(request, "tick some posts first", "warning")
+    if action == "upload":
+        return bulk_upload(request, ids)
     if action == "render":
         return _start_render(request, ids, f"render {_plural(len(ids))}",
                              f"rendering {_plural(len(ids))}…")

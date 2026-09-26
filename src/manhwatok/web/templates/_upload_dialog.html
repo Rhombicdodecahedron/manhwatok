@@ -1,0 +1,28 @@
+<form class="panel upload-dialog" hx-post="/posts/{{ post.id }}/upload" hx-swap="none"
+      hx-disabled-elt="find button.primary">
+  <h3>Upload post {{ post.id }}</h3>
+  <div class="edit-grid">
+    <label class="field">As
+      <select name="account">{% for a in accounts %}<option value="{{ a.handle }}"{% if account and a.handle == account.handle %} selected{% endif %}>{{ a.display }}</option>{% endfor %}</select>
+    </label>
+    <label class="field">How
+      <select name="mode">{% for value, label in modes %}<option value="{{ value }}"{% if value == mode %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    </label>
+    <label class="field">Phone
+      <select name="phone">
+        <option value="">{{ "The only one" if phones | length == 1 else "Pick a phone" }}</option>
+        {% for p in phones %}<option value="{{ p.serial }}"{% if p.serial == phone %} selected{% endif %}>{{ p.model or p.serial }} ({{ p.serial }})</option>{% endfor %}
+      </select>
+    </label>
+    <label class="field">Who can see it
+      <select name="visibility"><option value="">{{ "As set: " ~ shown.spoken if shown else "As set" }}</option>
+        {% for v in visibilities %}<option value="{{ v.value }}">{{ v.spoken }}</option>{% endfor %}</select>
+    </label>
+  </div>
+  {% if missing %}<p class="art-error">{{ account.display }}'s phone ({{ account.phone }}) isn't plugged in.</p>{% endif %}
+  {% if phones_error %}<p class="muted">{{ phones_error }}</p>{% endif %}
+  <p class="muted">{% if when %}Planned for {{ when.astimezone().strftime("%a %d %b %H:%M") }} — the browser upload fills in TikTok's schedule; the phone can't, and says so.{% else %}Goes out now.{% endif %}
+    Changing the account moves the post to it and renders it again first.</p>
+  <label><input type="checkbox" name="debug"> Keep a debug record if something isn't found</label>
+  <div class="actions"><button class="button primary">Start upload</button></div>
+</form>

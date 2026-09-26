@@ -10,8 +10,8 @@
   <h3>Accounts on it</h3>
   {% if c.accounts or c.loose %}
   <ul class="plain">
-    {% for a in c.accounts %}<li>{{ a.display }}</li>{% endfor %}
-    {% for a in c.loose %}<li>{{ a.display }} <span class="muted">(any phone)</span></li>{% endfor %}
+    {% for a in c.accounts %}<li>{{ a.display }} {% include "_login_button.html" %}</li>{% endfor %}
+    {% for a in c.loose %}<li>{{ a.display }} <span class="muted">(any phone)</span> {% include "_login_button.html" %}</li>{% endfor %}
   </ul>
   {% else %}<p class="muted">None yet — set an account's phone with <code>account set @x --phone {{ c.phone.serial }}</code>.</p>{% endif %}
 </article>

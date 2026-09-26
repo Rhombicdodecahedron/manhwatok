@@ -3,6 +3,7 @@
   <div class="toolbar">
     <button type="button" class="button" hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "render"}' hx-swap="none">Render ticked</button>
     <button type="button" class="button" hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "export"}' hx-swap="none">Export ticked</button>
+    <button type="button" class="button" hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "upload"}' hx-swap="none">Upload ticked</button>
     <button type="button" class="button danger" hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "delete"}' hx-swap="none"
       hx-confirm="Delete the ticked posts and their slides?">Delete ticked</button>
   </div>
