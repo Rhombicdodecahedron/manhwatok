@@ -39,7 +39,9 @@ def test_busy_shows_what_runs(tmp_path):
     with client_for(make_ctx(tmp_path)) as client:
         assert "idle" in client.get("/busy").text
         release = threading.Event()
-        job = client.app.state.jobs.start(RENDER, "render post x", lambda io: release.wait(5) and "ok")
+        job = client.app.state.jobs.start(
+            RENDER, "render post x", lambda io: release.wait(5) and "ok"
+        )
         assert "render post x" in client.get("/busy").text
         release.set()
         client.app.state.jobs.wait(job.id, 5)

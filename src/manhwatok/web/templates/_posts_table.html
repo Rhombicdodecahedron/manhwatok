@@ -1,0 +1,23 @@
+{% if rows %}
+<form id="bulk">
+<table>
+  <thead><tr><th></th><th>Post</th><th>Account</th><th>Title</th><th>Status</th><th>Planned</th><th>Sent</th></tr></thead>
+  <tbody>
+  {% for row in rows %}
+  <tr {% if row.post.id == selected %}class="selected"{% endif %}>
+    <td><input type="checkbox" name="ids" value="{{ row.post.id }}" aria-label="Select {{ row.post.id }}"></td>
+    <td class="link" hx-get="/posts/{{ row.post.id }}" hx-target="#detail" hx-swap="innerHTML"
+        hx-push-url="/posts?post={{ row.post.id }}">{{ row.post.id }}</td>
+    <td>{{ "@" ~ row.post.account if row.post.account else "-" }}</td>
+    <td>{{ row.post.title or "(untitled)" }}</td>
+    <td><span class="status">{{ row.status }}</span></td>
+    <td>{{ row.planned }}</td>
+    <td>{{ row.sent }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</form>
+{% else %}
+<p class="muted">No posts yet — build one with <code>manhwatok build</code> or the TUI.</p>
+{% endif %}
