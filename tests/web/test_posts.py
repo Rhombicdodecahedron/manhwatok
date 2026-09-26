@@ -280,3 +280,15 @@ def test_cover_and_visibility_wait_for_a_running_render(tmp_path):
         }
     assert ctx.tools.posts.get(NEW).cover.value == "fan"
     assert ctx.tools.posts.get(NEW).visibility is None
+
+
+def test_a_refresh_keeps_the_ticks_and_the_selected_row(tmp_path):
+    """The table refreshes whenever posts change — every render step — and must not drop the
+    ticks the user is making for a bulk action meanwhile."""
+    with client_for(_posts(make_ctx(tmp_path))) as client:
+        html = client.get("/posts/table", params={"ids": [NEW, OLD], "selected": DRAFT}).text
+    assert f'value="{NEW}" checked' in html and f'value="{OLD}" checked' in html
+    assert f'value="{DRAFT}" checked' not in html
+    assert html.count('class="selected"') == 1
+    row = html[html.index('class="selected"'):]
+    assert row.index(DRAFT) < row.index("</tr>")

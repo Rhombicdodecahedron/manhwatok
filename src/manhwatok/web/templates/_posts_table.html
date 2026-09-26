@@ -11,7 +11,7 @@
   <tbody>
   {% for row in rows %}
   <tr {% if row.post.id == selected %}class="selected"{% endif %}>
-    <td><input type="checkbox" name="ids" value="{{ row.post.id }}" aria-label="Select {{ row.post.id }}"></td>
+    <td><input type="checkbox" name="ids" value="{{ row.post.id }}" {% if ticked and row.post.id in ticked %}checked{% endif %} aria-label="Select {{ row.post.id }}"></td>
     <td class="link" hx-get="/posts/{{ row.post.id }}" hx-target="#detail" hx-swap="innerHTML"
         hx-push-url="/posts?post={{ row.post.id }}">{{ row.post.id }}</td>
     <td>{{ "@" ~ row.post.account if row.post.account else "-" }}</td>

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from fastapi import APIRouter, Form, Request
+from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, Response
 
 from manhwatok.app.context import AppContext
@@ -72,10 +72,17 @@ def posts_page(
 
 
 @router.get("/posts/table", response_class=HTMLResponse)
-def posts_table(request: Request, account: str = "", status: str = "") -> HTMLResponse:
-    return page(
-        request, "_posts_table.html", rows=_rows(ctx_of(request), account, status), selected=""
-    )
+def posts_table(
+    request: Request,
+    account: str = "",
+    status: str = "",
+    selected: str = "",
+    ids: list[str] = Query(default=[]),
+) -> HTMLResponse:
+    """The table alone; `ids` (the ticked posts) and `selected` survive the refresh that every
+    change of the posts brings — a render step, a save elsewhere."""
+    rows = _rows(ctx_of(request), account, status)
+    return page(request, "_posts_table.html", rows=rows, selected=selected, ticked=set(ids))
 
 
 from manhwatok.web.routes.files import file_url

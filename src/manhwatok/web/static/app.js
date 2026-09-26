@@ -26,6 +26,16 @@
     if (e.detail.state === "finished") toast(e.detail.outcome, e.detail.failed ? "error" : "info");
   });
 
+  // The post the detail pane shows (from the URL), for the table to keep its row marked;
+  // a click on a post marks its row at once.
+  window.selectedPost = () => new URLSearchParams(location.search).get("post") || "";
+  document.addEventListener("click", (e) => {
+    const cell = e.target.closest("#posts-table td.link");
+    if (!cell) return;
+    document.querySelectorAll("#posts-table tr.selected").forEach((tr) => tr.classList.remove("selected"));
+    cell.closest("tr").classList.add("selected");
+  });
+
   // Lightbox: click a [data-slide] image; ← → step through its [data-gallery].
   const box = document.getElementById("lightbox");
   const big = box.querySelector("img");

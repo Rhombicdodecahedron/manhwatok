@@ -3,7 +3,8 @@
 {% block content %}
 <div class="posts">
   <section>
-    <form id="filters" class="filters" hx-get="/posts/table" hx-target="#posts-table" hx-trigger="change">
+    <form id="filters" class="filters" hx-get="/posts/table" hx-target="#posts-table" hx-trigger="change"
+          hx-include="#bulk" hx-vals='js:{selected: selectedPost()}'>
       <select name="account" aria-label="Account">
         <option value="">every account</option>
         {% for a in accounts %}
@@ -18,7 +19,8 @@
         {% endfor %}
       </select>
     </form>
-    <div id="posts-table" hx-get="/posts/table" hx-include="#filters"
+    <div id="posts-table" hx-get="/posts/table" hx-include="#filters, #bulk"
+         hx-vals='js:{selected: selectedPost()}'
          hx-trigger="changed-posts from:body, changed-store from:body">
       {% include "_posts_table.html" %}
     </div>
