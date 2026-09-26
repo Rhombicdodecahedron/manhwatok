@@ -86,7 +86,7 @@ def test_a_post_without_its_account_still_shows(tmp_path):
 def test_a_draft_says_it_has_no_picks(tmp_path):
     with client_for(_posts(make_ctx(tmp_path))) as client:
         html = client.get(f"/posts/{DRAFT}").text
-    assert "no picks yet" in html and "data-slide" not in html
+    assert "No picks yet" in html and "data-slide" not in html
 
 
 def test_a_post_deleted_elsewhere_says_it_is_gone(tmp_path):

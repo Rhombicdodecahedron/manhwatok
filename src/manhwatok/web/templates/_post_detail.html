@@ -1,53 +1,62 @@
-<div id="post-detail" data-post="{{ d.post.id }}" hx-get="/posts/{{ d.post.id }}"
+<div id="post-detail" data-post="{{ d.post.id }}" style="--accent: {{ d.accent }}" hx-get="/posts/{{ d.post.id }}"
      hx-trigger="changed-posts from:body, changed-store from:body" hx-swap="outerHTML">
   <h2>{{ d.post.title | plain or "(untitled)" }}</h2>
-  <p class="muted">{{ d.post.id }} · {{ d.account_label }} · <span class="status">{{ d.status }}</span>
-    · planned {{ d.planned }} · sent {{ d.sent }} · visible to {{ d.visibility }}</p>
+  <p class="meta muted"><span class="dot" data-status="{{ d.status }}"></span> {{ d.status }}
+    · {{ d.account_label }} · visible to {{ d.visibility }}
+    {% if d.sent != "-" %}· sent {{ d.sent }}{% elif d.planned != "-" %}· planned {{ d.planned }}{% endif %}</p>
+
+  {% if d.post.is_unfinished %}
+  <p class="empty">No picks yet. Pick titles for it from New post.</p>
+  {% else %}
+    {% if d.slides %}
+    <div class="viewer" data-gallery>
+      <div class="stage"><img id="stage" src="{{ d.slides[0] }}" alt="Slide 1" data-full="{{ d.slides[0] }}"></div>
+      <div class="filmstrip">
+        {% for url in d.slides %}<img src="{{ url }}" data-slide aria-current="{{ 'true' if loop.first else 'false' }}" alt="Slide {{ loop.index }}" loading="lazy">{% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <p class="empty">Not rendered yet — render it to see the slides.</p>
+    {% endif %}
+  {% endif %}
 
   <div class="actions">
-    <button class="primary" hx-post="/posts/{{ d.post.id }}/render" hx-swap="none"
+    <button class="button primary" hx-post="/posts/{{ d.post.id }}/render" hx-swap="none"
       {% if d.post.sent_at %}hx-confirm="Post {{ d.post.id }} was already sent. Render it again?"{% endif %}>Render</button>
-    <button hx-post="/posts/{{ d.post.id }}/export" hx-swap="none">Export</button>
+    <button class="button" hx-post="/posts/{{ d.post.id }}/export" hx-swap="none">Export</button>
     <form hx-post="/posts/{{ d.post.id }}/visibility" hx-trigger="change" hx-swap="none">
       <select name="visibility" aria-label="Who can see it">
-        <option value="" {% if d.post.visibility is none %}selected{% endif %}>the account's</option>
+        <option value="" {% if d.post.visibility is none %}selected{% endif %}>Visible as the account says</option>
         {% for v in visibilities %}
-        <option value="{{ v.value }}" {% if d.post.visibility == v %}selected{% endif %}>{{ v.spoken }}</option>
+        <option value="{{ v.value }}" {% if d.post.visibility == v %}selected{% endif %}>Visible to {{ v.spoken }}</option>
         {% endfor %}
       </select>
     </form>
-    <button class="danger" hx-post="/posts/{{ d.post.id }}/delete" hx-swap="none"
+    <button class="button danger" hx-post="/posts/{{ d.post.id }}/delete" hx-swap="none"
       hx-confirm="Delete post {{ d.post.id }} and its slides?">Delete</button>
   </div>
 
-  {% if d.post.is_unfinished %}
-  <p class="muted">no picks yet — pick titles for it (Edit picks comes with the Build page).</p>
-  {% else %}
-    {% if d.slides %}
-    <div class="slides" data-gallery>
-      {% for url in d.slides %}<img src="{{ url }}" data-slide alt="slide {{ loop.index }}" loading="lazy">{% endfor %}
-    </div>
-    {% else %}
-    <p class="muted">Not rendered yet.</p>
-    {% endif %}
+  {% if not d.post.is_unfinished %}
+  <h3>Cover</h3>
+  <div class="covers">
+    {% for c in d.covers %}
+    <figure {% if c.chosen %}class="chosen"{% endif %} hx-post="/posts/{{ d.post.id }}/cover"
+      hx-vals='{"style": "{{ c.style }}"}' hx-swap="none" title="Use the {{ c.style }} cover">
+      {% if c.url %}<img src="{{ c.url }}" alt="{{ c.style }} cover">{% else %}<div class="muted">Not drawn yet</div>{% endif %}
+      <figcaption>{{ c.style }}</figcaption>
+    </figure>
+    {% endfor %}
+  </div>
 
-    <h3>Cover</h3>
-    <div class="covers">
-      {% for c in d.covers %}
-      <figure {% if c.chosen %}class="chosen"{% endif %} hx-post="/posts/{{ d.post.id }}/cover"
-        hx-vals='{"style": "{{ c.style }}"}' hx-swap="none" title="Use the {{ c.style }} cover">
-        {% if c.url %}<img src="{{ c.url }}" alt="{{ c.style }} cover">{% else %}<div class="muted">not drawn yet</div>{% endif %}
-        <figcaption>{{ c.style }}</figcaption>
-      </figure>
-      {% endfor %}
-    </div>
-
-    <h3>On TikTok</h3>
-    <p><strong>Title</strong> {{ d.title }}</p>
+  <details open>
+    <summary>On TikTok</summary>
+    <p><strong>{{ d.title }}</strong></p>
     <div class="caption">{{ d.description }}</div>
-    <p><strong>Sounds</strong> {{ d.sounds | join(" | ") if d.sounds else "–" }}</p>
-
-    <h3>{{ "Caption" if d.rendered else "Caption (not rendered)" }}</h3>
+    <p class="muted">Sounds: {{ d.sounds | join(" | ") if d.sounds else "none set" }}</p>
+  </details>
+  <details>
+    <summary>{{ "Caption" if d.rendered else "Caption (not rendered)" }}</summary>
     <div class="caption">{{ d.caption }}</div>
+  </details>
   {% endif %}
 </div>

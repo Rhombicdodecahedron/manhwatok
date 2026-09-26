@@ -36,6 +36,24 @@
     opener.closest(".card").classList.add("is-selected");
   });
 
+  // Viewer: a filmstrip click puts that slide on the stage; the stage opens the lightbox on it.
+  document.addEventListener("click", (e) => {
+    const thumb = e.target.closest(".filmstrip [data-slide]");
+    if (!thumb || !e.isTrusted) return;
+    e.stopPropagation();
+    const viewer = thumb.closest(".viewer");
+    const stage = viewer.querySelector("#stage");
+    stage.src = thumb.src;
+    stage.dataset.full = thumb.src;
+    viewer.querySelectorAll("[data-slide]").forEach((t) => t.setAttribute("aria-current", t === thumb ? "true" : "false"));
+  }, true);
+  document.addEventListener("click", (e) => {
+    const stage = e.target.closest(".viewer .stage");
+    if (!stage) return;
+    const current = stage.closest(".viewer").querySelector('[data-slide][aria-current="true"]');
+    if (current) current.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+
   // Lightbox: click a [data-slide] image; ← → step through its [data-gallery].
   const box = document.getElementById("lightbox");
   const big = box.querySelector("img");
@@ -47,7 +65,7 @@
   }
   document.addEventListener("click", (e) => {
     const slide = e.target.closest("[data-slide]");
-    if (!slide) return;
+    if (!slide || (e.isTrusted && slide.closest(".filmstrip"))) return;
     slides = [...slide.closest("[data-gallery]").querySelectorAll("[data-slide]")];
     show(slides.indexOf(slide));
     box.showModal();

@@ -61,3 +61,23 @@ def test_the_selected_card_is_marked(tmp_path):
     assert html.count("is-selected") == 1
     card = html[html.index("is-selected"):]
     assert card.index(BARE) < card.index("</article>")
+
+
+def test_the_viewer_shows_the_first_slide_big_and_all_in_the_filmstrip(tmp_path):
+    with client_for(_two(make_ctx(tmp_path))) as client:
+        html = client.get(f"/posts/{RENDERED}").text
+    stage = html[html.index('class="stage"'):]
+    assert f'src="/files/{RENDERED}/01.png?v=' in stage[: stage.index("</div>")]
+    assert html.count("data-slide") == 5
+    assert html.count('aria-current="true"') == 1
+
+
+def test_the_detail_takes_the_accounts_accent(tmp_path):
+    from manhwatok.domain.account import Account
+
+    ctx = _two(make_ctx(tmp_path))
+    ctx.store.accounts.add(Account(handle="reads", accent="#ff5588"))
+    ctx.tools.posts.save(ctx.tools.posts.get(RENDERED).model_copy(update={"account": "reads"}))
+    with client_for(ctx) as client:
+        html = client.get(f"/posts/{RENDERED}").text
+    assert 'style="--accent: #ff5588"' in html

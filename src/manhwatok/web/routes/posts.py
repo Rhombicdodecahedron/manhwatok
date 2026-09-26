@@ -115,6 +115,7 @@ class _Detail:
     visibility: str
     planned: str
     sent: str
+    accent: str  # the account's, else the post's own
 
 
 def _account(ctx: AppContext, post: ListPost) -> tuple[Account | None, str]:
@@ -163,6 +164,7 @@ def _detail(ctx: AppContext, post_id: str) -> _Detail:
         visibility=visibility,
         planned=scheduled_text(post, zone),
         sent=sent_text(post, zone),
+        accent=account.accent if account else post.accent,
     )
 
 
