@@ -25,7 +25,9 @@ from manhwatok.domain.text import plain_title
 from manhwatok.web import events
 from manhwatok.web.jobs import EventBus, JobRunner
 from manhwatok.web.drafts import ArtLists, Drafts
+from manhwatok.web.phones import Phones
 from manhwatok.web.routes import edit, files, header, new, posts
+from manhwatok.web.routes import phones as phone_routes
 
 HERE = Path(__file__).parent
 DEFAULT_PORT = 8421
@@ -47,6 +49,7 @@ def create_app(
     port: int = DEFAULT_PORT,
     clock: Callable[[], datetime] = _utc_now,
     watch_interval: float | None = 2.0,
+    phones: Phones | None = None,
 ) -> FastAPI:
     """The app around an open `ctx` (the caller closes it). `watch_interval`: how often to look
     for changes made elsewhere (CLI, TUI); None never looks (tests)."""
@@ -77,6 +80,7 @@ def create_app(
     app.state.clock = clock
     app.state.drafts = Drafts()
     app.state.art_lists = ArtLists()
+    app.state.phones = phones or Phones()
     app.state.templates = Jinja2Templates(directory=HERE / "templates")
     # Titles carry *accent* marks for the slides; pages show them plain, as the TUI does.
     app.state.templates.env.filters["plain"] = plain_title
@@ -110,6 +114,7 @@ def create_app(
     app.include_router(edit.router)
     app.include_router(posts.router)
     app.include_router(files.router)
+    app.include_router(phone_routes.router)
     app.include_router(new.router)
 
     @app.get("/")

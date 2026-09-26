@@ -4,7 +4,7 @@ directly, one command at a time."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Callable
 
 from manhwatok.app import container
@@ -45,6 +45,8 @@ class AppContext:
     art_sources: dict[ArtSourceName, ArtSource]
     chapter_tools: ChapterTools  # the chapter feed, the panel cutter and the chapter table
     uploader_factory: Callable[[], Uploader]
+    # Builds an uploader from settings: per upload, for the mode and phone chosen then.
+    uploader_with: Callable[[Settings], Uploader] = field(default=container.build_uploader)
     closers: list[Any] = field(default_factory=list)  # objects with close(), closed in order
     _closed: bool = False
 
@@ -54,6 +56,19 @@ class AppContext:
     def uploader(self) -> Uploader:
         """A new browser (or phone) helper for one login or upload; it closes its own."""
         return self.uploader_factory()
+
+    def uploader_for(self, mode: str, phone: str = "") -> Uploader:
+        """An uploader for `mode` ("browser", "phone", "phone-post") on `phone` (a serial, or
+        "" for the only one), leaving the app's own settings as they are."""
+        if mode not in UPLOAD_MODE_LABELS:
+            raise ManhwatokError(f"no upload mode {mode!r}")
+        settings = replace(
+            self.settings,
+            uploader=mode.removesuffix("-post"),
+            auto_post=mode.endswith("-post"),
+            phone=phone,
+        )
+        return self.uploader_with(settings)
 
     @property
     def upload_mode(self) -> str:

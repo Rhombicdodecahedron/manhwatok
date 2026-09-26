@@ -78,6 +78,7 @@ def make_ctx(
             tmp_path, pages=chapter_pages, chapters=store.chapters, sources=chapter_sources
         ),
         uploader_factory=lambda: browser,
+        uploader_with=lambda settings: browser,
         closers=[store],
     )
     OPEN_CONTEXTS.append(ctx)

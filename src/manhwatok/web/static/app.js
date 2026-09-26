@@ -165,4 +165,19 @@
       if (well) well.value = e.target.value.toLowerCase();
     }
   });
+
+  // Live phone screens: refresh each img[data-live] about once a second while the tab is shown.
+  function refreshScreens() {
+    if (document.hidden) return;
+    document.querySelectorAll("img[data-live]").forEach((img) => {
+      if (img.dataset.loading) return;
+      img.dataset.loading = "1";
+      const next = new Image();
+      next.onload = () => { img.src = next.src; delete img.dataset.loading; img.parentElement.querySelector(".screen-lost")?.setAttribute("hidden", ""); };
+      next.onerror = () => { delete img.dataset.loading; img.parentElement.querySelector(".screen-lost")?.removeAttribute("hidden"); };
+      next.src = img.dataset.live + "?t=" + Date.now();
+    });
+  }
+  setInterval(refreshScreens, 1000);
+  refreshScreens();
 })();

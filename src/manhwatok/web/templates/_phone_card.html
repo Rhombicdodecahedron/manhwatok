@@ -1,0 +1,17 @@
+<article class="panel phone-card">
+  <h2>{{ c.phone.model or "Android phone" }}</h2>
+  <p class="muted">{{ c.phone.serial }} ·
+    {% if c.phone.ready %}<span class="dot" data-status="sent"></span> ready{% else %}<span class="dot" data-status="not rendered"></span> {{ c.phone.problem }}{% endif %}</p>
+  {% if c.phone.ready %}
+  <p class="muted">TikTok {{ "installed" if c.tiktok else "not found — install it or set MANHWATOK_TIKTOK_APP" }}</p>
+  <div class="screen-frame"><img class="screen" alt="{{ c.phone.model }} screen" data-live="/phones/{{ c.phone.serial }}/screen.png">
+    <p class="muted screen-lost" hidden>Can't see the screen right now.</p></div>
+  {% endif %}
+  <h3>Accounts on it</h3>
+  {% if c.accounts or c.loose %}
+  <ul class="plain">
+    {% for a in c.accounts %}<li>{{ a.display }}</li>{% endfor %}
+    {% for a in c.loose %}<li>{{ a.display }} <span class="muted">(any phone)</span></li>{% endfor %}
+  </ul>
+  {% else %}<p class="muted">None yet — set an account's phone with <code>account set @x --phone {{ c.phone.serial }}</code>.</p>{% endif %}
+</article>

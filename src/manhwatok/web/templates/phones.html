@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Phones · manhwatok{% endblock %}
+{% block content %}
+<div class="toolbar"><h1>Phones</h1><span class="spacer"></span>
+  <a class="button" href="/phones">Look again</a></div>
+{% if error %}<p class="empty">{{ error }}</p>
+{% elif not cards %}<p class="empty">No phone plugged in. Plug one in with USB debugging on.</p>
+{% else %}
+<div class="phones">{% for c in cards %}{% include "_phone_card.html" %}{% endfor %}</div>
+{% endif %}
+{% endblock %}
