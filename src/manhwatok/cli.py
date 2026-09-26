@@ -760,6 +760,27 @@ def tui() -> None:
         _fail(e)
 
 
+@app.command()
+def web(
+    port: int = typer.Option(8421, "--port", help="The port on 127.0.0.1."),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open it in the browser."),
+) -> None:
+    """Open the web app on this computer: posts with full-size slides, uploads you can watch."""
+    try:
+        import fastapi  # noqa: F401
+        import jinja2  # noqa: F401
+        import python_multipart  # noqa: F401
+        import uvicorn  # noqa: F401
+    except ImportError:
+        _fail(ManhwatokError("the web app needs the web extra — run: uv sync --extra web"))
+    from manhwatok.web.server import run
+
+    try:
+        run(Settings(), port=port, open_browser=open_browser)
+    except ManhwatokError as e:
+        _fail(e)
+
+
 # --- assisted upload -----------------------------------------------------------------------
 
 
