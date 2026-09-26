@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from manhwatok.app.post_tools import EditorFn, PostTools, ProgressFn
 from manhwatok.config import Settings
+from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import ArtSourceName, ChapterSourceName
 from manhwatok.ports.art import ArtSource
 from manhwatok.ports.cache import Cache
@@ -160,9 +161,26 @@ def build_chapter_tools(settings: Settings, store: SqliteStore) -> ChapterTools:
     )
 
 
+UPLOADERS = ("browser", "phone")
+
+
 def build_uploader(settings: Settings) -> Uploader:
-    """The assisted-upload browser: a visible Google Chrome with one profile per account. Playwright
-    itself is only imported once a browser is opened (it's the optional `upload` extra)."""
+    """The assisted upload MANHWATOK_UPLOADER picks. "browser": a visible Google Chrome with one
+    profile per account; Playwright itself is only imported once a browser is opened (it's the
+    optional `upload` extra). "phone": TikTok's app on an Android phone, through an Appium
+    server (the optional `phone` extra, imported the same way)."""
+    if settings.uploader == "phone":
+        from manhwatok.adapters.appium_uploader import AppiumUploader
+        from manhwatok.adapters.tiktok_app import TikTokApp
+
+        app = TikTokApp(package=settings.tiktok_app) if settings.tiktok_app else TikTokApp()
+        return AppiumUploader(
+            settings.debug_dir, server=settings.appium_url, phone=settings.phone, app=app
+        )
+    if settings.uploader != "browser":
+        raise ManhwatokError(
+            f"MANHWATOK_UPLOADER is {settings.uploader!r} — use one of: {', '.join(UPLOADERS)}"
+        )
     from manhwatok.adapters.playwright_uploader import PlaywrightUploader
 
     return PlaywrightUploader(settings.browser_dir, settings.debug_dir)

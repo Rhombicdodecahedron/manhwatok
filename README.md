@@ -691,6 +691,50 @@ uv run manhwatok upload 20260922-a3f9 --visibility private        # this one upl
   browser is automated. Automating TikTok's website is against TikTok's Terms of Service and may
   trigger captchas or account checks — use it at your own risk.
 
+### On an Android phone instead (Appium)
+
+`MANHWATOK_UPLOADER=phone` makes `login`, `upload` and the terminal app use TikTok's own app on
+an Android phone plugged in over USB, driven by [Appium](https://appium.io) (UiAutomator2),
+instead of Chrome. Everything else — sounds, visibility, the `Posted on @x?` question — works the
+same; you tap **Post** on the phone.
+
+```bash
+uv sync --extra phone                                  # once: Appium's Python client
+npm i -g appium && appium driver install uiautomator2  # once: the Appium server
+appium                                                 # leave it running in another terminal
+
+export MANHWATOK_UPLOADER=phone
+uv run manhwatok login @manhwa.daily      # log in (or add the account) in TikTok on the phone
+uv run manhwatok upload <id>
+```
+
+- The phone needs USB debugging on (`adb devices` lists it; adb comes with Android's
+  platform-tools and has to be on the PATH, and Appium needs `ANDROID_HOME` set to the SDK) and
+  TikTok in English. With several
+  phones plugged in, `MANHWATOK_PHONE` is the one's serial; `MANHWATOK_APPIUM_URL` is the server
+  (default `http://127.0.0.1:4723`); `MANHWATOK_TIKTOK_APP` is TikTok's package when it isn't the
+  global `com.zhiliaoapp.musically` (e.g. `com.ss.android.ugc.trill`).
+- The TikTok app holds the accounts: `login` opens it with adb alone (nothing automating it) and
+  returns once you go back to the home screen. `upload` checks which account the app is on and
+  switches to the post's through TikTok's account switcher — or stops, rather than post as
+  someone else.
+- The slides are pushed to `Pictures/manhwatok/` on the phone, last one first, so TikTok's
+  picker lists them newest-first in order; the upload then selects the first cells. Don't take
+  a screenshot in the meantime, and check the order before tapping Post. The pushed files stay
+  there — clear the folder now and then.
+- TikTok's app has no schedule of its own (only TikTok Studio on the web does): a planned post
+  says so and goes out when you tap Post. Use the browser upload to schedule.
+- TikTok's app adds a sound to photos by itself. With no sound asked for, `upload` says which one
+  it picked; remove it on the phone if you want none.
+- The sound search's results carry no text the phone can read, so the upload uses the first one
+  and reads its name back from the editor ("added the sound SOLO LEVELING").
+- Typed `#hashtags` become hashtags by themselves in the app; there is nothing to pick.
+- `upload --debug` saves `screenshot.png` and `screen.xml` (every text on the phone's screen).
+  The app's texts and selectors live in `src/manhwatok/adapters/tiktok_app.py`, read off TikTok
+  47.0.3 on Android 16; when TikTok changes its app, update them from `screen.xml`.
+- Appium is no stealthier than the browser: TikTok can see USB debugging and Appium's helper
+  app. The same Terms of Service caveat applies.
+
 ## Terminal app
 
 ```bash

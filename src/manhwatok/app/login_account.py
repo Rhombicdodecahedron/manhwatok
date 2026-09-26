@@ -25,8 +25,12 @@ def login_account(
 ) -> Account:
     """Returns once the user has quit the browser."""
     account = accounts.get(normalize_handle(handle))
+    # The phone upload logs in somewhere else and says how; the browser is the default.
+    hint = getattr(uploader, "login_hint", None)
     progress(
-        f"Log in to {account.display} in the Chrome window, "
+        hint(account.display)
+        if hint
+        else f"Log in to {account.display} in the Chrome window, "
         f"then quit that Chrome ({quit_shortcut()})."
     )
     try:

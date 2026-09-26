@@ -37,6 +37,16 @@ class Settings:
         default_factory=lambda: _env("MANHWATOK_REDDIT_CLIENT_SECRET")
     )
     reddit_user: str = field(default_factory=lambda: _env("MANHWATOK_REDDIT_USER"))
+    # Which assisted upload `login`, `upload` and the terminal app use: "browser" (Chrome on
+    # this computer, driven by Playwright) or "phone" (TikTok's Android app, driven by Appium).
+    uploader: str = field(default_factory=lambda: _env("MANHWATOK_UPLOADER").lower() or "browser")
+    appium_url: str = field(
+        default_factory=lambda: _env("MANHWATOK_APPIUM_URL") or "http://127.0.0.1:4723"
+    )
+    # The phone's adb serial (`adb devices`); empty: the only phone plugged in.
+    phone: str = field(default_factory=lambda: _env("MANHWATOK_PHONE"))
+    # TikTok's package on the phone; empty: the global app, com.zhiliaoapp.musically.
+    tiktok_app: str = field(default_factory=lambda: _env("MANHWATOK_TIKTOK_APP"))
 
     @property
     def db_path(self) -> Path:
@@ -62,5 +72,5 @@ class Settings:
 
     @property
     def debug_dir(self) -> Path:
-        """Screenshots and page HTML saved by `upload --debug`."""
+        """Screenshots and page HTML (or the phone's screen.xml) saved by `upload --debug`."""
         return self.data_dir / "debug"

@@ -29,6 +29,9 @@ manhwatok = "manhwatok.cli:app"
 upload = [
     "playwright>=1.45",
 ]
+phone = [
+    "Appium-Python-Client>=4",
+]
 tui = [
     "textual>=1.0",
     "textual-image>=0.8",
