@@ -88,3 +88,12 @@ def test_ctrl_c_ends_the_event_streams_first():
     stop_streams_on_exit(server, stop)
     server.handle_exit(2, None)
     assert stop.is_set() and server.exits == [2]
+
+
+def test_no_other_site_can_frame_the_app(tmp_path):
+    """Clickjacking: a page elsewhere framing the app and luring clicks onto Render or Upload
+    — the clicks would be same-origin inside the frame, past the Origin check."""
+    with client_for(make_ctx(tmp_path)) as client:
+        for response in (client.get("/", follow_redirects=False), client.get("/posts/table")):
+            assert response.headers["X-Frame-Options"] == "DENY"
+            assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]

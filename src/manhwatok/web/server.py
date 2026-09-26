@@ -91,7 +91,11 @@ def create_app(
             )
             if origin not in origins:
                 return PlainTextResponse("not from this app's pages", status_code=403)
-        return await call_next(request)
+        response = await call_next(request)
+        # No other site may frame it and lure clicks onto its buttons (clickjacking).
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+        return response
 
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
     app.include_router(events.router)
