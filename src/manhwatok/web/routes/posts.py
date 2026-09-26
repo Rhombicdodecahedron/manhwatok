@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Form, Request
+from fastapi.responses import HTMLResponse, Response
 
 from manhwatok.app.context import AppContext
+from manhwatok.app.delete_post import delete_post
+from manhwatok.app.export_post import export_post
 from manhwatok.app.post_view import caption_text, post_status, scheduled_text, sent_text
-from manhwatok.app.render_post import cover_version, rendered_files
-from manhwatok.app.upload_post import sounds_for, visibility_for
+from manhwatok.app.render_post import choose_cover, cover_version, render_post, rendered_files
+from manhwatok.app.upload_post import set_visibility, sounds_for, visibility_for
 from manhwatok.domain.account import DEFAULT_TIMEZONE, Account
 from manhwatok.domain.caption import upload_description, upload_title
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered, PostNotFound
 from manhwatok.domain.models import CoverStyle, Visibility
 from manhwatok.domain.post import ListPost
-from manhwatok.web.routes.common import ctx_of, page
+from manhwatok.web.jobs import RENDER, Busy
+from manhwatok.web.routes.common import ctx_of, done, page
 from manhwatok.web.routes.files import file_url
 
 router = APIRouter()
@@ -73,7 +76,6 @@ def posts_table(request: Request, account: str = "", status: str = "") -> HTMLRe
     return page(
         request, "_posts_table.html", rows=_rows(ctx_of(request), account, status), selected=""
     )
-
 
 
 from manhwatok.web.routes.files import file_url
@@ -162,3 +164,126 @@ def post_detail(request: Request, post_id: str) -> HTMLResponse:
     except ManhwatokError as e:  # e.g. an unreadable post.json
         return page(request, "_post_gone.html", post_id=post_id, why=str(e))
     return page(request, "_post_detail.html", d=detail, visibilities=list(Visibility))
+
+
+STILL_RENDERING = "still rendering — try again when it's done"
+
+
+def _plural(n: int, word: str = "post") -> str:
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def _start_render(request: Request, ids: list[str], heading: str, started: str) -> Response:
+    """Render `ids` in turn in the render lane; each finished post refreshes the pages."""
+    ctx, bus = ctx_of(request), request.app.state.bus
+
+    def work(io) -> str:
+        tools = replace(ctx.tools, progress=io.progress)
+        for post_id in ids:
+            slides = render_post(post_id, tools)
+            io.progress(f"post {post_id} · {len(slides)} slides")
+            bus.publish("changed", what="posts")
+        return f"rendered post {ids[0]}" if len(ids) == 1 else f"rendered {_plural(len(ids))}"
+
+    try:
+        request.app.state.jobs.start(RENDER, heading, work)
+    except Busy as e:
+        return done(request, str(e), "warning")
+    return done(request, started)
+
+
+def _rendering(request: Request) -> bool:
+    return request.app.state.jobs.busy(RENDER) is not None
+
+
+@router.post("/posts/bulk")
+def bulk(request: Request, action: str = Form(...), ids: list[str] = Form(default=[])) -> Response:
+    if not ids:
+        return done(request, "tick some posts first", "warning")
+    if action == "render":
+        return _start_render(request, ids, f"render {_plural(len(ids))}",
+                             f"rendering {_plural(len(ids))}…")
+    if action not in ("export", "delete"):
+        return done(request, f"no bulk action {action!r}", "error")
+    if _rendering(request):
+        return done(request, STILL_RENDERING, "warning")
+    ctx, finished = ctx_of(request), 0
+    verb = "exported" if action == "export" else "deleted"
+    try:
+        for post_id in ids:
+            if action == "export":
+                _export(request, post_id)
+            else:
+                delete_post(post_id, ctx.tools.posts, ctx.store.chapters)
+            finished += 1
+    except ManhwatokError as e:
+        return done(request, f"{verb} {_plural(finished)}, then: {e}", "error", changed=["posts"])
+    where = f" → {ctx.settings.export_dir}" if action == "export" else ""
+    return done(request, f"{verb} {_plural(finished)}{where}", changed=["posts"])
+
+
+@router.post("/posts/{post_id}/render")
+def render(request: Request, post_id: str) -> Response:
+    return _start_render(request, [post_id], f"render post {post_id}",
+                         f"rendering post {post_id}…")
+
+
+@router.post("/posts/{post_id}/cover")
+def cover(request: Request, post_id: str, style: str = Form(...)) -> Response:
+    ctx = ctx_of(request)
+    try:
+        chosen = CoverStyle(style)
+        choose_cover(post_id, chosen, ctx.tools)
+    except NotRendered:
+        return _start_render(request, [post_id], f"render post {post_id}",
+                             f"rendering post {post_id} with the {style} cover…")
+    except (ManhwatokError, ValueError) as e:
+        return done(request, str(e), "error")
+    return done(request, f"post {post_id} · {chosen.value} cover", changed=["posts"])
+
+
+@router.post("/posts/{post_id}/visibility")
+def visibility(request: Request, post_id: str, visibility: str = Form("")) -> Response:
+    ctx = ctx_of(request)
+    try:
+        who = Visibility(visibility) if visibility else None
+        set_visibility(ctx.tools.posts, post_id, who)
+        detail = _detail(ctx, post_id)
+    except (ManhwatokError, ValueError) as e:
+        return done(request, str(e), "error")
+    return done(request, f"post {post_id} · visible to {detail.visibility}", changed=["posts"])
+
+
+def _export(request: Request, post_id: str) -> Path:
+    ctx = ctx_of(request)
+    return export_post(
+        post_id,
+        ctx.tools.posts,
+        ctx.store.history,
+        ctx.settings.export_dir,
+        now=request.app.state.clock(),
+        chapters=ctx.store.chapters,
+    )
+
+
+@router.post("/posts/{post_id}/export")
+def export(request: Request, post_id: str) -> Response:
+    if _rendering(request):
+        return done(request, STILL_RENDERING, "warning")
+    try:
+        dest = _export(request, post_id)
+    except ManhwatokError as e:
+        return done(request, str(e), "error")
+    return done(request, f"exported → {dest}", changed=["posts"])
+
+
+@router.post("/posts/{post_id}/delete")
+def delete(request: Request, post_id: str) -> Response:
+    if _rendering(request):
+        return done(request, STILL_RENDERING, "warning")
+    ctx = ctx_of(request)
+    try:
+        delete_post(post_id, ctx.tools.posts, ctx.store.chapters)
+    except ManhwatokError as e:
+        return done(request, str(e), "error")
+    return done(request, f"deleted post {post_id}", changed=["posts"])

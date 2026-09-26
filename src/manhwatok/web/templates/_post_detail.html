@@ -4,7 +4,21 @@
   <p class="muted">{{ d.post.id }} · {{ d.account_label }} · <span class="status">{{ d.status }}</span>
     · planned {{ d.planned }} · sent {{ d.sent }} · visible to {{ d.visibility }}</p>
 
-  <div class="actions"></div>
+  <div class="actions">
+    <button class="primary" hx-post="/posts/{{ d.post.id }}/render" hx-swap="none"
+      {% if d.post.sent_at %}hx-confirm="Post {{ d.post.id }} was already sent. Render it again?"{% endif %}>Render</button>
+    <button hx-post="/posts/{{ d.post.id }}/export" hx-swap="none">Export</button>
+    <form hx-post="/posts/{{ d.post.id }}/visibility" hx-trigger="change" hx-swap="none">
+      <select name="visibility" aria-label="Who can see it">
+        <option value="" {% if d.post.visibility is none %}selected{% endif %}>the account's</option>
+        {% for v in visibilities %}
+        <option value="{{ v.value }}" {% if d.post.visibility == v %}selected{% endif %}>{{ v.spoken }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    <button class="danger" hx-post="/posts/{{ d.post.id }}/delete" hx-swap="none"
+      hx-confirm="Delete post {{ d.post.id }} and its slides?">Delete</button>
+  </div>
 
   {% if d.post.is_unfinished %}
   <p class="muted">no picks yet — pick titles for it (Edit picks comes with the Build page).</p>
@@ -20,7 +34,8 @@
     <h3>Cover</h3>
     <div class="covers">
       {% for c in d.covers %}
-      <figure {% if c.chosen %}class="chosen"{% endif %}>
+      <figure {% if c.chosen %}class="chosen"{% endif %} hx-post="/posts/{{ d.post.id }}/cover"
+        hx-vals='{"style": "{{ c.style }}"}' hx-swap="none" title="Use the {{ c.style }} cover">
         {% if c.url %}<img src="{{ c.url }}" alt="{{ c.style }} cover">{% else %}<div class="muted">not drawn yet</div>{% endif %}
         <figcaption>{{ c.style }}</figcaption>
       </figure>
