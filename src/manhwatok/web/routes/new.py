@@ -3,17 +3,21 @@ tags/genres), pick and order the titles in the page, then save and render."""
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, Response
 
-from manhwatok.app.build_post import prefill_items
+from manhwatok.app.build_post import prefill_items, store_new_post
+from manhwatok.app.render_post import render_post
 from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.labels import chapter_label
 from manhwatok.domain.models import ArtStyle, CoverStyle, SearchQuery, Sort
-from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS, MAX_ITEMS
+from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS, MAX_ITEMS, PostItem
 from manhwatok.domain.text import split_names
+from manhwatok.web.jobs import RENDER, Busy
 from manhwatok.web.routes.common import ctx_of, done, page, trigger
 
 router = APIRouter()
@@ -118,3 +122,59 @@ def search(
         covers=list(CoverStyle),
         max_items=MAX_ITEMS,
     )
+
+
+@router.post("/new/save")
+async def save(request: Request) -> Response:
+    """Save the picks as a new post, then render it. The order of the posted `pick` fields is
+    the order of the post; each pick's hook comes from its `hook-<id>` field."""
+    form = await request.form()
+    ctx = ctx_of(request)
+    try:
+        draft = request.app.state.drafts.get(str(form.get("draft", "")))
+        by_id = {str(m.anilist_id): m for m in draft.candidates}
+        picks = [str(p) for p in form.getlist("pick")]
+        missing = [p for p in picks if p not in by_id]
+        if missing:
+            raise ManhwatokError(f"title {missing[0]} is not in this search — search again")
+        items = [
+            PostItem(manhwa=by_id[p], hook=str(form.get(f"hook-{p}", "")).strip()) for p in picks
+        ]
+        text = {name: str(form.get(name, "")).strip() for name in ("hashtags", "accent", "emojis")}
+        art = str(form.get("art", ""))
+        post = store_new_post(
+            draft.candidates,
+            str(form.get("title", "")).strip(),
+            items,
+            _account(ctx, draft.account or ""),
+            text["hashtags"] or None,
+            text["accent"] or None,
+            ctx.tools.posts,
+            request.app.state.clock(),
+            art=ArtStyle(art) if art else None,
+            emojis=text["emojis"] or None,
+            theme=draft.theme,
+            cover=CoverStyle(str(form.get("cover", "")) or CoverStyle.FAN.value),
+        )
+    except (ManhwatokError, ValueError) as e:
+        return done(request, str(e), "error")
+    request.app.state.bus.publish("changed", what="posts")
+    bus = request.app.state.bus
+
+    def work(io) -> str:
+        slides = render_post(post.id, replace(ctx.tools, progress=io.progress))
+        io.progress(f"post {post.id} · {len(slides)} slides")
+        bus.publish("changed", what="posts")
+        return f"rendered post {post.id}"
+
+    try:
+        request.app.state.jobs.start(RENDER, f"render post {post.id}", work)
+        text_, level = f"saved post {post.id} — rendering it…", "info"
+    except Busy:
+        running = request.app.state.jobs.busy(RENDER)
+        other = running.heading if running else "the other render"
+        text_ = f"saved post {post.id} — render it when {other} is done"
+        level = "warning"
+    response = trigger(Response(status_code=200), text_, level, changed=["posts"])
+    response.headers["HX-Redirect"] = f"/posts?post={post.id}"
+    return response

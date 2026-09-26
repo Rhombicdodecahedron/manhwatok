@@ -125,3 +125,98 @@ def test_drafts_keep_the_latest_searches_only():
     with pytest.raises(ManhwatokError) as e:
         drafts.get(first.id)
     assert str(e.value) == "this search is gone — search again"
+
+
+from tests.web.helpers import wait_job  # noqa: E402
+
+
+def _search(client, **form):
+    html = client.post("/new/search", data={"account": "reads", "tags": "x", **form}).text
+    return html.split('name="draft" value="')[1].split('"')[0]
+
+
+def test_saving_keeps_the_posted_order_and_hooks_and_renders(tmp_path):
+    ctx = _ctx(tmp_path)
+    with client_for(ctx) as client:
+        draft = _search(client)
+        response = client.post("/new/save", data={
+            "draft": draft, "title": "Manhwa where the MC *wins*",
+            "pick": ["3", "1"], "hook-3": "He read it all.", "hook-1": "Weakest to strongest.",
+            "hook-2": "never picked", "hashtags": "", "accent": "", "emojis": "", "art": "",
+            "cover": "hero",
+        })
+        post_id = response.headers["HX-Redirect"].split("post=")[1]
+        job = wait_job(client, client.app.state.jobs.recent()[0].id)
+    post = ctx.tools.posts.get(post_id)
+    assert [(i.manhwa.anilist_id, i.hook) for i in post.items] == [
+        (3, "He read it all."), (1, "Weakest to strongest.")]
+    assert (post.title, post.account, post.cover.value) == (
+        "Manhwa where the MC *wins*", "reads", "hero"
+    )
+    assert [m.anilist_id for m in post.candidates] == [1, 2, 3]
+    assert _notice(response)["text"] == f"saved post {post_id} — rendering it…"
+    assert job.outcome == f"rendered post {post_id}"
+    assert (ctx.tools.posts.folder(post_id) / "01.png").is_file()
+
+
+def test_a_theme_search_saves_the_theme_on_the_post(tmp_path):
+    ctx = _ctx(tmp_path)
+    with client_for(ctx) as client:
+        html = client.post("/new/search", data={"theme": "regression"}).text
+        draft = html.split('name="draft" value="')[1].split('"')[0]
+        response = client.post("/new/save", data={"draft": draft, "title": "T", "pick": ["1"]})
+        wait_job(client, client.app.state.jobs.recent()[0].id)
+    post_id = response.headers["HX-Redirect"].split("post=")[1]
+    assert ctx.tools.posts.get(post_id).theme == "regression"
+
+
+@pytest.mark.parametrize(
+    ("form", "message"),
+    [
+        ({"title": "", "pick": ["1"]}, "title"),  # check_picks: a title is needed
+        ({"title": "T"}, "pick"),  # no picks
+        ({"title": "T", "pick": ["1", "1"]}, "twice"),
+        ({"title": "T", "pick": ["99"]}, "not in this search"),
+        ({"title": "T", "pick": ["1"], "accent": "blue"}, "accent"),
+    ],
+)
+def test_a_save_that_cannot_go_through_says_why_and_saves_nothing(tmp_path, form, message):
+    ctx = _ctx(tmp_path)
+    with client_for(ctx) as client:
+        draft = _search(client)
+        response = client.post("/new/save", data={"draft": draft, **form})
+    notice = _notice(response)
+    assert notice["level"] == "error" and message in notice["text"].lower()
+    assert "HX-Redirect" not in response.headers
+    assert ctx.tools.posts.list() == []
+
+
+def test_a_search_that_is_gone_asks_to_search_again(tmp_path):
+    ctx = _ctx(tmp_path)
+    with client_for(ctx) as client:
+        response = client.post("/new/save", data={"draft": "old", "title": "T", "pick": ["1"]})
+    assert _notice(response) == {"text": "this search is gone — search again", "level": "error"}
+    assert ctx.tools.posts.list() == []
+
+
+def test_a_save_during_another_render_saves_and_says_to_render_later(tmp_path):
+    import threading
+
+    from manhwatok.web.jobs import RENDER
+
+    ctx = _ctx(tmp_path)
+    with client_for(ctx) as client:
+        draft = _search(client)
+        release = threading.Event()
+        job = client.app.state.jobs.start(
+            RENDER, "render post a", lambda io: release.wait(5) and "ok"
+        )
+        response = client.post("/new/save", data={"draft": draft, "title": "T", "pick": ["1"]})
+        release.set()
+        wait_job(client, job.id)
+    post_id = response.headers["HX-Redirect"].split("post=")[1]
+    assert _notice(response) == {
+        "text": f"saved post {post_id} — render it when render post a is done",
+        "level": "warning",
+    }
+    assert ctx.tools.posts.get(post_id).items[0].manhwa.anilist_id == 1

@@ -77,4 +77,63 @@
     if (e.key === "ArrowLeft") show(at - 1);
     if (e.key === "ArrowRight") show(at + 1);
   });
+
+  // New post: the theme fills the title unless one was typed.
+  document.addEventListener("change", (e) => {
+    if (e.target.id !== "theme") return;
+    const title = document.getElementById("title");
+    const themed = e.target.selectedOptions[0].dataset.title;
+    if (title && themed && !title.value) title.value = themed;
+  });
+
+  // New post: click a candidate to pick or drop it; the picks list follows.
+  function toggle(card) {
+    const list = document.getElementById("picks");
+    const id = card.dataset.id;
+    const picked = card.getAttribute("aria-pressed") === "true";
+    if (picked) {
+      list.querySelector(`.pick[data-id="${id}"]`)?.remove();
+      card.setAttribute("aria-pressed", "false");
+    } else {
+      const template = card.querySelector("template");
+      list.append(template.content.firstElementChild.cloneNode(true));
+      card.setAttribute("aria-pressed", "true");
+    }
+    ranks();
+  }
+  function ranks() {
+    const order = [...document.querySelectorAll("#picks .pick")].map((li) => li.dataset.id);
+    document.querySelectorAll("#candidates .candidate").forEach((card) => {
+      card.querySelector(".rank").textContent = order.indexOf(card.dataset.id) + 1 || "";
+    });
+  }
+  document.addEventListener("click", (e) => {
+    const card = e.target.closest("#candidates .candidate");
+    if (card) return toggle(card);
+    const move = e.target.closest("#picks [data-move]");
+    if (!move) return;
+    const li = move.closest(".pick");
+    if (move.dataset.move === "up" && li.previousElementSibling) li.previousElementSibling.before(li);
+    if (move.dataset.move === "down" && li.nextElementSibling) li.nextElementSibling.after(li);
+    ranks();
+  });
+  document.addEventListener("keydown", (e) => {
+    const card = e.target.closest?.("#candidates .candidate");
+    if (card && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggle(card); }
+  });
+  // Drag a pick to reorder.
+  let dragged = null;
+  document.addEventListener("dragstart", (e) => {
+    dragged = e.target.closest?.("#picks .pick");
+    if (dragged) dragged.classList.add("dragging");
+  });
+  document.addEventListener("dragend", () => { dragged?.classList.remove("dragging"); dragged = null; ranks(); });
+  document.addEventListener("dragover", (e) => {
+    const over = e.target.closest?.("#picks .pick");
+    if (!dragged || !over || over === dragged) return;
+    e.preventDefault();
+    const box = over.getBoundingClientRect();
+    if (e.clientY < box.top + box.height / 2) over.before(dragged); else over.after(dragged);
+  });
+  document.body.addEventListener("htmx:afterSwap", (e) => { if (e.detail.target.id === "results") ranks(); });
 })();
