@@ -751,7 +751,9 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   account's empty slots (as `plan fill`), `F` every account's, `enter` opens the post in Posts,
   `m` moves it to another empty slot of its account, `u` uploads it with its slot filled into
   TikTok's schedule (one post at a time, and not while another browser window is open), `x`
-  unschedules it (the post is kept), `r` refreshes.
+  unschedules it (the post is kept), `r` refreshes — though it keeps up on its own too: a post
+  scheduled, built or sent from another terminal, slots edited there, or a slot's time going by
+  shows within two seconds.
 
 Slides show as real pictures in terminals with image support (kitty, WezTerm, Konsole, foot and
 other sixel terminals); elsewhere as coloured blocks. Uploading works as with `manhwatok upload`:

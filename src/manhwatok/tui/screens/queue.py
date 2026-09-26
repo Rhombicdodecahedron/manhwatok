@@ -75,9 +75,12 @@ class QueuePane(Vertical):
         Binding("r", "reload", "Refresh"),
     ]
 
+    POLL_SECONDS = 2.0  # how often posts, accounts and the clock are looked at for changes
+
     def __init__(self) -> None:
         super().__init__()
         self.rows: dict[str, QueueRow] = {}
+        self._stamp: tuple | None = None  # what the plan was last read from, to notice changes
 
     def compose(self) -> ComposeResult:
         yield QueueTable(id="queue-table", cursor_type="row", zebra_stripes=True)
@@ -86,6 +89,24 @@ class QueuePane(Vertical):
     def on_mount(self) -> None:
         self.query_one(QueueTable).add_columns("time", "account", "post", "title", "status", "")
         self.reload()
+        self.set_interval(self.POLL_SECONDS, self._poll)
+
+    def _look(self) -> tuple | None:
+        """What the plan is read from: the posts on disk, the accounts (their slots) and the
+        minute it is — a post runs past its time with nothing else changing."""
+        ctx = self.app.ctx
+        try:
+            accounts = tuple(a.model_dump_json() for a in ctx.store.accounts.list())
+            return ctx.tools.posts.stamp(), accounts, f"{self.app.clock():%Y-%m-%d %H:%M}"
+        except (ManhwatokError, OSError):
+            return None
+
+    def _poll(self) -> None:
+        """Read the plan again when it changed: a post scheduled, built or sent from another
+        terminal, slots edited there, or a slot's time gone by — the cursor staying put."""
+        stamp = self._look()
+        if stamp is not None and stamp != self._stamp:
+            self.reload()
 
     def focus_main(self) -> None:
         self.query_one(QueueTable).focus()
@@ -100,6 +121,7 @@ class QueuePane(Vertical):
         """Read the plan again; keep (or move) the cursor to row `select` or the current one."""
         ctx = self.app.ctx
         keep = select or self.query_one(QueueTable).current_key
+        self._stamp = self._look()
         try:
             accounts = ctx.store.accounts.list()
             posts = ctx.tools.posts.list()

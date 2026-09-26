@@ -138,6 +138,62 @@ def test_the_queue_picks_up_changes_on_r_and_when_shown_again(tmp_path):
     run_app(ctx, scenario)
 
 
+def test_a_post_scheduled_outside_the_app_shows_up_on_its_own(tmp_path, monkeypatch):
+    """`manhwatok schedule` in another terminal: the queue picks it up, no key pressed."""
+    monkeypatch.setattr(QueuePane, "POLL_SECONDS", 0.05)
+    ctx = make_ctx(tmp_path)
+    _plan(ctx)
+
+    async def scenario(app, pilot):
+        pane = await _open(app, pilot)
+        await _select(pilot, pane, f"post:{OFF_SAT}")
+        ctx.tools.posts.save(post(id="20260916-0010", account="reads", scheduled_at=MON))
+        row = ["19:00", "@reads", "20260916-0010", TITLE, "not rendered", ""]
+        await wait_for(pilot, lambda: row in _rows(app))
+        assert pane.query_one(QueueTable).current_key == f"post:{OFF_SAT}"  # cursor kept
+
+    run_app(ctx, scenario)
+
+
+def test_slots_changed_outside_the_app_show_up_on_its_own(tmp_path, monkeypatch):
+    monkeypatch.setattr(QueuePane, "POLL_SECONDS", 0.05)
+    ctx = make_ctx(tmp_path)
+    _plan(ctx)
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        reads = ctx.store.accounts.get("reads")
+        ctx.store.accounts.update(reads.model_copy(update={"slots": [*reads.slots, "sat 12:00"]}))
+        on_the_new_slot = ["12:00", "@reads", OFF_SAT, TITLE, "not rendered", ""]
+        await wait_for(pilot, lambda: on_the_new_slot in _rows(app))
+
+    run_app(ctx, scenario)
+
+
+def test_a_post_that_runs_past_its_time_moves_to_overdue_on_its_own(tmp_path, monkeypatch):
+    monkeypatch.setattr(QueuePane, "POLL_SECONDS", 0.05)
+    ctx = make_ctx(tmp_path)
+    _plan(ctx)
+
+    def overdue(app):
+        """The posts under the overdue heading."""
+        late, inside = [], False
+        for row in _rows(app):
+            if row[0].startswith("──"):
+                inside = row[0] == "── overdue ──"
+            elif inside:
+                late.append(row[2])
+        return late
+
+    async def scenario(app, pilot):
+        await _open(app, pilot)
+        assert ON_THU not in overdue(app)
+        app.clock = lambda: datetime(2026, 9, 18, 8, 0, tzinfo=timezone.utc)  # friday morning
+        await wait_for(pilot, lambda: ON_THU in overdue(app))
+
+    run_app(ctx, scenario)
+
+
 def test_enter_opens_the_post_in_the_posts_tab(tmp_path):
     ctx = make_ctx(tmp_path)
     _plan(ctx)
