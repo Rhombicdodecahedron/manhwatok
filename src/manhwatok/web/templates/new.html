@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}New post · manhwatok{% endblock %}
+{% block content %}
+<h1>New post</h1>
+<form class="panel search" hx-post="/new/search" hx-target="#results" hx-swap="innerHTML"
+      hx-indicator="#searching">
+  <label class="field">Account
+    <select name="account">
+      <option value="">No account</option>
+      {% for a in accounts %}<option value="{{ a.handle }}">{{ a.display }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">Theme
+    <select name="theme" id="theme">
+      <option value="" data-title="">No theme — use tags or genres</option>
+      {% for t in themes %}<option value="{{ t.name }}" data-title="{{ t.title }}">{{ t.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">Tags <input name="tags" placeholder="Regression, Revenge"></label>
+  <label class="field">Genres <input name="genres" placeholder="Action, Fantasy"></label>
+  <label class="field">Sort
+    <select name="sort"><option value="">Score</option>{% for s in sorts %}<option value="{{ s.value }}">{{ s.value | capitalize }}</option>{% endfor %}</select>
+  </label>
+  <label class="field">How many <input name="limit" inputmode="numeric" placeholder="12"></label>
+  <label class="field">Min tag rank <input name="min_rank" inputmode="numeric" placeholder="60"></label>
+  <label class="field">Title <input name="title" id="title" placeholder="Manhwa where the MC *regresses*"></label>
+  <div class="wide">
+    <label><input type="checkbox" name="chapters" checked> Fill chapter counts</label>
+    <label><input type="checkbox" name="repeats"> Allow titles posted recently</label>
+    <span class="spacer"></span>
+    <span id="searching" class="htmx-indicator muted">Searching AniList…</span>
+    <button class="button primary">Find titles</button>
+  </div>
+</form>
+<div id="results"><p class="empty">Choose a theme or some tags, then find titles.</p></div>
+{% endblock %}
