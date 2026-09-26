@@ -876,7 +876,7 @@ it — `account set @x --phone SERIAL` ties an account to its phone (the Account
 and uploads use that phone unless you pick another. "Log in here" opens TikTok on that phone for
 an account. The sidebar switches how uploads go
 (as `b` in the TUI) and shows what is running. Changes made with the CLI or the TUI show up by
-themselves. Uploads, art, Accounts, Themes and the plan come next.
+themselves. Accounts, Themes and the plan are still the TUI's for now.
 
 ## Tests
 

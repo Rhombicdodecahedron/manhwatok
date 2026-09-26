@@ -20,7 +20,7 @@ from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered
 from manhwatok.domain.models import CoverStyle, Visibility
 from manhwatok.domain.post import ListPost
 from manhwatok.web.jobs import RENDER, Busy
-from manhwatok.web.routes.common import ctx_of, done, page
+from manhwatok.web.routes.common import STILL_RENDERING, ctx_of, done, page
 from manhwatok.web.routes.files import file_url
 from manhwatok.web.routes.upload import bulk_upload
 
@@ -187,7 +187,6 @@ def post_detail(request: Request, post_id: str) -> HTMLResponse:
     return page(request, "_post_detail.html", d=detail, visibilities=list(Visibility))
 
 
-STILL_RENDERING = "still rendering — try again when it's done"
 
 
 def _plural(n: int, word: str = "post") -> str:

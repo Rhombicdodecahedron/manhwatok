@@ -288,6 +288,13 @@ class AppiumUploader:
             if isinstance(e, self._error):
                 raise ManhwatokError(f"Appium couldn't start on the phone: {_first_line(e)}") from e
             raise UploadUnavailable(SERVER_HINT.format(url=self._server)) from e
+        # Don't wait for TikTok to go still before each look (up to 10 s by default): its
+        # videos and animations rarely do, and every look polls anyway.
+        try:
+            self._driver.update_settings({"waitForIdleTimeout": 1000})
+        except Exception:
+            pass  # an older driver: it waits as it always did
+
 
     def _start_server(self) -> bool:
         """Start Appium when `server` is on this computer and nothing answers there; True once
@@ -707,13 +714,17 @@ class AppiumUploader:
         if option is None:
             report.problems.append(f'TikTok\'s visibility list has no "{label}" — {fix}')
             return
-        # The row is redrawn as the sheet goes: look until it reads what was picked, or time's up.
+        # The row is redrawn as the sheet goes: look until it reads what was picked, or time's
+        # up — and a few times at least, since one look on the phone can come back empty and
+        # take the whole window (a wrong "reads nothing" keeps Post from being tapped).
         deadline = time.monotonic() + app.field_timeout
+        looks = 0
         while True:
             row = self._find([app.visibility_row], 0)
             shown = (row.text or "").strip() if row is not None else ""
             report.visibility = app.shown_visibility(shown)
-            if report.visibility is wanted or time.monotonic() >= deadline:
+            looks += 1
+            if report.visibility is wanted or (looks >= 3 and time.monotonic() >= deadline):
                 break
             time.sleep(POLL_S)
         if report.visibility is not wanted:
@@ -769,6 +780,12 @@ class AppiumUploader:
             report.problems.append(f"the phone isn't connected any more — {fix}")
             return report
         app, problems = self._app, report.problems
+        if self._find([app.post_ready], 0) is not None:
+            problems.append(
+                "TikTok is still on the post screen — tap Post first, then add it to your Story "
+                "from the post (Share → Add to Story)"
+            )
+            return report
         try:
             # A post's video keeps the screen busy: don't wait for it to settle before each look.
             self._driver.update_settings({"waitForIdleTimeout": 100})

@@ -13,6 +13,9 @@ from manhwatok.app.context import UPLOAD_MODE_LABELS, AppContext
 from manhwatok.web.jobs import LANES
 
 
+STILL_RENDERING = "still rendering — try again when it's done"
+
+
 def ctx_of(request: Request) -> AppContext:
     return request.app.state.ctx
 

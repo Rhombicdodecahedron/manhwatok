@@ -26,9 +26,8 @@ from manhwatok.domain.models import ArtOrder, ArtSourceName, ArtStyle, CoverStyl
 from manhwatok.domain.post import MAX_ITEMS, ListPost, PostItem
 from manhwatok.domain.text import first_sentence
 from manhwatok.web.jobs import RENDER, Busy
-from manhwatok.web.routes.common import ctx_of, done, page
+from manhwatok.web.routes.common import STILL_RENDERING, ctx_of, done, page
 from manhwatok.web.routes.files import file_url
-from manhwatok.web.routes.posts import STILL_RENDERING
 
 router = APIRouter()
 

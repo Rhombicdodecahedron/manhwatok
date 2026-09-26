@@ -116,7 +116,9 @@ def test_no_phone_plugged_in_is_said_for_phone_modes_only(tmp_path):
         started = client.post(f"/posts/{PID}/upload", data={"account": "reads", "mode": "browser"})
         _answer_all(client, ["", "no"])
         wait_job(client, started.headers["HX-Redirect"].rsplit("/", 1)[1])
-    assert _notice(refused)["text"] == "no phone plugged in — plug one in, or upload in the browser"
+    assert _notice(refused)["text"] == (
+        f"@reads's phone {PHONE} isn't plugged in — plug it in, or pick another phone"
+    )
 
 
 def test_an_auto_post_upload_is_recorded_without_asking(tmp_path):
@@ -165,3 +167,82 @@ def test_the_upload_dialog_fills_its_panel_instead_of_replacing_it(tmp_path):
         html = client.get(f"/posts/{PID}").text
     button = html[html.index(f'hx-get="/posts/{PID}/upload"'):]
     assert 'hx-swap="innerHTML"' in button[: button.index(">")]
+
+
+def _start(client, **form):
+    return client.post(f"/posts/{PID}/upload", data={"mode": "phone", **form})
+
+
+def test_the_accounts_own_phone_is_used_when_none_is_picked(tmp_path):
+    other = Phone("BBB", "device", "Other phone")
+    ctx, _, built, phones = _world(tmp_path, phones=[Phone(PHONE, "device"), other])
+    with client_for(ctx, phones=phones) as client:
+        response = _start(client, account="reads", phone="")
+        _answer_all(client, ["", "no"])
+        wait_job(client, response.headers["HX-Redirect"].rsplit("/", 1)[1])
+    assert built == [("phone", False, PHONE)]
+
+
+def test_an_accounts_phone_that_isnt_plugged_in_stops_the_upload_naming_it(tmp_path):
+    ctx, uploader, built, phones = _world(tmp_path, phones=[Phone("BBB", "device")])
+    with client_for(ctx, phones=phones) as client:
+        response = _start(client, account="reads", phone="")
+    assert _notice(response) == {
+        "text": f"@reads's phone {PHONE} isn't plugged in — plug it in, or pick another phone",
+        "level": "error",
+    }
+    assert built == [] and uploader.uploads == []
+    assert ctx.tools.posts.get(PID).account == "reads"
+
+
+def test_changing_the_account_offers_that_accounts_phone(tmp_path):
+    ctx, _, _, phones = _world(tmp_path, phones=[Phone(PHONE, "device"), Phone("CCC", "device")])
+    other = ctx.store.accounts.get("other")
+    ctx.store.accounts.update(other.model_copy(update={"phone": "CCC"}))
+    with client_for(ctx, phones=phones) as client:
+        html = client.get(f"/posts/{PID}/upload", params={"account": "other"}).text
+    assert '<option value="other" selected>' in html
+    assert '<option value="CCC" selected>' in html
+    assert 'hx-get="/posts/' in html  # the As select re-draws the dialog
+
+
+def test_an_upload_waits_for_a_running_render(tmp_path):
+    import threading
+
+    from manhwatok.web.jobs import RENDER
+
+    ctx, uploader, _, phones = _world(tmp_path)
+    with client_for(ctx, phones=phones) as client:
+        release = threading.Event()
+        job = client.app.state.jobs.start(
+            RENDER, "render post a", lambda io: release.wait(5) and "ok"
+        )
+        response = _start(client, account="reads", phone=PHONE)
+        release.set()
+        wait_job(client, job.id)
+    assert _notice(response)["level"] == "warning" and "rendering" in _notice(response)["text"]
+    assert uploader.uploads == []
+
+
+def test_bulk_upload_carries_on_past_a_post_that_fails(tmp_path):
+    ctx, uploader, _, phones = _world(tmp_path)
+    _default_sound(ctx, "Lofi")
+    ctx.tools.posts.save(post(id="20260913-0001", account="reads"))  # never rendered
+    with client_for(ctx, phones=phones) as client:
+        client.post("/posts/bulk", data={"action": "upload", "ids": ["20260913-0001", PID]})
+        job = client.app.state.jobs.recent()[0]
+        _answer_all(client, ["yes"])
+        job = wait_job(client, job.id)
+    assert [u[0] for u in uploader.uploads] == ["reads"]
+    assert job.outcome.startswith("uploaded 1 post, recorded 1 as sent, 1 failed: 20260913-0001")
+
+
+def test_a_post_without_an_account_must_be_given_one(tmp_path):
+    ctx, uploader, _, phones = _world(tmp_path)
+    ctx.tools.posts.save(ctx.tools.posts.get(PID).model_copy(update={"account": None}))
+    with client_for(ctx, phones=phones) as client:
+        html = client.get(f"/posts/{PID}/upload").text
+        response = client.post(f"/posts/{PID}/upload", data={"account": "", "mode": "browser"})
+    assert '<option value="" selected disabled>Pick an account</option>' in html
+    assert _notice(response) == {"text": "pick an account to upload as", "level": "error"}
+    assert ctx.tools.posts.get(PID).account is None and uploader.uploads == []

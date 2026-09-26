@@ -16,8 +16,8 @@ from manhwatok.app.upload_post import schedule_for, upload_post, visibility_for
 from manhwatok.domain.account import normalize_handle
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import Visibility
-from manhwatok.web.jobs import BROWSER, Busy
-from manhwatok.web.routes.common import ctx_of, done, page
+from manhwatok.web.jobs import BROWSER, RENDER, Busy
+from manhwatok.web.routes.common import STILL_RENDERING, ctx_of, done, page
 
 router = APIRouter()
 
@@ -29,7 +29,7 @@ def _ready_phones(state):
         return [], str(e)
 
 
-def _phone_for(state, mode: str, wanted: str) -> str:
+def _phone_for(state, mode: str, wanted: str, owner: str = "") -> str:
     """The serial to upload on (checked), or "" for the browser. `state` is the app's, not
     the request's: jobs call this after their request has been answered."""
     if mode == "browser":
@@ -38,6 +38,10 @@ def _phone_for(state, mode: str, wanted: str) -> str:
     ready = [p for p in found if p.ready]
     if wanted:
         match = next((p for p in found if p.serial == wanted), None)
+        if match is None and owner:
+            raise ManhwatokError(
+                f"@{owner}'s phone {wanted} isn't plugged in — plug it in, or pick another phone"
+            )
         if match is None:
             raise ManhwatokError(f"the phone {wanted} isn't plugged in")
         if not match.ready:
@@ -66,11 +70,14 @@ def _upload_one(ctx, io, post_id: str, handle: str, uploader, now, debug, visibi
 
 
 @router.get("/posts/{post_id}/upload", response_class=HTMLResponse)
-def upload_dialog(request: Request, post_id: str) -> HTMLResponse:
+def upload_dialog(request: Request, post_id: str, account: str = "") -> HTMLResponse:
+    """The dialog, for the post's own account — or for `account` when the "As" choice
+    changed, so its phone is the one offered."""
     ctx = ctx_of(request)
     post = ctx.tools.posts.get(post_id)
     accounts = ctx.store.accounts.list()
-    account = next((a for a in accounts if a.handle == post.account), None)
+    wanted = normalize_handle(account) if account else post.account
+    account = next((a for a in accounts if a.handle == wanted), None)
     ready, error = _ready_phones(request.app.state)
     only = ready[0].serial if len(ready) == 1 else ""
     phone = account.phone if account and account.phone else only
@@ -97,13 +104,17 @@ def start_upload(
 ) -> Response:
     ctx, state = ctx_of(request), request.app.state
     bus = state.bus
+    if state.jobs.busy(RENDER) is not None:  # it may be rewriting this post's slides
+        return done(request, STILL_RENDERING, "warning")
     try:
         post = ctx.tools.posts.get(post_id)
+        if not (account or post.account):
+            raise ManhwatokError("pick an account to upload as")
         handle = normalize_handle(account or post.account or "")
-        ctx.store.accounts.get(handle)
+        target = ctx.store.accounts.get(handle)
         if mode not in UPLOAD_MODE_LABELS:
             raise ManhwatokError(f"no upload mode {mode!r}")
-        serial = _phone_for(state, mode, phone)
+        serial = _phone_for(state, mode, phone or target.phone, owner="" if phone else handle)
         chosen = Visibility(visibility) if visibility else None
         uploader = ctx.uploader_for(mode, serial)
     except (ManhwatokError, ValueError) as e:
@@ -138,25 +149,29 @@ def bulk_upload(request: Request, ids: list[str]) -> Response:
 
     def work(io) -> str:
         uploaded = recorded = 0
+        failed: list[str] = []
         for post_id in ids:
-            post = ctx.tools.posts.get(post_id)
-            if not post.account:
-                io.progress(f"post {post_id} has no account — skipped")
-                continue
-            account = ctx.store.accounts.get(post.account)
             try:
-                serial = _phone_for(state, mode, account.phone)
-            except ManhwatokError as e:
-                io.progress(f"post {post_id}: {e} — skipped")
+                post = ctx.tools.posts.get(post_id)
+                if not post.account:
+                    io.progress(f"post {post_id} has no account — skipped")
+                    continue
+                account = ctx.store.accounts.get(post.account)
+                serial = _phone_for(state, mode, account.phone, owner=post.account)
+                uploader = ctx.uploader_for(mode, serial)
+                io.progress(f"— post {post_id} as @{post.account}")
+                posted = _upload_one(ctx, io, post_id, post.account, uploader,
+                                     state.clock(), False, None)
+            except ManhwatokError as e:  # carry on with the next, as the TUI does
+                io.progress(f"post {post_id} failed: {e}")
+                failed.append(f"{post_id} {e}")
                 continue
-            uploader = ctx.uploader_for(mode, serial)
-            io.progress(f"— post {post_id} as @{post.account}")
             uploaded += 1
-            if _upload_one(ctx, io, post_id, post.account, uploader,
-                           state.clock(), False, None):
-                recorded += 1
+            recorded += posted
             bus.publish("changed", what="posts")
-        return f"uploaded {uploaded} posts, recorded {recorded} as sent"
+        plural = "post" if uploaded == 1 else "posts"
+        text = f"uploaded {uploaded} {plural}, recorded {recorded} as sent"
+        return text + (f", {len(failed)} failed: " + "; ".join(failed) if failed else "")
 
     try:
         job = request.app.state.jobs.start(BROWSER, f"upload {len(ids)} posts", work)

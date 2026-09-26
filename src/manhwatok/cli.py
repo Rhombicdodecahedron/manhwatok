@@ -1053,8 +1053,9 @@ STORY_TEXT = typer.Option(
 PHONE = typer.Option(
     None,
     "--phone",
-    help="The phone this account is logged in on (its serial, see `adb devices`); the phone "
-    'upload uses it. "" clears it.',
+    help="The phone this account is logged in on (its serial, see `adb devices`); the web "
+    "app's uploads and logins use it (the CLI and TUI still use MANHWATOK_PHONE or the only "
+    'phone). "" clears it.',
 )
 ACCOUNT_ACCENT = typer.Option(None, "--accent", help="Accent colour, e.g. #43c9e4.")
 BYLINE = typer.Option(

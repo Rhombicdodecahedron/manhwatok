@@ -129,3 +129,17 @@ def test_only_recent_jobs_are_kept_newest_first():
     assert recent[0].heading == "job 24"
     with pytest.raises(ManhwatokError):
         runner.get("job1")
+
+
+def test_an_answered_question_is_no_longer_pending_even_before_its_job_wakes():
+    """The job clears its question a moment after the answer wakes it; a page that asks in
+    between must not be shown the answered question again."""
+    from manhwatok.web.jobs import Job, Question
+
+    runner = JobRunner(EventBus())
+    job = Job("job1", BROWSER, "upload")
+    job.question = Question("q1", "job1", "Posted?", [("Yes", "yes"), ("No", "no")])
+    runner._jobs[job.id] = job
+    assert runner.pending() == [job.question]
+    assert runner.answer("q1", "no")
+    assert runner.pending() == []  # the job hasn't woken to clear it yet

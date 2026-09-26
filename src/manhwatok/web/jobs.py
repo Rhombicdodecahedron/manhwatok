@@ -136,7 +136,10 @@ class JobRunner:
 
     def pending(self) -> list[Question]:
         with self._lock:
-            return [j.question for j in self._jobs.values() if j.question is not None]
+            return [
+                j.question for j in self._jobs.values()
+                if j.question is not None and not j.question.answered.is_set()
+            ]
 
     def answer(self, question_id: str, value: str | None) -> bool:
         """True when this answer is the one the job gets: the question is still open and

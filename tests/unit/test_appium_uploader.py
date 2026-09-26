@@ -16,7 +16,7 @@ from manhwatok.domain.models import Visibility
 
 APP = TikTokApp(
     launch_timeout=0, switch_timeout=0, gallery_timeout=0, editor_timeout=0,
-    field_timeout=0, sound_timeout=0,
+    field_timeout=0, sound_timeout=0, posting_timeout=0,
 )
 BACK = ("pressKey", {"keycode": 4})
 
@@ -520,6 +520,7 @@ def test_auto_post_that_tiktok_doesnt_take_is_a_problem(tmp_path, monkeypatch):
 def _profile(driver, title="My title"):
     """The profile after posting: a banner, a pinned post, then the new post, whose page
     shows `title`; its Share → Add to Story opens the Story screen."""
+    driver.screen.pop(APP.post_ready, None)  # posted: the post screen is gone
     marker = [APP.post_cell_marker]
     banner = FakeElement(driver, "banner", rect=_box(0, 100, 1080, 90))
     pinned = FakeElement(driver, "pinned", rect=_box(0, 200, 358, 477),
@@ -768,3 +769,47 @@ def test_manhwatok_uploader_picks_the_phone_or_the_browser(tmp_path):
     with pytest.raises(ManhwatokError) as e:
         build_uploader(Settings(data_dir=tmp_path, uploader="fax"))
     assert str(e.value) == "MANHWATOK_UPLOADER is 'fax' — use one of: browser, phone"
+
+
+def test_a_visibility_row_slow_to_redraw_is_read_again_before_giving_up(tmp_path, monkeypatch):
+    """On the phone the first look after the sheet closes can come back empty (and slow): the
+    row is read again rather than reported as reading nothing, which kept Post from being tapped."""
+    driver = FakeDriver()
+    row = driver.row
+    looks = {"n": 0}
+    find = driver.find_elements
+
+    def slow_row(by, value):
+        if value == APP.visibility_row and row.text.startswith("Only you"):
+            looks["n"] += 1
+            if looks["n"] == 1:
+                return []  # mid-redraw
+        return find(by, value)
+
+    driver.find_elements = slow_row
+    driver.put(APP.visibility_choice(Visibility.PRIVATE), "only you",
+               on_click=lambda: setattr(row, "text", "Only you can view this post"))
+    driver.screen[APP.post_ready][0].on_click = lambda: driver.screen.pop(APP.post_ready)
+    _fake(monkeypatch, driver)
+    report = _upload(_uploader(tmp_path, auto_post=True), tmp_path, visibility=Visibility.PRIVATE)
+    assert report.problems == [] and report.visibility is Visibility.PRIVATE
+    assert report.posted
+
+
+def test_the_session_doesnt_wait_for_tiktok_to_go_still(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    _fake(monkeypatch, driver)
+    _upload(_uploader(tmp_path), tmp_path)
+    assert ("settings", {"waitForIdleTimeout": 1000}) in driver.log
+
+
+def test_the_story_says_when_the_post_isnt_out_yet(tmp_path, monkeypatch):
+    driver = FakeDriver()  # still on the post screen: its Post button is there
+    _fake(monkeypatch, driver)
+    uploader = _uploader(tmp_path)
+    uploader._open()
+    story = uploader.add_to_story("reads", "My title")
+    assert story.problems == [
+        "TikTok is still on the post screen — tap Post first, then add it to your Story from "
+        "the post (Share → Add to Story)"
+    ]

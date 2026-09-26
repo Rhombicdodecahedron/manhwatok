@@ -73,8 +73,8 @@ LABELS = {
         "Caption on the Story the phone upload shares a new post to (empty = the bare post)"
     ),
     "phone": (
-        "The phone this account is logged in on — its serial, see adb devices "
-        "(empty = the only one)"
+        "The phone this account is logged in on — its serial, see adb devices; the web "
+        "app uploads there (empty = the only one)"
     ),
 }
 

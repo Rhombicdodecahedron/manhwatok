@@ -3,7 +3,10 @@
   <h3>Upload post {{ post.id }}</h3>
   <div class="edit-grid">
     <label class="field">As
-      <select name="account">{% for a in accounts %}<option value="{{ a.handle }}"{% if account and a.handle == account.handle %} selected{% endif %}>{{ a.display }}</option>{% endfor %}</select>
+      <select name="account" hx-get="/posts/{{ post.id }}/upload" hx-trigger="change"
+              hx-target="#upload-panel" hx-swap="innerHTML" hx-include="this">
+        {% if not account %}<option value="" selected disabled>Pick an account</option>{% endif %}
+        {% for a in accounts %}<option value="{{ a.handle }}"{% if account and a.handle == account.handle %} selected{% endif %}>{{ a.display }}</option>{% endfor %}</select>
     </label>
     <label class="field">How
       <select name="mode">{% for value, label in modes %}<option value="{{ value }}"{% if value == mode %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
