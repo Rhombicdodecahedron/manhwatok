@@ -13,7 +13,7 @@ from manhwatok.domain.account import Account
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.draft import check_picks, is_empty_draft, parse_draft, render_draft
 from manhwatok.domain.errors import DraftError, ManhwatokError
-from manhwatok.domain.models import ArtStyle, Manhwa
+from manhwatok.domain.models import ArtStyle, CoverStyle, Manhwa
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
@@ -39,6 +39,7 @@ def create_post(
     art: ArtStyle | None = None,
     emojis: str | None = None,
     theme: str | None = None,
+    cover: CoverStyle = CoverStyle.FAN,
 ) -> ListPost:
     """A new post (pure). Hashtags, emojis, accent and art: the override if given, else the
     account's, else the defaults. End-slide texts come from the account."""
@@ -65,6 +66,7 @@ def create_post(
         cta_follow=account.cta_follow if account else DEFAULT_CTA_FOLLOW,
         byline=account.byline if account else "",
         art=art,
+        cover=cover,
     )
 
 
@@ -88,11 +90,13 @@ def save_new_post(
     art: ArtStyle | None = None,
     emojis: str | None = None,
     theme: str | None = None,
+    cover: CoverStyle = CoverStyle.FAN,
 ) -> tuple[ListPost, list[Path]]:
     """Check the picks, save them as a new post and render it. Nothing is written if the
     picks or the style are invalid."""
     post = store_new_post(
-        candidates, title, items, account, hashtags, accent, tools.posts, now, art, emojis, theme
+        candidates, title, items, account, hashtags, accent, tools.posts, now,
+        art=art, emojis=emojis, theme=theme, cover=cover,
     )
     return post, render_post(post.id, tools)
 
@@ -109,11 +113,12 @@ def store_new_post(
     art: ArtStyle | None = None,
     emojis: str | None = None,
     theme: str | None = None,
+    cover: CoverStyle = CoverStyle.FAN,
 ) -> ListPost:
     """`save_new_post` short of rendering, for a caller with more to do first (art to fill)."""
     check_picks(title, items)
     post = create_post(
-        "", now, candidates, title, items, account, hashtags, accent, art, emojis, theme
+        "", now, candidates, title, items, account, hashtags, accent, art, emojis, theme, cover
     )
     post = post.model_copy(update={"id": posts.new_id(now.astimezone().date())})
     _save_new(post, posts)

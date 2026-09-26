@@ -718,7 +718,8 @@ Everything the commands above do, in one window with five tabs (`1`–`5`, `q` q
   a file path or URL you type, `c` goes back to the style's own art, `o` opens the current picture
   in your image viewer, `esc` returns.
 - **Build** — account, theme or tags/genres, and the post's style: hashtags, accent, emojis and
-  art (blank = the account's, shown greyed out); **Search** opens the picks editor: `space`
+  art (blank = the account's, shown greyed out), and the cover version (fan, quad or hero;
+  `c` on the post switches it later); **Search** opens the picks editor: `space`
   picks or drops a title, `shift+↑`/`shift+↓` reorder, `enter` edits a hook, `ctrl+s` saves and
   renders, `esc` cancels. "Find a tag" searches AniList's tags. The **List / Chapter** switch
   at the top turns the form into `chapter build`: pick a title already tracked (or type a new

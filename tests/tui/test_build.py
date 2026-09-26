@@ -5,7 +5,7 @@ pytest.importorskip("textual")
 
 from manhwatok.domain.account import Account  # noqa: E402
 from manhwatok.domain.errors import ManhwatokError  # noqa: E402
-from manhwatok.domain.models import ArtStyle, SearchQuery, Sort, TagInfo  # noqa: E402
+from manhwatok.domain.models import ArtStyle, CoverStyle, SearchQuery, Sort, TagInfo  # noqa: E402
 from manhwatok.domain.theme import Theme  # noqa: E402
 from manhwatok.tui.screens.build import BuildPane, matching_tags  # noqa: E402
 from manhwatok.tui.screens.picks import PicksScreen  # noqa: E402
@@ -55,7 +55,7 @@ def test_build_from_a_theme_for_an_account(tmp_path):
     async def scenario(app, pilot):
         pane = await _open_build(app, pilot)
         await _set(pilot, pane, account="reads", theme="revenge", limit="5")
-        await _set(pilot, pane, emojis=" 🔥 ", art=ArtStyle.BACKGROUND)
+        await _set(pilot, pane, emojis=" 🔥 ", art=ArtStyle.BACKGROUND, cover=CoverStyle.QUAD)
         assert _field(pane, "title").value == "MC gets *revenge*"
         pane.search()
         await wait_for(pilot, lambda: isinstance(app.screen, PicksScreen))
@@ -70,7 +70,7 @@ def test_build_from_a_theme_for_an_account(tmp_path):
     assert (query.tags, query.sort, query.limit) == (["Revenge"], Sort.POPULARITY, 5)
     [saved] = ctx.tools.posts.list()
     assert (saved.title, saved.hashtags) == ("MC gets *revenge*", "#reads")
-    assert (saved.emojis, saved.art) == ("🔥", ArtStyle.BACKGROUND)
+    assert (saved.emojis, saved.art, saved.cover) == ("🔥", ArtStyle.BACKGROUND, CoverStyle.QUAD)
     assert [i.manhwa.anilist_id for i in saved.items] == [11, 22]
     assert [i.hook for i in saved.items] == ["Sent back ten years.", "Gods."]
     assert saved.created_at == NOW
@@ -107,7 +107,7 @@ def test_build_from_tags_without_an_account(tmp_path):
     )
     [saved] = ctx.tools.posts.list()
     assert (saved.account, saved.accent) == (None, "#abcdef")
-    assert (saved.emojis, saved.art) == ("", ArtStyle.NONE)
+    assert (saved.emojis, saved.art, saved.cover) == ("", ArtStyle.NONE, CoverStyle.FAN)
     assert ctx.chapters.calls == []
 
 

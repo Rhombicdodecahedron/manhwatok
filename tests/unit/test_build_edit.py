@@ -5,7 +5,7 @@ import pytest
 from manhwatok.app.build_post import build_post, create_post, prefill_items, save_new_post
 from manhwatok.app.edit_post import edit_post, update_picks
 from manhwatok.domain.account import Account
-from manhwatok.domain.models import ArtStyle
+from manhwatok.domain.models import ArtStyle, CoverStyle
 from manhwatok.domain.errors import DraftError, InvalidName, ManhwatokError, StorageError
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
@@ -36,10 +36,10 @@ ACCOUNT = Account(
 # --- create_post (pure) --------------------------------------------------------------------
 
 
-def _create(account=None, hashtags=None, accent=None, art=None, emojis=None):
+def _create(account=None, hashtags=None, accent=None, art=None, emojis=None, **more):
     items = [PostItem(manhwa=CANDIDATES[0], hook="h")]
     return create_post(
-        "20260914-a3f9", NOW, CANDIDATES, "T", items, account, hashtags, accent, art, emojis
+        "20260914-a3f9", NOW, CANDIDATES, "T", items, account, hashtags, accent, art, emojis, **more
     )
 
 
@@ -76,6 +76,11 @@ def test_create_post_emojis_come_from_the_override_else_the_account():
 def test_create_post_art_override_beats_the_account():
     assert _create(ACCOUNT, art=ArtStyle.NONE).art is ArtStyle.NONE
     assert _create(art=ArtStyle.BACKGROUND).art is ArtStyle.BACKGROUND
+
+
+def test_create_post_cover_is_fan_unless_given():
+    assert _create(ACCOUNT).cover is CoverStyle.FAN
+    assert _create(cover=CoverStyle.QUAD).cover is CoverStyle.QUAD
 
 
 def test_create_post_rejects_a_bad_accent():
@@ -314,6 +319,13 @@ def test_save_new_post_takes_art_and_emojis_else_the_accounts(tmp_path):
     assert tools.posts.get(own.id) == own
     inherited, _ = _save_new(tools, account=account)
     assert (inherited.art, inherited.emojis) == (ArtStyle.PANEL, "📚")
+
+
+def test_save_new_post_keeps_the_cover_asked_for(tmp_path):
+    tools = make_tools(tmp_path)
+    saved, _ = _save_new(tools, cover=CoverStyle.HERO)
+    assert saved.cover is CoverStyle.HERO
+    assert tools.posts.get(saved.id).cover is CoverStyle.HERO
 
 
 @pytest.mark.parametrize(

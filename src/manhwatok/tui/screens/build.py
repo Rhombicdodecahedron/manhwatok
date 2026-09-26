@@ -43,6 +43,7 @@ from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import (
     ArtStyle,
     ChapterSourceName,
+    CoverStyle,
     Manhwa,
     SearchQuery,
     Sort,
@@ -177,6 +178,14 @@ class BuildPane(VerticalScroll):
             with Vertical(classes="field narrow list"):
                 yield Label("Art")
                 yield Select([(a.value, a) for a in ArtStyle], prompt="none", id="art")
+            with Vertical(classes="field narrow list"):
+                yield Label("Cover")
+                yield Select(
+                    [(c.value, c) for c in CoverStyle],
+                    value=CoverStyle.FAN,
+                    allow_blank=False,
+                    id="cover",
+                )
         yield Button("Search", id="search", variant="primary", classes="list")
         yield Static("", id="status", markup=False, classes="list")
         with Horizontal(id="chapter-actions", classes="row chapter"):
@@ -368,6 +377,7 @@ class BuildPane(VerticalScroll):
             "accent": accent,
             "emojis": self._input("emojis").value.strip() or None,
             "art": self.query_one("#art", Select).selection,
+            "cover": self.query_one("#cover", Select).value,
         }
         repeats = self.query_one("#repeats", Checkbox).value
         chapters = self.query_one("#chapters", Checkbox).value
@@ -438,6 +448,7 @@ class BuildPane(VerticalScroll):
                     self.app.clock(),
                     art=style["art"],
                     emojis=style["emojis"],
+                    cover=style["cover"],
                 )
 
             if self.app.start_render(save, self._saved):
