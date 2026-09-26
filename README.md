@@ -851,14 +851,17 @@ uv sync --extra web          # once
 uv run manhwatok web         # opens http://127.0.0.1:8421 in your browser (--port, --no-open)
 ```
 
-The web app runs on this computer only (127.0.0.1) and does what the TUI does, with the mouse:
-so far the **Posts** page — every post with its status, filters by account and status, and for
-the selected post its slides full size (click one, then ← →), its cover versions (click one to
-use it), what TikTok gets as title and description, its sounds and who can see it. Render,
-Export, Delete and visibility work on the post, and Render/Export/Delete on ticked posts too.
-The header switches how uploads go (as `b` in the TUI) and shows what is running. Changes made
-with the CLI or the TUI show up by themselves. Uploads, Build, Accounts, Themes and the plan
-come next.
+The web app runs on this computer only (127.0.0.1) and does what the TUI does, with the mouse,
+in the slides' own font. **Posts** shows every post as its cover, filtered by account and
+status; the selected post opens in a slide viewer (click the big slide for full screen, then
+← →) with its cover versions (click one to use it), what TikTok gets as title and description,
+its sounds and who can see it. Render, Export, Delete and visibility work on the post, and
+Render/Export/Delete on ticked posts too. **New post** searches like the TUI's Build — an
+account, then a theme or tags/genres — and shows the titles as covers, all picked: click one to
+drop it or pick it again, drag the picks (or use ↑↓) to order them, edit their hook lines, give
+the post a title, then Save and render opens the new post. The sidebar switches how uploads go
+(as `b` in the TUI) and shows what is running. Changes made with the CLI or the TUI show up by
+themselves. Uploads, art, Accounts, Themes and the plan come next.
 
 ## Tests
 

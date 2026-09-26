@@ -56,8 +56,11 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .button:hover, button:hover { border-color: var(--muted); }
 .button.primary { background: var(--accent); border-color: var(--accent); color: #0d0c12; }
 .button.danger { color: var(--danger); }
-.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; margin-bottom: 16px; }
-.toolbar .spacer { flex: 1; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+.toolbar h1 { margin: 0; }
+.toolbar form.toolbar { margin: 0; }
+.spacer { flex: 1; }
+a.button { text-decoration: none; display: inline-block; }
 
 /* status */
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--draft); }
@@ -121,6 +124,7 @@ details > summary { cursor: pointer; font-weight: 700; color: var(--muted); marg
 .pick .moves { display: flex; flex-direction: column; gap: 4px; }
 .pick .moves button { padding: 4px 8px; font-size: 12px; }
 .pick.dragging { opacity: .4; }
+.new > .panel { position: sticky; top: 22px; max-height: calc(100vh - 44px); overflow: auto; }
 .style { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
 
 /* toasts, lightbox */
