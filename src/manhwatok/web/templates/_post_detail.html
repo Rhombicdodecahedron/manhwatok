@@ -23,6 +23,7 @@
   <div class="actions">
     <button class="button primary" hx-post="/posts/{{ d.post.id }}/render" hx-swap="none"
       {% if d.post.sent_at %}hx-confirm="Post {{ d.post.id }} was already sent. Render it again?"{% endif %}>Render</button>
+    <a class="button" href="/posts/{{ d.post.id }}/edit">Edit</a>
     <button class="button" hx-post="/posts/{{ d.post.id }}/export" hx-swap="none">Export</button>
     <form hx-post="/posts/{{ d.post.id }}/visibility" hx-trigger="change" hx-swap="none">
       <select name="visibility" aria-label="Who can see it">

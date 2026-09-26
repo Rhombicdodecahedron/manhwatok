@@ -155,4 +155,14 @@
     if (e.key === "Enter" && e.target.matches?.("#picks-form input")) e.preventDefault();
   });
   document.body.addEventListener("htmx:afterSwap", (e) => { if (e.detail.target.id === "results") ranks(); });
+
+  // Edit: the colour well and the accent field say the same thing.
+  document.addEventListener("input", (e) => {
+    const name = e.target.dataset?.mirror;
+    if (name) e.target.closest("form").querySelector(`input[name="${name}"]`).value = e.target.value;
+    if (e.target.name === "accent" && /^#[0-9a-fA-F]{6}$/.test(e.target.value)) {
+      const well = e.target.closest("form").querySelector('[data-mirror="accent"]');
+      if (well) well.value = e.target.value.toLowerCase();
+    }
+  });
 })();

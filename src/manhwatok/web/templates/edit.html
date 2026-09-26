@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ post.id }} · manhwatok{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1>Edit post</h1>
+  <span class="muted">{{ post.title | plain }} · {{ post.id }}</span>
+  <span class="spacer"></span>
+  <a class="button" href="/posts?post={{ post.id }}">Back to the post</a>
+</div>
+
+<section id="texts" class="panel edit-section">
+  <h2>Texts and look</h2>
+  <form class="edit-grid" hx-post="/posts/{{ post.id }}/settings" hx-swap="none"
+        hx-disabled-elt="find button.primary">
+    <label class="field wide">Title <input name="title" value="{{ post.title }}" required></label>
+    <label class="field">Hashtags <input name="hashtags" value="{{ post.hashtags }}"></label>
+    <label class="field">Emojis <input name="emojis" value="{{ post.emojis }}" placeholder="none, or auto"></label>
+    <label class="field">Byline <input name="byline" value="{{ post.byline }}" placeholder="@{{ post.account or 'handle' }}"></label>
+    <label class="field">Accent
+      <span class="accent-pick"><input type="color" value="{{ post.accent }}" data-mirror="accent" aria-label="Pick the accent">
+        <input name="accent" value="{{ post.accent }}"></span></label>
+    <label class="field">End slide title <input name="cta_title" value="{{ post.cta_title }}"></label>
+    <label class="field">End slide follow line <input name="cta_follow" value="{{ post.cta_follow }}"></label>
+    {% if not chapter %}
+    <label class="field">Art style
+      <select name="art">{% for a in arts %}<option value="{{ a.value }}" {% if a == post.art %}selected{% endif %}>{{ a.value }}</option>{% endfor %}</select>
+    </label>
+    <label class="field">Cover
+      <select name="cover">{% for c in covers %}<option value="{{ c.value }}" {% if c == post.cover %}selected{% endif %}>{{ c.value }}</option>{% endfor %}</select>
+    </label>
+    {% endif %}
+    <div class="wide actions"><button class="button primary">Save and render</button></div>
+  </form>
+</section>
+
+{% if chapter %}
+<p class="empty">{{ chapter }}: its picks and pictures can't be changed here.</p>
+{% else %}
+<section id="picks-section" class="panel edit-section">
+  <h2>Picks</h2>
+  <div hx-get="/posts/{{ post.id }}/picks" hx-trigger="load" hx-swap="outerHTML"></div>
+</section>
+
+<section id="art-section" class="panel edit-section">
+  <h2>Pictures</h2>
+  <div id="art-titles" hx-get="/posts/{{ post.id }}/art" hx-trigger="load, changed-posts from:body"></div>
+  <div id="art-panel"></div>
+</section>
+{% endif %}
+{% endblock %}
