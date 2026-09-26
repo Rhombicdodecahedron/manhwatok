@@ -23,7 +23,7 @@ from manhwatok.app.context import AppContext, open_context
 from manhwatok.config import Settings
 from manhwatok.web import events
 from manhwatok.web.jobs import EventBus, JobRunner
-from manhwatok.web.routes import header, posts
+from manhwatok.web.routes import files, header, posts
 
 HERE = Path(__file__).parent
 DEFAULT_PORT = 8421
@@ -94,6 +94,7 @@ def create_app(
     app.include_router(events.router)
     app.include_router(header.router)
     app.include_router(posts.router)
+    app.include_router(files.router)
 
     @app.get("/")
     def home() -> RedirectResponse:

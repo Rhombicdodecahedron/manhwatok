@@ -58,3 +58,43 @@ def test_a_selected_post_loads_into_the_detail_pane(tmp_path):
     with client_for(_posts(make_ctx(tmp_path))) as client:
         html = client.get("/posts", params={"post": NEW}).text
     assert f'hx-get="/posts/{NEW}"' in html
+
+
+def test_the_detail_shows_slides_covers_caption_and_what_tiktok_gets(tmp_path):
+    ctx = _posts(make_ctx(tmp_path))
+    with client_for(ctx) as client:
+        html = client.get(f"/posts/{NEW}").text
+    assert 'id="post-detail"' in html and "<html" not in html
+    assert html.count("data-slide") == 5  # one per rendered slide
+    assert f'src="/files/{NEW}/01.png?v=' in html
+    for style in ("fan", "quad", "hero"):
+        assert f"/files/{NEW}/cover-{style}.png" in html
+    assert 'class="chosen"' in html  # the post's own cover (fan)
+    assert "Dark Aria" in html  # the account's sound
+    assert "everyone (the account&#39;s)" in html  # HTML-escaped
+
+
+def test_a_post_without_its_account_still_shows(tmp_path):
+    ctx = _posts(make_ctx(tmp_path))
+    ctx.store.accounts.remove("reads")
+    with client_for(ctx) as client:
+        response = client.get(f"/posts/{NEW}")
+    assert response.status_code == 200
+    assert "@reads (removed)" in response.text
+
+
+def test_a_draft_says_it_has_no_picks(tmp_path):
+    with client_for(_posts(make_ctx(tmp_path))) as client:
+        html = client.get(f"/posts/{DRAFT}").text
+    assert "no picks yet" in html and "data-slide" not in html
+
+
+def test_a_post_deleted_elsewhere_says_it_is_gone(tmp_path):
+    ctx = _posts(make_ctx(tmp_path))
+    with client_for(ctx) as client:
+        from manhwatok.app.delete_post import delete_post
+
+        delete_post(NEW, ctx.tools.posts)
+        response = client.get(f"/posts/{NEW}")
+    assert response.status_code == 200
+    assert f"Post {NEW} is gone" in response.text

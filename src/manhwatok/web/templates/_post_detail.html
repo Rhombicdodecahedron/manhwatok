@@ -1,0 +1,38 @@
+<div id="post-detail" data-post="{{ d.post.id }}" hx-get="/posts/{{ d.post.id }}"
+     hx-trigger="changed-posts from:body, changed-store from:body" hx-swap="outerHTML">
+  <h2>{{ d.post.title or "(untitled)" }}</h2>
+  <p class="muted">{{ d.post.id }} · {{ d.account_label }} · <span class="status">{{ d.status }}</span>
+    · planned {{ d.planned }} · sent {{ d.sent }} · visible to {{ d.visibility }}</p>
+
+  <div class="actions"></div>
+
+  {% if d.post.is_unfinished %}
+  <p class="muted">no picks yet — pick titles for it (Edit picks comes with the Build page).</p>
+  {% else %}
+    {% if d.slides %}
+    <div class="slides" data-gallery>
+      {% for url in d.slides %}<img src="{{ url }}" data-slide alt="slide {{ loop.index }}" loading="lazy">{% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">Not rendered yet.</p>
+    {% endif %}
+
+    <h3>Cover</h3>
+    <div class="covers">
+      {% for c in d.covers %}
+      <figure {% if c.chosen %}class="chosen"{% endif %}>
+        {% if c.url %}<img src="{{ c.url }}" alt="{{ c.style }} cover">{% else %}<div class="muted">not drawn yet</div>{% endif %}
+        <figcaption>{{ c.style }}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+
+    <h3>On TikTok</h3>
+    <p><strong>Title</strong> {{ d.title }}</p>
+    <div class="caption">{{ d.description }}</div>
+    <p><strong>Sounds</strong> {{ d.sounds | join(" | ") if d.sounds else "–" }}</p>
+
+    <h3>{{ "Caption" if d.rendered else "Caption (not rendered)" }}</h3>
+    <div class="caption">{{ d.caption }}</div>
+  {% endif %}
+</div>
