@@ -1,29 +1,33 @@
 {% if rows %}
 <form id="bulk">
-<div class="actions">
-  <button hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "render"}' hx-swap="none">Render ticked</button>
-  <button hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "export"}' hx-swap="none">Export ticked</button>
-  <button class="danger" hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "delete"}' hx-swap="none"
-    hx-confirm="Delete the ticked posts and their slides?">Delete ticked</button>
-</div>
-<table>
-  <thead><tr><th></th><th>Post</th><th>Account</th><th>Title</th><th>Status</th><th>Planned</th><th>Sent</th></tr></thead>
-  <tbody>
+  <div class="toolbar">
+    <button type="button" class="button" hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "render"}' hx-swap="none">Render ticked</button>
+    <button type="button" class="button" hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "export"}' hx-swap="none">Export ticked</button>
+    <button type="button" class="button danger" hx-post="/posts/bulk" hx-include="#bulk" hx-vals='{"action": "delete"}' hx-swap="none"
+      hx-confirm="Delete the ticked posts and their slides?">Delete ticked</button>
+  </div>
+  <div class="cards">
   {% for row in rows %}
-  <tr {% if row.post.id == selected %}class="selected"{% endif %}>
-    <td><input type="checkbox" name="ids" value="{{ row.post.id }}" {% if ticked and row.post.id in ticked %}checked{% endif %} aria-label="Select {{ row.post.id }}"></td>
-    <td class="link" hx-get="/posts/{{ row.post.id }}" hx-target="#detail" hx-swap="innerHTML"
-        hx-push-url="/posts?post={{ row.post.id }}">{{ row.post.id }}</td>
-    <td>{{ "@" ~ row.post.account if row.post.account else "-" }}</td>
-    <td>{{ row.post.title | plain or "(untitled)" }}</td>
-    <td class="nowrap"><span class="status">{{ row.status }}</span></td>
-    <td class="nowrap">{{ row.planned }}</td>
-    <td class="nowrap">{{ row.sent }}</td>
-  </tr>
+    <article class="card{% if row.post.id == selected %} is-selected{% endif %}" data-post="{{ row.post.id }}">
+      <label class="tick"><input type="checkbox" name="ids" value="{{ row.post.id }}" {% if ticked and row.post.id in ticked %}checked{% endif %} aria-label="Tick {{ row.post.id }}"></label>
+      <button type="button" class="open" hx-get="/posts/{{ row.post.id }}" hx-target="#detail" hx-swap="innerHTML"
+        hx-push-url="/posts?post={{ row.post.id }}">
+        <div class="thumb">
+          {% if row.thumb %}<img src="{{ row.thumb }}" alt="" loading="lazy">
+          {% elif row.status == "draft" %}<div class="none">No picks yet</div>
+          {% else %}<div class="none">Not rendered yet</div>{% endif %}
+        </div>
+        <div class="title">{{ row.post.title | plain or "(untitled)" }}</div>
+      </button>
+      <div class="meta">
+        <span class="dot" data-status="{{ row.status }}"></span><span class="status">{{ row.status }}</span>
+        {% if row.sent != "-" %}<span>sent {{ row.sent }}</span>{% elif row.planned != "-" %}<span>{{ row.planned }}</span>{% endif %}
+      </div>
+      <div class="meta">{{ "@" ~ row.post.account if row.post.account else "no account" }} · {{ row.post.id }}</div>
+    </article>
   {% endfor %}
-  </tbody>
-</table>
+  </div>
 </form>
 {% else %}
-<p class="muted">No posts yet — build one with <code>manhwatok build</code> or the TUI.</p>
+<p class="empty">No posts yet. <a href="/new">Create one</a>.</p>
 {% endif %}

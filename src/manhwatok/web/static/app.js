@@ -30,10 +30,10 @@
   // a click on a post marks its row at once.
   window.selectedPost = () => new URLSearchParams(location.search).get("post") || "";
   document.addEventListener("click", (e) => {
-    const cell = e.target.closest("#posts-table td.link");
-    if (!cell) return;
-    document.querySelectorAll("#posts-table tr.selected").forEach((tr) => tr.classList.remove("selected"));
-    cell.closest("tr").classList.add("selected");
+    const opener = e.target.closest("#posts-table .card .open");
+    if (!opener) return;
+    document.querySelectorAll("#posts-table .card.is-selected").forEach((c) => c.classList.remove("is-selected"));
+    opener.closest(".card").classList.add("is-selected");
   });
 
   // Lightbox: click a [data-slide] image; ← → step through its [data-gallery].

@@ -35,6 +35,7 @@ class _Row:
     status: str
     planned: str  # in the post's account's time zone
     sent: str
+    thumb: str | None = None  # the rendered cover (01.png), for the card
 
 
 def _rows(ctx: AppContext, account: str, status: str) -> list[_Row]:
@@ -48,7 +49,10 @@ def _rows(ctx: AppContext, account: str, status: str) -> list[_Row]:
         if status and state != status:
             continue
         zone = zones.get(post.account or "", DEFAULT_TIMEZONE)
-        rows.append(_Row(post, state, scheduled_text(post, zone), sent_text(post, zone)))
+        first = ctx.tools.posts.folder(post.id) / "01.png"
+        drawn = state not in ("draft", "not rendered") and first.is_file()
+        thumb = file_url(first) if drawn else None
+        rows.append(_Row(post, state, scheduled_text(post, zone), sent_text(post, zone), thumb))
     return rows
 
 

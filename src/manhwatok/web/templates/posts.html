@@ -1,35 +1,40 @@
 {% extends "base.html" %}
 {% block title %}Posts · manhwatok{% endblock %}
 {% block content %}
-<div class="posts">
+<div class="studio">
   <section>
-    <form id="filters" class="filters" hx-get="/posts/table" hx-target="#posts-table" hx-trigger="change"
-          hx-include="#bulk" hx-vals='js:{selected: selectedPost()}'>
-      <select name="account" aria-label="Account">
-        <option value="">every account</option>
-        {% for a in accounts %}
-        <option value="{{ a.handle }}" {% if a.handle == account %}selected{% endif %}>{{ a.display }}</option>
-        {% endfor %}
-        <option value="{{ no_account }}" {% if account == no_account %}selected{% endif %}>no account</option>
-      </select>
-      <select name="status" aria-label="Status">
-        <option value="">any status</option>
-        {% for s in statuses %}
-        <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ s }}</option>
-        {% endfor %}
-      </select>
-    </form>
+    <div class="toolbar">
+      <h1>Posts</h1>
+      <span class="spacer"></span>
+      <form id="filters" class="toolbar" hx-get="/posts/table" hx-target="#posts-table" hx-trigger="change"
+            hx-include="#bulk" hx-vals='js:{selected: selectedPost()}'>
+        <select name="account" aria-label="Account">
+          <option value="">Every account</option>
+          {% for a in accounts %}
+          <option value="{{ a.handle }}" {% if a.handle == account %}selected{% endif %}>{{ a.display }}</option>
+          {% endfor %}
+          <option value="{{ no_account }}" {% if account == no_account %}selected{% endif %}>No account</option>
+        </select>
+        <select name="status" aria-label="Status">
+          <option value="">Any status</option>
+          {% for s in statuses %}
+          <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      <a class="button primary" href="/new">New post</a>
+    </div>
     <div id="posts-table" hx-get="/posts/table" hx-include="#filters, #bulk"
          hx-vals='js:{selected: selectedPost()}'
          hx-trigger="changed-posts from:body, changed-store from:body">
       {% include "_posts_table.html" %}
     </div>
   </section>
-  <section id="detail" class="detail">
+  <section id="detail" class="panel viewer-pane">
     {% if selected %}
     <div hx-get="/posts/{{ selected }}" hx-trigger="load" hx-swap="outerHTML"></div>
     {% else %}
-    <p class="muted">Pick a post to see its slides.</p>
+    <p class="empty">Pick a post to see its slides.</p>
     {% endif %}
   </section>
 </div>

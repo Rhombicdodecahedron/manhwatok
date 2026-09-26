@@ -289,6 +289,6 @@ def test_a_refresh_keeps_the_ticks_and_the_selected_row(tmp_path):
         html = client.get("/posts/table", params={"ids": [NEW, OLD], "selected": DRAFT}).text
     assert f'value="{NEW}" checked' in html and f'value="{OLD}" checked' in html
     assert f'value="{DRAFT}" checked' not in html
-    assert html.count('class="selected"') == 1
-    row = html[html.index('class="selected"'):]
-    assert row.index(DRAFT) < row.index("</tr>")
+    assert html.count("is-selected") == 1
+    row = html[html.index("is-selected"):]
+    assert row.index(DRAFT) < row.index("</article>")
