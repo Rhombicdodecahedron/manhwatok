@@ -181,6 +181,16 @@
   setInterval(refreshScreens, 1000);
   refreshScreens();
 
+  // The Phones page looks again by itself when a phone is plugged in, pulled out or allowed.
+  const seen = document.querySelector("[data-seen]");
+  if (seen) setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      const now = await (await fetch("/phones/seen")).text();
+      if (now !== seen.dataset.seen) location.reload();
+    } catch { /* server restarting; try again next time */ }
+  }, 2000);
+
   // A job's question: the dialog opens when it has one, closes when it's answered anywhere.
   const asking = document.getElementById("question");
   document.body.addEventListener("htmx:afterSwap", (e) => {

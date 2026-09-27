@@ -81,3 +81,19 @@ def test_an_uploader_is_built_for_the_mode_and_phone(tmp_path):
     ctx.uploader_for("browser")
     assert built == [("phone", True, "R5CY"), ("browser", False, "")]
     assert ctx.settings.phone == "" and ctx.settings.uploader == "browser"  # untouched
+
+
+def test_the_page_notices_a_phone_plugged_in_or_out(tmp_path):
+    listed = [Phone("R5CY10GLA9E", "device", "SM F741B")]
+    phones, _ = _phones(listed=listed)
+    with client_for(make_ctx(tmp_path), phones=phones) as client:
+        before = client.get("/phones/seen").text
+        assert f'data-seen="{before}"' in client.get("/phones").text
+        listed.append(Phone("R5CR31QL2GK", "unauthorized"))
+        after = client.get("/phones/seen").text
+        assert after != before
+        listed[1] = Phone("R5CR31QL2GK", "device", "SM S911B")
+        assert client.get("/phones/seen").text != after  # allowed on the phone
+    phones, _ = _phones(error=UploadUnavailable("no adb"))
+    with client_for(make_ctx(tmp_path), phones=phones) as client:
+        assert client.get("/phones/seen").status_code == 200

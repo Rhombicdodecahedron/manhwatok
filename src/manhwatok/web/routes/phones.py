@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 
-from manhwatok.adapters.phones import check_serial
+from manhwatok.adapters.phones import Phone, check_serial
 from manhwatok.adapters.tiktok_app import TikTokApp
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.web.routes.common import ctx_of, page
@@ -34,7 +34,21 @@ def phones_page(request: Request) -> HTMLResponse:
             "loose": loose,
             "tiktok": helper.tiktok(phone.serial, package) if phone.ready else None,
         })
-    return page(request, "phones.html", page="phones", cards=cards, error=error)
+    return page(request, "phones.html", page="phones", cards=cards, error=error,
+                seen=_seen(found, error))
+
+
+def _seen(found: list[Phone], error: str) -> str:
+    """What the page shows, in short: it reloads when this changes (a phone plugged in, out, or allowed)."""
+    return error or " ".join(sorted(f"{p.serial}:{p.state}" for p in found))
+
+
+@router.get("/phones/seen", response_class=PlainTextResponse)
+def phones_seen(request: Request) -> str:
+    try:
+        return _seen(request.app.state.phones.list(), "")
+    except ManhwatokError as e:
+        return _seen([], str(e))
 
 
 @router.get("/phones/{serial}/screen.png")
