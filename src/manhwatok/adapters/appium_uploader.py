@@ -50,6 +50,7 @@ XPATH = "xpath"
 ENTER = 66  # Android's KEYCODE_ENTER
 BACK = 4  # KEYCODE_BACK
 POLL_S = 0.3  # how often to look again for something that isn't on the screen yet
+REDRAWS = 5  # times a list is read again when the app redraws it mid-read, however late
 SLIDES_FIX = "pick the slides yourself from Pictures/manhwatok, in order"
 SCHEDULE_PROBLEM = (
     "the phone upload doesn't fill in TikTok's schedule — tap Post at {when:%a %d %b %H:%M} "
@@ -106,6 +107,11 @@ def _first_line(error: Exception) -> str:
 def _in_order(elements: list) -> list:
     """Grid cells top to bottom, then left to right, as a person reads them."""
     return sorted(elements, key=lambda e: (e.rect["y"], e.rect["x"]))
+
+
+def _fills(grid: dict, boxes: list[dict]) -> bool:
+    """Whether the cells reach the picker's bottom: there may be more below."""
+    return bool(boxes) and max(b["y"] + b["height"] for b in boxes) >= grid["y"] + grid["height"]
 
 
 class AppiumUploader:
@@ -403,15 +409,21 @@ class AppiumUploader:
             direction=direction, percent=1.0,
         )
 
-    def _profile_top(self):
+    def _profile_top(self, restart: bool = False):
         """Open the Profile tab scrolled to the top, where the "@handle" is; returns that label,
-        or None if it never showed up."""
+        or None if it never showed up. With `restart`, TikTok stuck on a screen without its
+        tabs (the camera, which Back doesn't leave) is restarted once, on its home screen —
+        never once a post is on its way, which that would stop."""
         app = self._app
         tab = self._find([app.profile_tab], app.switch_timeout)
+        if tab is None and restart:
+            self._mobile("terminateApp", appId=app.package)
+            self._mobile("activateApp", appId=app.package)
+            tab = self._find([app.profile_tab], app.launch_timeout)
         if tab is None:
             raise ManhwatokError(
                 "couldn't find TikTok's Profile tab on the phone to check the account — "
-                "is the app open on its home screen?"
+                "is the app open on its home screen, and in English?"
             )
         self._tap(tab)
         for _ in range(3):
@@ -425,7 +437,7 @@ class AppiumUploader:
         """Make sure the app is on `handle`, switching to it among the app's accounts. Raises
         rather than ever leaving a post on some other account."""
         app = self._app
-        label = self._profile_top()
+        label = self._profile_top(restart=True)
         if label is None:
             raise ManhwatokError(
                 "couldn't read which account TikTok is on — open its Profile tab yourself"
@@ -484,13 +496,20 @@ class AppiumUploader:
         tab = self._find([app.photos_tab], app.field_timeout)
         if tab is not None:  # without it, the picker lists videos and photos together
             self._tap(tab)
-        cells = self._cells(count)
-        if len(cells) < count:
-            return f"TikTok's picker showed {len(cells)} of the {count} slides — {SLIDES_FIX}"
-        spot_x, spot_y = app.select_spot
-        for cell in cells[:count]:
-            box = cell.rect
-            self._tap_at(box["x"] + box["width"] * spot_x, box["y"] + box["height"] * spot_y)
+        grid, boxes = self._cell_boxes(count)
+        already = self._picked_count()
+        if already:
+            clear = self._find([app.clear_picks], app.field_timeout)
+            if clear is not None:
+                self._tap(clear)
+            if self._picked_count():
+                return (
+                    f"TikTok's picker already had {already} pictures selected — "
+                    "unselect them, then upload again"
+                )
+        problem = self._select_cells(count, grid, boxes)
+        if problem:
+            return problem
         button = self._find([app.picker_next], app.field_timeout)
         if button is None:
             return f"TikTok's Next button wasn't there — {SLIDES_FIX}"
@@ -503,18 +522,117 @@ class AppiumUploader:
         self._tap(button)
         return None
 
-    def _cells(self, count: int) -> list:
-        """The picker's cells in reading order, waiting until at least `count` are there. An
-        element's own XPath starts at the element: "/*/*" are its children."""
+    def _picked_count(self) -> int:
+        """How many pictures the picker's Next button says are selected."""
+        button = self._find([self._app.picker_next], 0)
+        picked = re.search(r"\((\d+)\)", button.text or "") if button is not None else None
+        return int(picked.group(1)) if picked else 0
+
+    def _select_cells(self, count: int, grid: dict, boxes: list[dict]) -> str | None:
+        """Select the first `count` cells in reading order, one at a time: each tap has to
+        take ("Next (n)" counts it) before the next one. The picker moves under the taps — the
+        first brings up a tray over its bottom row, one on a cut-off cell scrolls it into view
+        — so the circles are read again each time, and the next cell is the one after the
+        circle that reads the last pick's number. When that one isn't whole on the screen,
+        the picker is scrolled."""
+        if len(boxes) < count and not _fills(grid, boxes):  # all there is: the user picks
+            return f"TikTok's picker showed {len(boxes)} of the {count} slides — {SLIDES_FIX}"
+        picked = scrolls = 0
+        while picked < count:
+            grid, circles = self._circles()
+            if picked == 0:
+                after = 0 if circles else None
+            else:
+                at = next((n for n, c in enumerate(circles) if c[1] == str(picked)), None)
+                after = None if at is None else at + 1
+            if after is None or after >= len(circles):
+                if scrolls >= count:
+                    return (
+                        f"TikTok's picker showed {picked} of the {count} slides — {SLIDES_FIX}"
+                    )
+                # A slow drag up by half the picker: TikTok's grid ignores scrollGesture
+                # down and swipes, and a drag doesn't fling on past the last pick.
+                x = grid["x"] + grid["width"] // 2
+                start = grid["y"] + grid["height"] * 3 // 4
+                self._mobile(
+                    "dragGesture", startX=x, startY=start, endX=x,
+                    endY=start - grid["height"] // 2, speed=800,
+                )
+                scrolls += 1
+                continue
+            box = circles[after][0]
+            self._tap_at(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            if not self._picked_becomes(picked + 1):
+                return (
+                    f"TikTok says {self._picked_count()} pictures are selected, not "
+                    f"{picked + 1} — {SLIDES_FIX}"
+                )
+            picked += 1
+        return None
+
+    def _picked_becomes(self, n: int) -> bool:
+        deadline = time.monotonic() + self._app.field_timeout
+        while self._picked_count() != n:
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(POLL_S)
+        return True
+
+    def _biggest_grid(self):
+        """The biggest list on the screen — the picker, or the profile's posts — or None."""
+        grids = [
+            g for selector in self._app.gallery_grids
+            for g in self._driver.find_elements(UIAUTOMATOR, selector)
+        ]
+        return max(grids, key=lambda g: g.rect["width"] * g.rect["height"], default=None)
+
+    def _circles(self) -> tuple[dict, list[tuple[dict, str]]]:
+        """The picker's box, and its cells' selection circles that are whole on the screen, in
+        reading order, each with its text: its pick's number, or "". Read again while the
+        picker redraws."""
         deadline = time.monotonic() + self._app.gallery_timeout
         while True:
-            grids = self._driver.find_elements(UIAUTOMATOR, self._app.gallery_grid)
-            cells = []
-            if grids:
-                grid = max(grids, key=lambda g: g.rect["width"] * g.rect["height"])
-                cells = _in_order(grid.find_elements(XPATH, "/*/*"))
-            if len(cells) >= count or time.monotonic() >= deadline:
-                return cells
+            try:
+                found = self._biggest_grid()
+                if found is not None:
+                    grid = found.rect
+                    circles = [
+                        (c.rect, (c.text or "").strip())
+                        for c in _in_order(found.find_elements(UIAUTOMATOR, self._app.pick_circle))
+                    ]
+                    # A circle cut off by an edge is narrower one way than the other.
+                    whole = max((max(b["width"], b["height"]) for b, _ in circles), default=0)
+                    return grid, [
+                        (b, t) for b, t in circles
+                        if b["width"] >= whole - 2 and b["height"] >= whole - 2
+                    ]
+            except self._error:
+                pass
+            if time.monotonic() >= deadline:
+                return {"x": 0, "y": 0, "width": 0, "height": 0}, []
+            time.sleep(POLL_S)
+
+    def _cell_boxes(self, count: int) -> tuple[dict, list[dict]]:
+        """The picker's box and where its cells are, in reading order, waiting until at least
+        `count` are there or they fill the picker. An element's own XPath starts at the element:
+        "/*/*" are its children. The picker redraws while it loads, which loses the
+        cells mid-read: they are read again."""
+        deadline = time.monotonic() + self._app.gallery_timeout
+        redraws = 0
+        while True:
+            grid, boxes = {"x": 0, "y": 0, "width": 0, "height": 0}, []
+            try:
+                found = self._biggest_grid()
+                if found is not None:
+                    grid = found.rect
+                    boxes = [c.rect for c in _in_order(found.find_elements(XPATH, "/*/*"))]
+            except self._error:
+                redraws += 1
+                if redraws <= REDRAWS:
+                    time.sleep(POLL_S)
+                    continue
+            if len(boxes) >= count or _fills(grid, boxes) or time.monotonic() >= deadline:
+                return grid, boxes
             time.sleep(POLL_S)
 
     def _fill_editor(
@@ -869,17 +987,19 @@ class AppiumUploader:
             self._tap(tab)
         deadline = time.monotonic() + app.posting_timeout
         while True:
-            grids = self._driver.find_elements(UIAUTOMATOR, app.gallery_grid)
-            cells = []
-            if grids:
-                grid = max(grids, key=lambda g: g.rect["width"] * g.rect["height"])
-                cells = [
-                    c for c in _in_order(grid.find_elements(XPATH, "/*/*"))
-                    if c.find_elements(UIAUTOMATOR, app.post_cell_marker)
-                    and not c.find_elements(UIAUTOMATOR, app.pinned_label)
-                ]
-            if cells and not cells[0].find_elements(UIAUTOMATOR, app.posting_label):
-                return cells[0]
+            try:  # the grid redraws as the post's "45%" goes up: a lost cell is a look again
+                grid = self._biggest_grid()
+                cells = []
+                if grid is not None:
+                    cells = [
+                        c for c in _in_order(grid.find_elements(XPATH, "/*/*"))
+                        if c.find_elements(UIAUTOMATOR, app.post_cell_marker)
+                        and not c.find_elements(UIAUTOMATOR, app.pinned_label)
+                    ]
+                if cells and not cells[0].find_elements(UIAUTOMATOR, app.posting_label):
+                    return cells[0]
+            except self._error:
+                pass
             if time.monotonic() >= deadline:
                 problems.append(f"TikTok hadn't finished posting after a while — {fix}")
                 return None

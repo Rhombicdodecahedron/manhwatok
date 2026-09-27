@@ -636,6 +636,7 @@ def test_a_confirmed_phone_upload_offers_the_story(tmp_path, store):
     assert uploader.stories == [("reads", uploader.uploads[0][2], False, "")]
     assert uploader.events == ["upload", "confirm", "confirm", "story", "close"]
     assert "check the Story on the phone and share it yourself" in messages
+    assert "check the post on the phone and tap Post yourself" in messages
 
 
 def test_no_story_for_a_post_that_didnt_go_out_or_a_browser(tmp_path, store):

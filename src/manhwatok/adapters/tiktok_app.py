@@ -12,7 +12,6 @@ words (`id/upload_hot_area`)."""
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 
 from manhwatok.domain.models import Visibility
@@ -21,6 +20,12 @@ from manhwatok.domain.models import Visibility
 def _q(text: str) -> str:
     """`text` as a UiSelector string argument."""
     return json.dumps(text)
+
+
+def _literal(text: str) -> str:
+    """`text` as a regex that matches it as it is, without backslashes: UiAutomator on the
+    phone takes a backslash in a pattern literally ("Only\\ you" never matched)."""
+    return "".join(f"[{c}]" if c in ".^$*+?{}()|" else c for c in text)
 
 
 def _id(name: str) -> str:
@@ -50,11 +55,18 @@ class TikTokApp:
     photos_tab: str = 'new UiSelector().text("Photos")'
     # The grid of the picker (the biggest one on screen); its children are the cells, newest
     # picture first.
-    gallery_grid: str = 'new UiSelector().classNameMatches(".*(GridView|RecyclerView)")'
-    # Where in a cell its selection circle is, as fractions of the cell's width and height: a
-    # tap on the picture itself opens a preview instead of selecting it. The circle then shows
-    # the picture's place in the post: "1", "2"...
-    select_spot: tuple[float, float] = (0.85, 0.15)
+    # One selector per kind of list: UiAutomator's classNameMatches finds nothing at times.
+    gallery_grids: tuple[str, ...] = (
+        'new UiSelector().className("android.widget.GridView")',
+        'new UiSelector().className("androidx.recyclerview.widget.RecyclerView")',
+    )
+    # Each cell's selection circle, the only buttons in the grid: a tap on the picture
+    # itself opens a preview instead of selecting it. Once selected, the circle's text is the
+    # picture's place in the post: "1", "2"...
+    pick_circle: str = 'new UiSelector().className("android.widget.Button")'
+    # TikTok reopens the picker with the last post's picks still selected, and this under
+    # the grid; a tap unselects them all.
+    clear_picks: str = 'new UiSelector().text("Clear last selection")'
     # "Next (3)" once pictures are selected. A plain "Next" is the camera's, behind the picker.
     picker_next: str = 'new UiSelector().textStartsWith("Next (")'
     # --- the editor (the screen with the photos, before Next) ---
@@ -129,13 +141,13 @@ class TikTokApp:
 
     def account_choice(self, handle: str) -> str:
         """The account's entry in "Switch account": its content-desc is the bare handle."""
-        pattern = "(?i)@?" + re.escape(handle)
+        pattern = "(?i)@?" + _literal(handle)
         return f"new UiSelector().descriptionMatches({_q(pattern)})"
 
     @property
     def visibility_row(self) -> str:
         """The post screen's row — never the sheet's title, which reads "Who can view…"."""
-        names = "|".join(re.escape(n) for n in self.visibility_names)
+        names = "|".join(_literal(n) for n in self.visibility_names)
         return f"new UiSelector().textMatches({_q(f'({names}) can view this post')})"
 
     def visibility_label(self, visibility: Visibility) -> str:

@@ -3,6 +3,7 @@ read off TikTok 47 on a real phone) as a map of selector to elements, a stand-in
 login."""
 
 import base64
+import io
 import sys
 from datetime import datetime, timezone
 
@@ -38,6 +39,7 @@ class FakeElement:
         self.children = list(children)
         self.inner = set(inner)  # selectors that find something inside it
         self.on_click = on_click
+        self.stale = 0  # how many more reads find it gone, the app having redrawn it
 
     def click(self):
         self.driver.log.append(("click", self.name))
@@ -52,10 +54,68 @@ class FakeElement:
         self.text = text
 
     def find_elements(self, by, value):
+        if self.stale:
+            self.stale -= 1
+            raise FakeError("Cached elements 'By.xpath: /*/*' do not exist in DOM anymore")
         if by == "xpath":
             assert value == "/*/*"  # an element's own XPath starts at the element itself
             return list(self.children)
         return [self] if value in self.inner else []
+
+
+class FakeGrid(FakeElement):
+    """TikTok's picker: `total` pictures three to a row, 100 by 200, scrolled `offset` down.
+    Only what is in view is there — cut off at the edges, like Android's lists. Each cell's
+    circle (near its top right) says its place among the picks. A tap on a cut-off cell
+    scrolls it into view, as TikTok does."""
+
+    def __init__(self, driver, total, rect):
+        super().__init__(driver, "grid", rect=rect)
+        self.total = total
+        self.offset = 0
+        self.picked: list[int] = []
+        self.miss = 0  # taps to ignore
+
+    def _top(self, n):
+        return self.rect["y"] + (n // 3) * 200 - self.offset
+
+    def _clip(self, x, y, width, height):
+        top, bottom = max(y, self.rect["y"]), min(y + height, self.rect["y"] + self.rect["height"])
+        return _box(x, top, width, bottom - top) if bottom > top else None
+
+    def find_elements(self, by, value):
+        if self.stale:
+            self.stale -= 1
+            raise FakeError("Cached elements 'By.xpath: /*/*' do not exist in DOM anymore")
+        found = []
+        for n in range(self.total):
+            if by == "xpath":
+                box = self._clip((n % 3) * 100, self._top(n), 100, 200)
+                text = ""
+            else:
+                assert value == APP.pick_circle
+                box = self._clip((n % 3) * 100 + 73, self._top(n) + 18, 24, 24)
+                text = str(self.picked.index(n) + 1) if n in self.picked else ""
+            if box:
+                found.append(FakeElement(self.driver, f"cell{n}", text=text, rect=box))
+        return found[::-1]  # not in reading order
+
+    def tap(self, x, y) -> bool:
+        for n in range(self.total):
+            left, top = (n % 3) * 100 + 73, self._top(n) + 18
+            if left <= x <= left + 24 and top <= y <= top + 24:
+                if self.miss:
+                    self.miss -= 1
+                    return True
+                self.picked.remove(n) if n in self.picked else self.picked.append(n)
+                cut = self._top(n) + 200 - (self.rect["y"] + self.rect["height"])
+                if cut > 0:
+                    self.offset += cut
+                self.driver.picker_next.text = (
+                    f"Next ({len(self.picked)})" if self.picked else "Next"
+                )
+                return True
+        return False
 
 
 class FakeDriver:
@@ -69,7 +129,6 @@ class FakeDriver:
         self.screen: dict[str, list[FakeElement]] = {}
         self.targets: list[tuple[dict, object]] = []
         self.page_source = "<hierarchy/>"
-        self.selected = 0
         self._home(handle)
 
     def put(self, selector, name, **kwargs) -> FakeElement:
@@ -89,12 +148,9 @@ class FakeDriver:
         self.put(APP.create_button, "create")
         self.put(APP.gallery_button, "gallery")
         self.put(APP.photos_tab, "photos")
-        cells = [
-            FakeElement(self, f"cell{n}", rect=_box(x, y, 100, 200))
-            for n, (x, y) in enumerate([(100, 0), (0, 200), (0, 0), (200, 0), (100, 200)])
-        ]
-        self.put(APP.gallery_grid, "small grid", rect=_box(0, 0, 10, 10))
-        self.put(APP.gallery_grid, "grid", rect=_box(0, 0, 300, 400), children=cells)
+        self.put(APP.gallery_grids[0], "small grid", rect=_box(0, 0, 10, 10))
+        self.picker = FakeGrid(self, 5, _box(0, 0, 300, 600))
+        self.screen[APP.gallery_grids[0]].append(self.picker)
         self.picker_next = self.put(APP.picker_next, "picker next", text="Next")
         self.pill = self.put(APP.sound_pill, "pill", text="Auto Sound")
         self.put(APP.editor_next, "next", text="Next")
@@ -103,6 +159,13 @@ class FakeDriver:
         self.put(APP.caption_candidates[0], "description")
         self.row = self.put(APP.visibility_row, "visibility", text="Everyone can view this post",
                             on_click=lambda: self.put(APP.visibility_sheet, "sheet"))
+
+    def long_picker(self, total):
+        """A picker of `total` pictures, two rows in view."""
+        grids = self.screen[APP.gallery_grids[0]]
+        grids.remove(self.picker)
+        self.picker = FakeGrid(self, total, _box(0, 0, 300, 400))
+        grids.append(self.picker)
 
     def sounds(self, found=True):
         """The sounds sheet and its search: the first real result is the second row (the
@@ -132,10 +195,9 @@ class FakeDriver:
             self.pushed.append((args["remotePath"], base64.b64decode(args["payload"])))
             return
         self.log.append((name, args))
-        if name == "clickGesture":
-            if args["y"] < 400:  # a picker cell's circle
-                self.selected += 1
-                self.picker_next.text = f"Next ({self.selected})"
+        if name == "dragGesture" and self.picker.total > 5:
+            self.picker.offset += int((args["startY"] - args["endY"]) * 0.8)  # a bit short
+        if name == "clickGesture" and not self.picker.tap(args["x"], args["y"]):
             for box, action in self.targets:
                 inside_x = box["x"] <= args["x"] <= box["x"] + box["width"]
                 if inside_x and box["y"] <= args["y"] <= box["y"] + box["height"]:
@@ -283,6 +345,91 @@ def test_the_newest_cells_are_selected_in_reading_order(tmp_path, monkeypatch):
     assert _clicks(driver)[:5] == ["profile", "create", "gallery", "photos", "picker next"]
 
 
+def test_a_picker_that_redraws_while_read_is_read_again(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    _fake(monkeypatch, driver)
+    driver.picker.stale = 2
+    report = _upload(_uploader(tmp_path), tmp_path)
+    assert report.attached
+    assert _taps(driver) == [(85, 30), (185, 30), (285, 30)]
+
+
+def test_more_slides_than_the_screen_holds_are_picked_scrolling(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    driver.long_picker(total=20)
+    _fake(monkeypatch, driver)
+    report = _upload(_uploader(tmp_path), tmp_path, slides=_slides(tmp_path, 14))
+    assert report.attached, report.problems
+    assert driver.picker.picked == list(range(14))
+
+
+def test_the_last_posts_picks_are_cleared_before_any_tap(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    driver.picker_next.text = "Next (12)"  # TikTok kept the last post's picks
+
+    def clear():
+        driver.picker_next.text = "Next"
+
+    driver.put(APP.clear_picks, "clear", on_click=clear)
+    _fake(monkeypatch, driver)
+    report = _upload(_uploader(tmp_path), tmp_path)
+    assert report.attached, report.problems
+    clicks = _clicks(driver)
+    assert clicks.index("clear") < clicks.index("picker next")
+    assert _taps(driver)[0] == (85, 30)
+
+
+def test_picks_that_wont_clear_stop_it_before_any_tap(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    driver.picker_next.text = "Next (12)"
+    _fake(monkeypatch, driver)
+    report = _upload(_uploader(tmp_path), tmp_path)
+    assert not report.attached
+    assert report.problems[0] == (
+        "TikTok's picker already had 12 pictures selected — unselect them, then upload again"
+    )
+    assert _taps(driver) == []
+
+
+def test_a_picker_with_fewer_pictures_than_slides_says_so(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    driver.long_picker(total=10)
+    _fake(monkeypatch, driver)
+    report = _upload(_uploader(tmp_path), tmp_path, slides=_slides(tmp_path, 14))
+    assert not report.attached
+    assert report.problems[0] == (
+        "TikTok's picker showed 10 of the 14 slides — pick the slides yourself from "
+        "Pictures/manhwatok, in order"
+    )
+
+
+def test_tiktok_stuck_off_its_tabs_is_restarted_once(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    tab = driver.screen.pop(APP.profile_tab)  # on the camera: Back doesn't leave it
+    real = driver.execute_script
+
+    def execute_script(script, args):
+        if script == "mobile: terminateApp":
+            driver.screen[APP.profile_tab] = tab
+        return real(script, args)
+
+    driver.execute_script = execute_script
+    _fake(monkeypatch, driver)
+    report = _upload(_uploader(tmp_path), tmp_path)
+    assert report.attached, report.problems
+    names = [e[0] for e in driver.log]
+    assert names.index("terminateApp") < names.index("activateApp", names.index("terminateApp"))
+
+
+def test_tiktok_still_off_its_tabs_after_a_restart_is_an_error(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    driver.screen.pop(APP.profile_tab)
+    _fake(monkeypatch, driver)
+    with pytest.raises(ManhwatokError, match="couldn't find TikTok's Profile tab"):
+        _upload(_uploader(tmp_path), tmp_path)
+    assert [e[0] for e in driver.log].count("terminateApp") == 1
+
+
 def test_too_few_cells_is_a_problem_and_nothing_is_typed(tmp_path, monkeypatch):
     driver = FakeDriver()
     _fake(monkeypatch, driver)
@@ -298,11 +445,12 @@ def test_too_few_cells_is_a_problem_and_nothing_is_typed(tmp_path, monkeypatch):
 
 def test_a_selection_count_that_disagrees_is_a_problem(tmp_path, monkeypatch):
     driver = FakeDriver()
-    driver.selected = -1  # one tap of three missed
+    driver.picker.miss = 1  # a tap TikTok didn't take
     _fake(monkeypatch, driver)
     report = _upload(_uploader(tmp_path), tmp_path)
     assert not report.attached
-    assert report.problems[0].startswith("TikTok says 2 pictures are selected, not 3")
+    assert report.problems[0].startswith("TikTok says 0 pictures are selected, not 1")
+    assert len(_taps(driver)) == 1  # stopped at the tap that didn't take
 
 
 def test_it_switches_to_the_posts_account(tmp_path, monkeypatch):
@@ -535,7 +683,7 @@ def _profile(driver, title="My title"):
                 on_click=lambda: driver.screen.pop(APP.story_share))))
 
     newest.on_click = opened
-    driver.screen[APP.gallery_grid] = [
+    driver.screen[APP.gallery_grids[0]] = [
         FakeElement(driver, "grid", rect=_box(0, 100, 1080, 2000),
                     children=[banner, newest, pinned])
     ]
@@ -813,3 +961,19 @@ def test_the_story_says_when_the_post_isnt_out_yet(tmp_path, monkeypatch):
         "TikTok is still on the post screen — tap Post first, then add it to your Story from "
         "the post (Share → Add to Story)"
     ]
+
+
+def test_selector_patterns_have_no_backslash_the_phone_would_take_literally():
+    """UiAutomator on the phone reads a backslash in a textMatches pattern as a backslash:
+    "Only\\ you" never matched the row, which kept Post from being tapped."""
+    import re
+
+    for selector, texts in (
+        (APP.visibility_row, ["Only you can view this post", "Friends can view this post"]),
+        (APP.account_choice("your.real.handle"), ["@your.real.handle", "YOUR.REAL.HANDLE"]),
+    ):
+        assert "\\" not in selector
+        pattern = re.search(r'Matches\("(.*)"\)', selector).group(1)
+        assert all(re.fullmatch(pattern, t) for t in texts)
+    choice = re.search(r'Matches\("(.*)"\)', APP.account_choice("a.b")).group(1)
+    assert not re.fullmatch(choice, "axb")

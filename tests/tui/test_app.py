@@ -331,8 +331,8 @@ def test_b_chooses_how_uploads_go_until_the_app_closes(tmp_path):
         modal.dismiss("phone")
         await pilot.pause()
         assert ctx.upload_mode == "phone"
-        assert app.sub_title == "upload via phone"
-        assert "uploads and logins now go through the phone" in notes(app)
+        assert app.sub_title == "upload via phone, leaving Post to you"
+        assert "uploads and logins now go through the phone, leaving Post to you" in notes(app)
         await pilot.press("b")
         app.screen.dismiss(None)  # escape changes nothing
         await pilot.pause()

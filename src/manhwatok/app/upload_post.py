@@ -229,7 +229,10 @@ def upload_post(
             posted = True
         else:
             button = "Schedule" if report.scheduled_at else "Post"
-            progress(f"check the post in the browser and click {button} yourself")
+            if hasattr(uploader, "add_to_story"):  # only the phone can
+                progress(f"check the post on the phone and tap {button} yourself")
+            else:
+                progress(f"check the post in the browser and click {button} yourself")
             asked = "Scheduled" if report.scheduled_at else "Posted"
             posted = confirm(f"{asked} on {account.display}?")
         # The phone can go on to put the new post in the account's Story; a scheduled post

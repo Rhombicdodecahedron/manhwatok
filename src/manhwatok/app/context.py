@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 # The upload modes the app switches between, as its header names them.
 UPLOAD_MODE_LABELS = {
     "browser": "browser",
-    "phone": "phone",
+    "phone": "phone, leaving Post to you",
     "phone-post": "phone, posting and sharing to the Story",
 }
 
