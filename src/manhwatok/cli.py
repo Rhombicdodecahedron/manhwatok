@@ -17,6 +17,7 @@ from manhwatok.domain.models import (
     ChapterSourceName,
     ChapterCoverStyle,
     CoverStyle,
+    PostKind,
     SearchQuery,
     Sort,
     Visibility,
@@ -275,27 +276,62 @@ def build(
         None, help="Accent colour for cover and end slides (default: the account's, else #43c9e4)."
     ),
     art: Optional[ArtStyle] = ART,
+    kind: PostKind = typer.Option(
+        PostKind.LIST,
+        "--kind",
+        help="What the post is: list (default), versus (picks in pairs, one slide each), guess "
+        "(a clue then the reveal per title) or characters (one of each title's characters, "
+        "ranked). For if-you-liked use --like; for chapters, `chapter build`.",
+    ),
+    like: Optional[str] = typer.Option(
+        None,
+        "--like",
+        help="Build an 'if you liked' post from this title's AniList recommendations "
+        "(a name or AniList id) instead of a search.",
+    ),
 ) -> None:
     """Build a post: pick titles and hooks in your editor, then render the slides."""
     from manhwatok.app import container
     from manhwatok.app.build_post import build_post
+    from manhwatok.app.chapter_post import resolve_title
+    from manhwatok.app.kind_post import similar_candidates, similar_title
     from manhwatok.app.suggest import suggest_for_account
     from manhwatok.domain.theme import normalize_theme_name
 
+    if kind is PostKind.CHAPTER:
+        _fail(ManhwatokError("chapter posts are built with: manhwatok chapter build <title>"))
+    if kind is PostKind.SIMILAR and not like:
+        _fail(ManhwatokError("an if-you-liked post starts from a title: --like \"<title>\""))
     settings = Settings()
     now = datetime.now(timezone.utc)
     try:
         tools = _tools(settings)
         with container.build_store(settings) as store:
-            query, theme_title = _theme_query(store, theme, tag, genre, sort, limit, min_tag_rank)
             acct = _account(store, account)
             metadata = container.build_metadata(settings)
             source = container.build_chapter_source(settings, store.cache) if chapters else None
+            seed = None
+            if like:
+                seed = resolve_title(like, metadata, store.cache)
+                kind = PostKind.SIMILAR
+                heading = similar_title(seed)
+
+                def find():
+                    return similar_candidates(
+                        seed, acct, metadata, source, store.history, now, allow_repeats, _progress
+                    )
+            else:
+                query, heading = _theme_query(
+                    store, theme, tag, genre, sort, limit, min_tag_rank
+                )
+
+                def find():
+                    return suggest_for_account(
+                        query, acct, metadata, source, store.history, now, allow_repeats, _progress
+                    )
             built = build_post(
-                lambda: suggest_for_account(
-                    query, acct, metadata, source, store.history, now, allow_repeats, _progress
-                ),
-                theme_title if title is None else title,
+                find,
+                heading if title is None else title,
                 acct,
                 hashtags,
                 accent,
@@ -303,7 +339,10 @@ def build(
                 now=now,
                 art=art,
                 emojis=emojis,
-                theme=normalize_theme_name(theme) if theme else None,
+                theme=normalize_theme_name(theme) if theme and not like else None,
+                kind=kind,
+                seed=seed,
+                metadata=metadata,
             )
     except ManhwatokError as e:
         _fail(e)

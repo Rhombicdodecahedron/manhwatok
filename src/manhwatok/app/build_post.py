@@ -7,11 +7,18 @@ from pathlib import Path
 from typing import Callable
 
 from manhwatok.app.delete_post import delete_post
+from manhwatok.app.kind_post import character_choices, with_characters
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_post
 from manhwatok.domain.account import Account
 from manhwatok.domain.color import check_accent
-from manhwatok.domain.draft import check_picks, is_empty_draft, parse_draft, render_draft
+from manhwatok.domain.draft import (
+    check_picks,
+    is_empty_draft,
+    parse_choices,
+    parse_draft,
+    render_draft,
+)
 from manhwatok.domain.errors import DraftError, ManhwatokError
 from manhwatok.domain.models import ArtStyle, CoverStyle, Manhwa, PostKind
 from manhwatok.domain.post import (
@@ -19,11 +26,13 @@ from manhwatok.domain.post import (
     DEFAULT_CTA_FOLLOW,
     DEFAULT_CTA_TITLE,
     DEFAULT_HASHTAGS,
+    MAX_GUESS,
     MAX_ITEMS,
     ListPost,
     PostItem,
 )
 from manhwatok.domain.text import first_sentence
+from manhwatok.ports.metadata import MetadataSource
 from manhwatok.ports.posts import PostRepository
 
 
@@ -156,22 +165,33 @@ def build_post(
     art: ArtStyle | None = None,
     emojis: str | None = None,
     theme: str | None = None,
+    kind: PostKind = PostKind.LIST,
+    seed: Manhwa | None = None,
+    metadata: MetadataSource | None = None,
 ) -> tuple[ListPost, list[Path]] | None:
     """Returns (post, slide paths), or None if the user cancelled in the editor.
-    `find_candidates` runs the search (e.g. `suggest_for_account`) once the inputs are valid."""
+    `find_candidates` runs the search (e.g. `suggest_for_account`) once the inputs are valid.
+    A characters post looks its titles' characters up in `metadata`."""
     if accent is not None:
         check_accent(accent)
     candidates = find_candidates()
     if not candidates:
         raise ManhwatokError("no matches — try fewer tags or a lower --min-tag-rank")
-    items = prefill_items(candidates)
-    edited = tools.editor(render_draft(title, items, candidates))
+    items = prefill_for(kind, candidates)
+    cast = None
+    if kind is PostKind.CHARACTERS:
+        if metadata is None:
+            raise ManhwatokError("a characters post needs AniList to look up the characters")
+        cast = character_choices([PostItem(manhwa=m) for m in candidates], metadata)
+    edited = tools.editor(render_draft(title, items, candidates, cast))
     if edited is None or is_empty_draft(edited):
         return None
 
     try:
         title, items = parse_draft(edited, candidates)
-    except DraftError as e:
+        if kind is PostKind.CHARACTERS:
+            items = with_characters(items, metadata, parse_choices(edited))
+    except ManhwatokError as e:
         post_id = tools.posts.new_id(now.astimezone().date())
         draft = create_post(
             post_id, now, candidates, "", [], account, hashtags, accent, art, emojis, theme
@@ -180,8 +200,19 @@ def build_post(
         tools.posts.save_draft(post_id, edited)
         raise DraftError(f"{e} — your draft is saved; fix with: manhwatok edit {post_id}") from e
     return save_new_post(
-        candidates, title, items, account, hashtags, accent, tools, now, art, emojis, theme
+        candidates, title, items, account, hashtags, accent, tools, now, art, emojis, theme,
+        kind=kind, seed=seed,
     )
+
+
+def prefill_for(kind: PostKind, candidates: list[Manhwa]) -> list[PostItem]:
+    """`prefill_items`, fitted to what the kind takes: pairs for versus, fewer for guess."""
+    items = prefill_items(candidates)
+    if kind is PostKind.GUESS:
+        return items[:MAX_GUESS]
+    if kind is PostKind.VERSUS:
+        return items[: len(items) - len(items) % 2]
+    return items
 
 
 def _save_new(post: ListPost, posts: PostRepository) -> None:

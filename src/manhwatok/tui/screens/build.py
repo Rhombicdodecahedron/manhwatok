@@ -22,7 +22,7 @@ from textual.widgets import (
 from textual.widgets.option_list import Option
 from textual.worker import Worker, get_current_worker
 
-from manhwatok.app.build_post import prefill_items, save_new_post
+from manhwatok.app.build_post import prefill_for, save_new_post
 from manhwatok.app.chapter_form import (
     ChapterRequest,
     build_requested,
@@ -30,7 +30,9 @@ from manhwatok.app.chapter_form import (
     chapter_request,
     check_chapter,
 )
+from manhwatok.app.chapter_post import resolve_title
 from manhwatok.app.context import AppContext
+from manhwatok.app.kind_post import similar_candidates, similar_title, with_characters
 from manhwatok.app.render_post import choose_cover
 from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account
@@ -42,6 +44,7 @@ from manhwatok.domain.models import (
     ChapterCoverStyle,
     CoverStyle,
     Manhwa,
+    PostKind,
     SearchQuery,
     Sort,
     TagInfo,
@@ -95,6 +98,8 @@ class BuildPane(VerticalScroll):
     BuildPane .chapter { display: none; }
     BuildPane.-chapter .chapter { display: block; }
     BuildPane.-chapter .list { display: none; }
+    BuildPane .similar { display: none; }
+    BuildPane.-similar .similar { display: block; }
     """
 
     def __init__(self) -> None:
@@ -108,6 +113,10 @@ class BuildPane(VerticalScroll):
         with Horizontal(classes="row"):
             with RadioSet(id="mode"):
                 yield RadioButton("List", value=True, id="mode-list")
+                yield RadioButton("If you liked", id="mode-similar")
+                yield RadioButton("Versus", id="mode-versus")
+                yield RadioButton("Guess", id="mode-guess")
+                yield RadioButton("Characters", id="mode-characters")
                 yield RadioButton("Chapter", id="mode-chapter")
             with Vertical(classes="field"):
                 yield Label("Account (its filters, style and repeat window)")
@@ -115,6 +124,9 @@ class BuildPane(VerticalScroll):
             with Vertical(classes="field list"):
                 yield Label("Theme — or tags/genres below")
                 yield Select([], prompt="no theme", id="theme")
+        with Vertical(classes="field similar"):
+            yield Label("If you liked (a title's name or AniList id): its recommendations")
+            yield Input(id="like")
         with Vertical(id="list-form", classes="list"):
             yield from self._list_fields()
         with Vertical(id="chapter-form", classes="chapter"):
@@ -223,11 +235,18 @@ class BuildPane(VerticalScroll):
     def chapter_mode(self) -> bool:
         return self.has_class("-chapter")
 
+    @property
+    def kind(self) -> PostKind:
+        """The kind of post the pane builds: the mode switch's choice."""
+        pressed = self.query_one("#mode", RadioSet).pressed_button
+        return PostKind((pressed.id or "mode-list").removeprefix("mode-")) if pressed else PostKind.LIST
+
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
         if event.radio_set.id != "mode":
             return
         event.stop()
         self.set_class(event.pressed.id == "mode-chapter", "-chapter")
+        self.set_class(event.pressed.id == "mode-similar", "-similar")
 
     def refresh_data(self) -> None:
         """Reload the account and theme choices, keeping the current picks when they still exist."""
@@ -324,8 +343,15 @@ class BuildPane(VerticalScroll):
             actions[event.button.id]()
 
     def search(self) -> None:
+        kind = self.kind
+        like = self._input("like").value.strip()
         try:
-            query = self._query()
+            if kind is PostKind.SIMILAR:
+                if not like:
+                    raise ManhwatokError("name the title the post starts from")
+                query = None
+            else:
+                query = self._query()
             account = self._account()
             accent = self._input("accent").value.strip() or None
             if accent is not None:
@@ -353,28 +379,48 @@ class BuildPane(VerticalScroll):
                     self.app.later(self._set_status, msg)
 
             try:
-                results = suggest_for_account(
-                    query,
-                    account,
-                    ctx.metadata,
-                    ctx.chapters if chapters else None,
-                    ctx.store.history,
-                    self.app.clock(),
-                    repeats,
-                    progress,
-                )
+                if kind is PostKind.SIMILAR:
+                    seed = resolve_title(like, ctx.metadata, ctx.store.cache)
+                    style["seed"] = seed
+                    style["title"] = style["title"] or similar_title(seed)
+                    results = similar_candidates(
+                        seed,
+                        account,
+                        ctx.metadata,
+                        ctx.chapters if chapters else None,
+                        ctx.store.history,
+                        self.app.clock(),
+                        repeats,
+                        progress,
+                    )
+                else:
+                    results = suggest_for_account(
+                        query,
+                        account,
+                        ctx.metadata,
+                        ctx.chapters if chapters else None,
+                        ctx.store.history,
+                        self.app.clock(),
+                        repeats,
+                        progress,
+                    )
             except ManhwatokError as e:
                 if worker.is_cancelled:
                     return
                 self.app.fail(e)
                 return
             if not worker.is_cancelled:
-                self.app.call_from_thread(self._found, results, account, style, worker)
+                self.app.call_from_thread(self._found, results, account, style, worker, kind)
 
         self.run_worker(run, thread=True, group="build-search", exclusive=True)
 
     def _found(
-        self, results: list[Manhwa], account: Account | None, style: dict, worker: Worker
+        self,
+        results: list[Manhwa],
+        account: Account | None,
+        style: dict,
+        worker: Worker,
+        kind: PostKind = PostKind.LIST,
     ) -> None:
         if worker.is_cancelled:
             return  # re-checked on the app thread: cancelled just before this callback ran
@@ -399,10 +445,14 @@ class BuildPane(VerticalScroll):
             title, items = result
 
             def save(tools):
+                picks = items
+                if kind is PostKind.CHARACTERS:
+                    # Each title's most favourited character; the web and CLI let you choose.
+                    picks = with_characters(items, self.app.ctx.metadata)
                 return save_new_post(
                     results,
                     title,
-                    items,
+                    picks,
                     account,
                     style["hashtags"],
                     style["accent"],
@@ -411,12 +461,14 @@ class BuildPane(VerticalScroll):
                     art=style["art"],
                     emojis=style["emojis"],
                     cover=style["cover"],
+                    kind=kind,
+                    seed=style.get("seed"),
                 )
 
             if self.app.start_render(save, self._saved):
                 status.update("saving and rendering…")
 
-        screen = PicksScreen(heading, style["title"], prefill_items(results), results)
+        screen = PicksScreen(heading, style["title"], prefill_for(kind, results), results)
         self.app.push_screen(screen, picked)
 
     def _saved(self, built) -> None:

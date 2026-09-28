@@ -24,10 +24,25 @@ def _line(m: Manhwa, hook: str) -> str:
     return f"{m.anilist_id} | {name} | {hook}"
 
 
-def render_draft(title: str, items: list[PostItem], candidates: list[Manhwa]) -> str:
-    """Chosen items first (in order), then every other candidate commented out."""
+CHARACTERS_HELP = "# Characters: add \"| N\" to a line to rank that title's Nth character (default 1)."
+
+
+def render_draft(
+    title: str,
+    items: list[PostItem],
+    candidates: list[Manhwa],
+    cast: dict[int, list] | None = None,
+) -> str:
+    """Chosen items first (in order), then every other candidate commented out. With `cast`
+    (a characters post), each title's characters are listed to choose from."""
     chosen = {item.manhwa.anilist_id for item in items}
     lines = [f"title: {title}", HELP, ""]
+    if cast is not None:
+        lines[2:2] = [CHARACTERS_HELP] + [
+            f"#   {m.anilist_id} {m.title}: " + ", ".join(c.name for c in cast.get(m.anilist_id, []))
+            for m in candidates
+            if cast.get(m.anilist_id)
+        ]
     lines += [_line(item.manhwa, item.hook) for item in items]
     lines += [
         "# " + _line(m, first_sentence(m.description))
@@ -64,7 +79,7 @@ def parse_draft(text: str, candidates: list[Manhwa]) -> tuple[str, list[PostItem
         if anilist_id in seen:
             raise DraftError(f"line {n}: {anilist_id} is listed twice")
         seen.add(anilist_id)
-        hook = parts[2].strip() if len(parts) == 3 else ""
+        hook = _hook_and_choice(parts[2])[0] if len(parts) == 3 else ""
         items.append(PostItem(manhwa=by_id[anilist_id], hook=hook))
     if not title:
         raise DraftError("the 'title:' line is missing or empty")
@@ -73,6 +88,31 @@ def parse_draft(text: str, candidates: list[Manhwa]) -> tuple[str, list[PostItem
     if len(items) > MAX_ITEMS:
         raise DraftError(f"{len(items)} titles — a TikTok post fits at most {MAX_ITEMS}")
     return title, items
+
+
+def _hook_and_choice(rest: str) -> tuple[str, int | None]:
+    """A line's text after its name: the hook, and a trailing "| N" character choice (1-based)
+    when there is one. A hook may hold "|" itself; only a bare number at the end is a choice."""
+    head, sep, tail = rest.rpartition("|")
+    if sep and tail.strip().isdigit():
+        return head.strip(), int(tail.strip())
+    return rest.strip(), None
+
+
+def parse_choices(text: str) -> dict[int, int]:
+    """A characters draft's choices: title id → which of its characters (0-based), from a
+    line's trailing "| N" (1-based there). Lines without one are left out."""
+    found: dict[int, int] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.lower().startswith("title:"):
+            continue
+        parts = line.split("|", 2)
+        if len(parts) == 3 and parts[0].strip().isdigit():
+            choice = _hook_and_choice(parts[2])[1]
+            if choice is not None:
+                found[int(parts[0])] = max(choice - 1, 0)
+    return found
 
 
 def check_picks(title: str, items: list[PostItem], kind: PostKind = PostKind.LIST) -> None:
