@@ -134,6 +134,40 @@ def fill(
     return made
 
 
+def fill_slot(
+    ctx: AppContext,
+    handle: str,
+    when: datetime,
+    now: datetime,
+    warn: WarnFn = _noop,
+    on_post: Callable[[ListPost], None] = _ignore,
+) -> ListPost:
+    """Make the account's next post (as `fill` does) and schedule it at `when`, an exact time
+    — the slot the web's calendar is offering to fill.
+
+    Refuses a time that has already passed and one this account already has a post for, so
+    running it again makes nothing new, as `fill` doesn't."""
+    account = ctx.store.accounts.get(normalize_handle(handle))
+    at = _utc(when)
+    if at <= _utc(now):
+        raise ManhwatokError(f"{when:%Y-%m-%d %H:%M} has already passed")
+    taken = [
+        p
+        for p in ctx.tools.posts.list()
+        if p.account == account.handle and p.scheduled_at is not None and _utc(p.scheduled_at) == at
+    ]
+    if taken:
+        raise ManhwatokError(
+            f"{account.display} already has a post at {when:%a %d %b %H:%M} "
+            f"(post {taken[0].id})"
+        )
+    post = make_next_post(ctx, account.handle, now, warn)
+    post = post.model_copy(update={"scheduled_at": when})
+    ctx.tools.posts.save(post)
+    on_post(post)
+    return post
+
+
 def schedule_post(
     posts: PostRepository,
     accounts: AccountRepository,

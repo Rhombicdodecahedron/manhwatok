@@ -6,7 +6,14 @@ import pytest
 
 from manhwatok.adapters.sqlite_store import SqliteStore
 from manhwatok.app import fill_plan
-from manhwatok.app.fill_plan import PlanRow, fill, overdue_rows, plan_rows, schedule_post
+from manhwatok.app.fill_plan import (
+    PlanRow,
+    fill,
+    fill_slot,
+    overdue_rows,
+    plan_rows,
+    schedule_post,
+)
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError
 from tests.unit.fakes import make_tools, post
@@ -246,6 +253,46 @@ def test_fill_with_the_real_next_post_builds_rendered_posts(tmp_path, store):
     assert made.theme == "isekai" and made.scheduled_at == THU
     assert real.tools.posts.get(made.id) == made
     assert store.accounts.get("reads").rotation_cursor == 0  # one item, taken and wrapped
+
+
+# --- fill_slot --------------------------------------------------------------------------------
+
+
+def test_fill_slot_makes_one_post_at_the_given_time(ctx, store, made):
+    _reads(store, slots=["thu 19:00"])
+    seen = []
+
+    one = fill_slot(ctx, "reads", MON, NOW, warn=made.warns.append, on_post=seen.append)
+
+    assert one.scheduled_at == MON and made.warns == ["warned 1"]
+    assert seen == [one] and ctx.tools.posts.get(one.id) == one
+
+
+def test_fill_slot_twice_at_the_same_time_makes_nothing_new(ctx, store, made):
+    _reads(store, slots=["thu 19:00"])
+    fill_slot(ctx, "@reads", THU, NOW)
+
+    with pytest.raises(ManhwatokError, match="already has a post"):
+        fill_slot(ctx, "reads", THU, NOW)
+    assert len(made.handles) == 1 and len(ctx.tools.posts.list()) == 1
+
+
+def test_fill_slot_refuses_a_time_that_has_passed(ctx, store, made):
+    _reads(store)
+    with pytest.raises(ManhwatokError, match="already passed"):
+        fill_slot(ctx, "reads", datetime(2026, 9, 21, 19, 0, tzinfo=PARIS), NOW)
+    assert made.handles == [] and ctx.tools.posts.list() == []
+
+
+def test_fill_slot_works_for_an_account_with_no_slots_but_needs_that_account(ctx, store, made):
+    _reads(store, slots=())
+
+    filled = fill_slot(ctx, "reads", THU, NOW)
+
+    assert filled.scheduled_at == THU
+    with pytest.raises(AccountNotFound):
+        fill_slot(ctx, "nobody", THU, NOW)
+    assert len(made.handles) == 1
 
 
 # --- schedule --------------------------------------------------------------------------------
