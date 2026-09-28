@@ -123,12 +123,48 @@ clean-lined, so it holds up scaled into a slide. Extra images are cached next to
 
 ## Cover versions
 
-Every render draws the cover slide three ways and keeps all three next to the slides:
+Every render draws every cover version of the post's kind and keeps them all next to the
+slides as `cover-<version>.png`. A list post has seven:
 
-- `cover-fan.png` (default) — the first three covers fanned out. The original look.
-- `cover-quad.png` — the first four titles' characters, one per quadrant, edge to edge. A title
-  without a character image gives its picked art or its cover; fewer than four titles repeat.
-- `cover-hero.png` — the first title's picked art (else its cover) filling the whole slide.
+- `fan` (default) — the first three covers fanned out. The original look.
+- `quad` — the first four titles' characters, one per quadrant, edge to edge. A title without a
+  character image gives its picked art or its cover; fewer than four titles repeat.
+- `hero` — the first title's picked art filling the whole slide; without one, the most striking
+  of its cover and kept scenes (see below).
+- `number` — the post's count, giant in the accent colour, over the first title's art dimmed.
+- `split` — the first three titles' best art as three tall slices, edge to edge.
+- `podium` — the first three covers on a podium, the first biggest and highest, each with its
+  rank in an accent badge.
+- `magazine` — a dark page: the title big from the top, an accent rule with the count, then the
+  first title's art as a card.
+
+A chapter post has five, all built on the chapter's best panels (see below):
+
+- `focus` (default) — the best panel, zoomed in to fill the slide.
+- `cinematic` — the best panel in a wide band on black, between two accent lines.
+- `triptych` — the three best panels as tilted, white-framed strips.
+- `tease` — the best panel blurred behind "CHAPTER" and its number, giant.
+- `page` — the best panel as a tilted framed page over the title's own cover, blurred.
+
+Every version ends its text at y=1350, 320px higher than the other slides: TikTok lays its
+caption, sound and buttons over the foot of a slide, which is where the title used to sit.
+
+A chapter's cover is its most striking panel, not a whole page: every slide is cut into its drawn
+panels along its white or black gutters (a tall panel also into overlapping windows), and the
+best piece is zoomed in to fill the cover — or, when a 9:16 cut would lose most of a wide panel,
+shown whole as a card over its own blur. The hero cover does the same with the first title's
+cover and kept scenes.
+
+"Most striking" is CLIP's call, run offline: each piece is scored against words for a good
+cover (an epic action scene, a character close-up) and a bad one (a black page, a speech bubble,
+a system window, a blur). Its best six are then read for lettering with RapidOCR: text along a
+piece's edge is cut off, and text left inside counts against it. Its model (~150MB) is downloaded once into `$XDG_DATA_HOME/manhwatok/models/`.
+Without the extra, or if the model can't be had, a plain measure of detail, colour and
+brightness stands in — it still skips black and blank pages.
+
+```bash
+uv sync --extra pick         # once: the tokenizer CLIP needs (onnxruntime is already here)
+```
 
 The chosen one is also `01.png`, the slide that gets exported. An account's post carries a mark
 under the progress bar on every version: `@handle`, or whatever the account's `--byline` says.
@@ -144,6 +180,7 @@ account's byline shows on its next posts rather than rewriting the ones already 
 ```bash
 uv run manhwatok cover <id>              # list the versions and which one is current
 uv run manhwatok cover <id> quad         # swap it into 01.png, no re-render needed
+uv run manhwatok cover <id> cinematic    # a chapter post takes its own versions
 uv run manhwatok render <id> --cover hero   # or choose while rendering
 ```
 

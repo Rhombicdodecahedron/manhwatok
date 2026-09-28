@@ -18,7 +18,7 @@ from manhwatok.app.render_post import choose_cover, render_post, rendered_files
 from manhwatok.app.upload_post import schedule_for, set_visibility, sounds_for, upload_post
 from manhwatok.domain.account import DEFAULT_TIMEZONE
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered
-from manhwatok.domain.models import CoverStyle, Visibility
+from manhwatok.domain.models import ChapterCoverStyle, CoverStyle, Visibility
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 from manhwatok.tui.screens.art import ArtScreen
@@ -100,6 +100,23 @@ def upload_in_app(app, ctx: AppContext, post: ListPost, progress, debug: bool) -
         chapters=ctx.store.chapters,
         schedule_at=schedule_for(post, now),
     )
+
+
+# What each cover version looks like, for the cover picker.
+COVER_ABOUT = {
+    CoverStyle.FAN: "three covers fanned out",
+    CoverStyle.QUAD: "four characters, one per quadrant",
+    CoverStyle.HERO: "the first pick's art, full screen",
+    CoverStyle.NUMBER: "the count, giant, over the first pick's art",
+    CoverStyle.SPLIT: "three picks as tall slices side by side",
+    CoverStyle.PODIUM: "the top three on a podium, ranked",
+    CoverStyle.MAGAZINE: "a big title, the first pick's art below",
+    ChapterCoverStyle.FOCUS: "the best panel, zoomed in",
+    ChapterCoverStyle.CINEMATIC: "the best panel in a wide band on black",
+    ChapterCoverStyle.TRIPTYCH: "the three best panels as tilted strips",
+    ChapterCoverStyle.TEASE: "a giant chapter number over a blur",
+    ChapterCoverStyle.PAGE: "the best panel as a page over the title's cover",
+}
 
 
 class PostsPane(Vertical):
@@ -457,19 +474,12 @@ class PostsPane(Vertical):
         post = self._selected()
         if post is None:
             return
-        if self._refuse_chapter(post, "has one cover, naming the chapter"):
-            return
         if self.app.refuse_while_rendering():
             return
         pid = post.id
-        about = {
-            CoverStyle.FAN: "three covers fanned out",
-            CoverStyle.QUAD: "four characters, one per quadrant",
-            CoverStyle.HERO: "the first pick's art, full screen",
-        }
         choices = [
-            (f"{s.value} — {about[s]}" + (" (current)" if s is post.cover else ""), s.value)
-            for s in CoverStyle
+            (f"{s} — {COVER_ABOUT[s]}" + (" (current)" if s == post.chosen_cover else ""), s)
+            for s in post.cover_styles
         ]
 
         def rendered(slides) -> None:
@@ -479,17 +489,16 @@ class PostsPane(Vertical):
         def chosen(value: str | None) -> None:
             if value is None:
                 return
-            style = CoverStyle(value)
             try:
-                choose_cover(pid, style, self.app.ctx.tools)
+                choose_cover(pid, value, self.app.ctx.tools)
             except NotRendered:
                 if self.app.start_render(lambda tools: render_post(pid, tools), rendered):
-                    self.app.notify(f"rendering {pid} with the {style.value} cover…")
+                    self.app.notify(f"rendering {pid} with the {value} cover…")
                 return
             except ManhwatokError as e:
                 self.app.fail(e)
                 return
-            self.app.notify(f"post {pid} · {style.value} cover")
+            self.app.notify(f"post {pid} · {value} cover")
             self.reload(select=pid)
 
         self.app.push_screen(ChoiceModal(f"Cover for post {pid}", choices), chosen)

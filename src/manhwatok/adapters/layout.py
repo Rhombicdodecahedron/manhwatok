@@ -376,6 +376,9 @@ def _image_area(art: ArtStyle, free_h: int, top: int) -> Box:
 # --- cover slide --------------------------------------------------------------------------
 
 BAR_H, BAR_GAP = 16, 20
+# TikTok lays its caption, sound and buttons over the lowest part of a slide, so a cover's
+# text ends higher than the other slides' (SAFE.bottom, 1670): clear of all that.
+COVER_BOTTOM = 1350
 
 
 @dataclass(frozen=True)
@@ -394,7 +397,7 @@ def layout_cover(title: str, count: int, byline: str = "") -> CoverLayout:
     x, w = SAFE.x, SAFE.w
     kicker = make_pill(f"{count} PICK" if count == 1 else f"{count} PICKS", bold, 32, w, x)
     title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 92, 56, 1.06)
-    tops = stack_up([kicker.box.h, title_t.height, BAR_H], SAFE.bottom)
+    tops = stack_up([kicker.box.h, title_t.height, BAR_H], COVER_BOTTOM)
     seg_w = (w - BAR_GAP * (count - 1)) / max(count, 1)
     bar = [
         Box(round(x + i * (seg_w + BAR_GAP)), tops[2], max(1, round(seg_w)), BAR_H)
@@ -422,15 +425,16 @@ class ChapterCoverLayout:
 
 
 def layout_chapter_cover(
-    title: str, number: str, part: int, parts: int, byline: str = ""
+    title: str, number: str, part: int, parts: int, byline: str = "", kicker_text: str | None = None
 ) -> ChapterCoverLayout:
     """The same bones as a list post's cover — pill, title, bar — saying which chapter and part
     this is instead of how many picks it has. The lit segment is the part being posted, so the
     bar reads as progress through the chapter rather than through the post."""
     x, w = SAFE.x, SAFE.w
-    kicker = make_pill(chapter_kicker(number, part, parts), bold, 32, w, x)
+    label = kicker_text if kicker_text is not None else chapter_kicker(number, part, parts)
+    kicker = make_pill(label, bold, 32, w, x)
     title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 92, 56, 1.06)
-    tops = stack_up([kicker.box.h, title_t.height, BAR_H], SAFE.bottom)
+    tops = stack_up([kicker.box.h, title_t.height, BAR_H], COVER_BOTTOM)
     count = max(parts, 1)
     seg_w = (w - BAR_GAP * (count - 1)) / count
     bar = [
@@ -444,6 +448,72 @@ def layout_chapter_cover(
         min(max(part, 1), count) - 1,
         byline_of(byline),
     )
+
+
+# --- cover extras ------------------------------------------------------------------------
+
+# The big numbers on the number and tease covers end here, clear of the text stack above
+# COVER_BOTTOM even for a four-line title.
+BIG_BOTTOM = 780
+
+
+def layout_number(count: int) -> Placed:
+    """The number cover's giant count, centred, ending at BIG_BOTTOM."""
+    text = fit_words(plain_words(str(count)), display, SAFE.w, 1, 620, 300, 1.0)
+    return Placed(text, SAFE.x, BIG_BOTTOM - text.height, SAFE.w, "center")
+
+
+@dataclass(frozen=True)
+class TeaseLayout:
+    label: Placed | None  # "CHAPTER", over the number; None for a oneshot
+    number: Placed  # the chapter number, giant
+
+    def text_boxes(self) -> list[Box]:
+        return [b.box for b in (self.label, self.number) if b is not None]
+
+
+def layout_tease(number: str) -> TeaseLayout:
+    """The tease cover's "CHAPTER" and giant number, centred, ending at BIG_BOTTOM."""
+    shown = number.strip() or "ONESHOT"
+    big = fit_words(plain_words(shown), display, SAFE.w, 1, 360, 120, 1.0)
+    big_top = BIG_BOTTOM - big.height
+    if not number.strip():
+        return TeaseLayout(None, Placed(big, SAFE.x, big_top, SAFE.w, "center"))
+    small = fit_words(plain_words("CHAPTER"), bold, SAFE.w, 1, 64, 64, 1.0)
+    return TeaseLayout(
+        Placed(small, SAFE.x, big_top - GAP - small.height, SAFE.w, "center"),
+        Placed(big, SAFE.x, big_top, SAFE.w, "center"),
+    )
+
+
+MAGAZINE_TOP, RULE_W, RULE_H = SAFE.y, 120, 8
+
+
+@dataclass(frozen=True)
+class MagazineLayout:
+    title: Placed  # big, left-aligned, from the top
+    rule: Box  # a short accent bar under the title
+    kicker: Placed  # "12 PICKS", beside the rule
+    art: Box  # where the first pick's art goes, down to COVER_BOTTOM
+    byline: Placed | None = None
+
+    def text_boxes(self) -> list[Box]:
+        return [self.title.box, self.rule, self.kicker.box, self.art]
+
+
+def layout_magazine(title: str, count: int, byline: str = "") -> MagazineLayout:
+    x, w = SAFE.x, SAFE.w
+    title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 120, 72, 1.0)
+    placed = Placed(title_t, x, MAGAZINE_TOP, w)
+    rule = Box(x, placed.box.bottom + 40, RULE_W, RULE_H)
+    label = f"{count} PICK" if count == 1 else f"{count} PICKS"
+    kicker_t = fit_words(plain_words(label), bold, w - RULE_W - GAP, 1, 40, 32, 1.0)
+    kicker = Placed(
+        kicker_t, x + RULE_W + GAP, rule.y + RULE_H // 2 - kicker_t.height // 2, w - RULE_W - GAP
+    )
+    art_top = max(rule.bottom, kicker.box.bottom) + 60
+    art = Box(x, art_top, w, max(1, COVER_BOTTOM - art_top))
+    return MagazineLayout(placed, rule, kicker, art, byline_of(byline))
 
 
 # --- end slide ----------------------------------------------------------------------------

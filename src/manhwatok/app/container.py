@@ -91,6 +91,7 @@ def build_post_tools(
     """`metadata` and `scenes` default to new AniList and Pinterest sources (both cheap to make);
     a front end that already holds them passes its own."""
     from manhwatok.adapters.cover_cache import CoverCache
+    from manhwatok.adapters.cover_picker import build_picker
     from manhwatok.adapters.pillow_renderer import PillowRenderer
     from manhwatok.adapters.pinterest import PinterestSource
     from manhwatok.adapters.text_check import build_text_check
@@ -98,7 +99,7 @@ def build_post_tools(
     return PostTools(
         posts=build_posts(settings),
         covers=CoverCache(settings.covers_dir, timeout=settings.http_timeout),
-        renderer=PillowRenderer(),
+        renderer=PillowRenderer(build_picker(settings.data_dir / "models" / "clip", progress)),
         editor=editor,
         progress=progress,
         metadata=metadata or build_metadata(settings),

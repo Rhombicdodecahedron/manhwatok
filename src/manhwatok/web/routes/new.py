@@ -17,12 +17,19 @@ from manhwatok.app.chapter_form import (
     chapter_request,
     check_chapter,
 )
-from manhwatok.app.render_post import render_post
+from manhwatok.app.render_post import choose_cover, render_post
 from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.labels import chapter_label
-from manhwatok.domain.models import ArtStyle, ChapterSourceName, CoverStyle, SearchQuery, Sort
+from manhwatok.domain.models import (
+    ArtStyle,
+    ChapterCoverStyle,
+    ChapterSourceName,
+    CoverStyle,
+    SearchQuery,
+    Sort,
+)
 from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS, MAX_ITEMS, PostItem
 from manhwatok.domain.text import first_sentence, split_names
 from manhwatok.web.jobs import RENDER, Busy
@@ -84,6 +91,7 @@ def new_page(request: Request, type: str = "list") -> HTMLResponse:
         sorts=list(Sort),
         titles=ctx.store.chapters.titles(),
         sources=list(ChapterSourceName),
+        chapter_covers=list(ChapterCoverStyle),
     )
 
 
@@ -274,10 +282,12 @@ def chapter_build(
     hashtags: str = Form(""),
     accent: str = Form(""),
     emojis: str = Form(""),
+    cover: str = Form(""),
 ) -> Response:
     """Build and render the part in the render lane; the job's page shows its progress."""
     ctx = ctx_of(request)
     try:
+        chosen = ChapterCoverStyle(cover) if cover else None
         req = _chapter_form(
             request, account, tracked, text, source, language, number, part, title,
             hashtags, accent, emojis,
@@ -290,6 +300,8 @@ def chapter_build(
     def work(io) -> str:
         tools = replace(ctx.tools, progress=lambda msg: io.progress(str(msg)))
         post, slides = build_requested(ctx, req, tools, clock())
+        if chosen is not None and chosen is not post.chapter_cover:
+            choose_cover(post.id, chosen, tools)  # every version is drawn: swap it in
         bus.publish("changed", what="posts")
         return built_line(post, slides)
 

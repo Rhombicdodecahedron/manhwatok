@@ -538,7 +538,7 @@ def test_a_chapter_post_appears_under_its_account_like_any_other(tmp_path):
     run_app(ctx, scenario)
 
 
-@pytest.mark.parametrize(("key", "why"), [("e", "picks"), ("a", "panels"), ("c", "cover")])
+@pytest.mark.parametrize(("key", "why"), [("e", "picks"), ("a", "panels")])
 def test_actions_that_make_no_sense_for_a_chapter_post_say_so(tmp_path, key, why):
     ctx = make_ctx(tmp_path)
     _chapter_post(ctx, post_id=NEW)

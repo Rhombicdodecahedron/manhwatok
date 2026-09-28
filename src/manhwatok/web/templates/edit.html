@@ -25,10 +25,10 @@
     <label class="field">Art style
       <select name="art">{% for a in arts %}<option value="{{ a.value }}" {% if a == post.art %}selected{% endif %}>{{ a.value }}</option>{% endfor %}</select>
     </label>
-    <label class="field">Cover
-      <select name="cover">{% for c in covers %}<option value="{{ c.value }}" {% if c == post.cover %}selected{% endif %}>{{ c.value }}</option>{% endfor %}</select>
-    </label>
     {% endif %}
+    <label class="field">Cover
+      <select name="cover">{% for c in covers %}<option value="{{ c }}" {% if c == post.chosen_cover %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+    </label>
     <div class="wide actions"><button class="button primary">Save and render</button></div>
   </form>
 </section>

@@ -163,6 +163,47 @@ def test_choosing_a_drawn_cover_swaps_it_in(tmp_path):
     assert json.loads(response.headers["HX-Trigger"])["changed-posts"] is True
 
 
+def test_the_detail_offers_every_list_cover_version(tmp_path):
+    from manhwatok.domain.models import CoverStyle
+
+    with client_for(_posts(make_ctx(tmp_path))) as client:
+        html = client.get(f"/posts/{NEW}").text
+    for style in CoverStyle:
+        assert f'"style": "{style.value}"' in html
+
+
+def _chapter(ctx, post_id=DRAFT):
+    from PIL import Image
+
+    from tests.unit.fakes import chapter_part, chapter_post
+
+    folder = ctx.tools.posts.folder(post_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    names = []
+    for n in (1, 2):
+        name = f"panel-{n:03d}.png"
+        Image.new("RGB", (270, 480), (60 * n, 60, 90)).save(folder / name)
+        names.append(name)
+    ctx.tools.posts.save(chapter_post(id=post_id, chapter=chapter_part(panels=names, to_panel=2)))
+    render_post(post_id, ctx.tools)
+    return ctx
+
+
+def test_a_chapter_post_offers_its_own_cover_versions_and_swaps_one_in(tmp_path):
+    from manhwatok.domain.models import ChapterCoverStyle
+
+    ctx = _chapter(make_ctx(tmp_path))
+    with client_for(ctx) as client:
+        html = client.get(f"/posts/{DRAFT}").text
+        response = client.post(f"/posts/{DRAFT}/cover", data={"style": "cinematic"})
+    for style in ChapterCoverStyle:
+        assert f'"style": "{style.value}"' in html
+    assert '"style": "hero"' not in html
+    assert _notice(response) == {"text": f"post {DRAFT} · cinematic cover", "level": "info"}
+    folder = ctx.tools.posts.folder(DRAFT)
+    assert (folder / "01.png").read_bytes() == (folder / "cover-cinematic.png").read_bytes()
+
+
 def test_choosing_a_cover_of_an_unrendered_post_renders_it(tmp_path):
     ctx = _posts(make_ctx(tmp_path))
     with client_for(ctx) as client:

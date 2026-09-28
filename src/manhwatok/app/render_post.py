@@ -17,7 +17,7 @@ from manhwatok.domain.errors import (
     NotRendered,
     StorageError,
 )
-from manhwatok.domain.models import QUAD_PICTURES, ArtOrder, ArtStyle, CoverStyle, Manhwa
+from manhwatok.domain.models import QUAD_PICTURES, ArtOrder, ArtStyle, Manhwa, Status
 from manhwatok.domain.post import ListPost, PostItem
 from manhwatok.ports.art import ArtSource
 from manhwatok.ports.posts import PostRepository, SlideArt
@@ -74,7 +74,16 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
     else:
         # The other styles draw the cover, a portrait or picked art — never a banner.
         banners = {}
-    galleries = _galleries(post, tools, picked, characters) if post.art is ArtStyle.QUAD else {}
+    if post.art is ArtStyle.QUAD:
+        galleries = _galleries(post, tools, picked, characters)
+    elif post.items:
+        # The hero cover may pick one of the first title's scenes instead of its cover; only
+        # scenes already kept are offered — no search is made for them.
+        first = post.items[0]
+        scenes = kept_scenes(first, tools.posts.folder(post.id))[:QUAD_PICTURES]
+        galleries = {first.manhwa.anilist_id: tuple(scenes)} if scenes else {}
+    else:
+        galleries = {}  # a chapter post: its slides are its panels
     return {
         m_id: SlideArt(
             path,
@@ -85,6 +94,26 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
         )
         for m_id, path in covers.items()
     }
+
+
+def _chapter_art(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
+    """A chapter post's one extra picture: its title's cover, behind the page cover. Nothing
+    when the post predates keeping the cover's address, or the download fails."""
+    part = post.chapter
+    if not part.cover_url:
+        return {}
+    title = Manhwa(
+        anilist_id=part.anilist_id,
+        title=part.manhwa_title,
+        romaji=part.manhwa_title,
+        status=Status.UNKNOWN,
+        cover_url=part.cover_url,
+    )
+    try:
+        return {part.anilist_id: SlideArt(tools.covers.get(title), None)}
+    except MetadataError as e:
+        tools.progress(f"{e} — the page cover uses a panel behind it instead")
+        return {}
 
 
 def _galleries(
@@ -171,36 +200,37 @@ def restyle(post_id: str, art: ArtStyle, tools: PostTools) -> None:
         tools.posts.save(post.model_copy(update={"art": art}))
 
 
-def set_cover(post_id: str, style: CoverStyle, tools: PostTools) -> None:
-    """Change which cover version a saved post's next render makes 01.png."""
+def set_cover(post_id: str, style: str, tools: PostTools) -> None:
+    """Change which cover version a saved post's next render makes 01.png. Raises
+    ManhwatokError naming the post's own versions when `style` isn't one of them."""
     post = tools.posts.get(post_id)
-    if post.chapter:
-        raise ManhwatokError(
-            f"post {post_id} is a chapter post — its cover names the chapter, and has one version"
-        )
-    if post.cover is not style:
-        tools.posts.save(post.model_copy(update={"cover": style}))
+    try:
+        changed = post.with_cover(str(style))
+    except ValueError as e:
+        raise ManhwatokError(f"post {post_id}: {e}") from e
+    if changed.chosen_cover != post.chosen_cover:
+        tools.posts.save(changed)
 
 
-def cover_version(post_id: str, style: CoverStyle, tools: PostTools) -> Path:
+def cover_version(post_id: str, style: str, tools: PostTools) -> Path:
     """Where render left the post's `style` cover version (it may not exist yet)."""
-    return tools.posts.folder(post_id) / f"cover-{style.value}.png"
+    return tools.posts.folder(post_id) / f"cover-{style}.png"
 
 
-def choose_cover(post_id: str, style: CoverStyle, tools: PostTools) -> Path:
+def choose_cover(post_id: str, style: str, tools: PostTools) -> Path:
     """Make `style` the post's cover: saved for every later render, and swapped into 01.png
     now when a render already drew it. Raises NotRendered (after saving) when none has."""
     set_cover(post_id, style, tools)
     version = cover_version(post_id, style, tools)
     if not version.is_file():
         raise NotRendered(
-            f"post {post_id} has no {style.value} cover yet — run: manhwatok render {post_id}"
+            f"post {post_id} has no {style} cover yet — run: manhwatok render {post_id}"
         )
     first = tools.posts.folder(post_id) / "01.png"
     try:
         shutil.copyfile(version, first)
     except OSError as e:
-        raise StorageError(f"could not swap in the {style.value} cover for {post_id}: {e}") from e
+        raise StorageError(f"could not swap in the {style} cover for {post_id}: {e}") from e
     return first
 
 
@@ -215,7 +245,8 @@ def render_post(
         prepare_quad(post_id, tools, scenes)
         post = tools.posts.get(post_id)
     folder = tools.posts.folder(post_id)
-    slides = tools.renderer.render(post, _art_paths(post, tools), folder)
+    art = _chapter_art(post, tools) if post.chapter else _art_paths(post, tools)
+    slides = tools.renderer.render(post, art, folder)
     try:
         (folder / CAPTION_FILE).write_text(build_caption(post) + "\n", encoding="utf-8")
     except OSError as e:

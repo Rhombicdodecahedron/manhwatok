@@ -154,11 +154,21 @@ def test_editing_a_chapter_posts_picks_is_refused(wire):
     assert "chapter post" in _err(["edit", post_id])
 
 
-def test_choosing_a_cover_for_a_chapter_post_is_refused(wire):
+def test_a_list_cover_for_a_chapter_post_is_refused(wire):
     wire()
     out = _ok(["chapter", "build", "The Boxer"])
     post_id = out.split("post ")[1].split(" ")[0]
-    assert "chapter post" in _err(["cover", post_id, "quad"])
+    err = _err(["cover", post_id, "quad"])
+    assert "chapter post" in err and "cinematic" in err  # it names the chapter covers
+
+
+def test_a_chapter_post_swaps_in_a_chapter_cover(wire):
+    wire()
+    out = _ok(["chapter", "build", "The Boxer"])
+    post_id = out.split("post ")[1].split(" ")[0]
+    assert "cinematic cover" in _ok(["cover", post_id, "cinematic"])
+    listed = _ok(["cover", post_id])
+    assert "cinematic (current)" in listed and "hero" not in listed
 
 
 def test_deleting_a_chapter_post_lets_it_be_built_again(wire):

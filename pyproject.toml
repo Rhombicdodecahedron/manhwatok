@@ -45,6 +45,9 @@ tui = [
 pinterest = [
     "gallery-dl>=1.27",
 ]
+pick = [
+    "tokenizers>=0.19",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.5,<0.13.0"]

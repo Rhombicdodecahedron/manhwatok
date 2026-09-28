@@ -29,8 +29,9 @@ from manhwatok.domain.chapter import end_title, follow_text
 from manhwatok.domain.color import hex_to_rgb, readable_accent
 from manhwatok.domain.errors import StorageError
 from manhwatok.domain.labels import chapter_label
+from manhwatok.ports.picker import PicturePicker
 from manhwatok.ports.posts import SlideArt
-from manhwatok.domain.models import QUAD_PICTURES, ArtStyle, CoverStyle
+from manhwatok.domain.models import QUAD_PICTURES, ArtStyle, ChapterCoverStyle, CoverStyle
 from manhwatok.domain.post import ListPost
 
 WHITE = (255, 255, 255)
@@ -71,6 +72,17 @@ GRADIENT_H = 920
 # its scrim has to start higher: the topmost rank number sits at y≈1228 with a two-line title
 # and a three-line hook, and the curve only reaches 0.75 alpha there if it begins by y=615.
 SCENE_GRADIENT_H = 1320
+# A cover's text ends 320px higher than an item slide's (TikTok's caption covers the rest), so
+# its scrims reach 320px higher too.
+FAN_GRADIENT_H, COVER_GRADIENT_H = GRADIENT_H + 320, SCENE_GRADIENT_H + 320
+# A picture this narrow is a thumbnail (a character portrait): stretched over the whole slide
+# it goes soft, so a cover only picks it when there is nothing bigger.
+HERO_MIN_W = 400
+# A cover zooms into its focus and fills the slide when the tallest 9:16 cut of the focus keeps
+# at least FILL_KEEP of its width and needs at most MAX_ZOOM; a wider or smaller focus is shown
+# whole instead, as a full-width card centred at CARD_Y over its own blur.
+FILL_KEEP, MAX_ZOOM = 0.7, 3.0
+CARD_Y, CARD_MAX_H = 600, 820
 
 
 def _load(path: Path | None) -> Image.Image | None:
@@ -139,11 +151,74 @@ def _full_bleed(src: Image.Image | None, accent: str) -> Image.Image:
 
 
 def _backdrop_panel(panels: list[Image.Image | None]) -> Image.Image | None:
-    """Which panel the cover is built on. A chapter often opens on a black page or a blank one,
-    and blurring either gives a cover with nothing on it — so this takes the panel closest to
-    mid-brightness, which is a drawn one."""
+    """Which panel the cover is built on when there is no picker. A chapter often opens on a
+    black page or a blank one, which gives a cover with nothing on it — so this takes the panel
+    closest to mid-brightness, which is a drawn one."""
     lit = [(abs(_brightness(p) - MID_GREY), n, p) for n, p in enumerate(panels) if p is not None]
     return min(lit)[2] if lit else None
+
+
+Piece = tuple[Image.Image, tuple[int, int, int, int]]  # a picture and the part of it to show
+
+
+def _whole(img: Image.Image) -> Piece:
+    return img, (0, 0, img.width, img.height)
+
+
+def _best_piece(art: _Art, picker: PicturePicker | None) -> Piece | None:
+    """What a cover shows of one title: its hand-picked art whole; else the picker's focus in
+    its cover and scenes (big enough to fill a slide); else its cover whole; else nothing."""
+    if art.custom is not None:
+        return _whole(art.custom)
+    if picker is not None:
+        candidates = [
+            img for img in (art.cover, *art.gallery) if img is not None and img.width >= HERO_MIN_W
+        ]
+        found = picker.focus(candidates) if candidates else []
+        if found:
+            return candidates[found[0].index], found[0].box
+    return _whole(art.cover) if art.cover is not None else None
+
+
+def _crop_to(piece: Piece, size: tuple[int, int], rise: float = 0.35) -> Image.Image:
+    """The piece's box cut to `size`'s shape around its middle — `rise` of the way down when
+    height is cut, where faces sit — and scaled to `size`."""
+    img, (left, top, right, bottom) = piece
+    w, h = right - left, bottom - top
+    want = size[0] / size[1]
+    if w / max(1, h) > want:
+        cut_w = h * want
+        left += (w - cut_w) / 2
+        right = left + cut_w
+    else:
+        cut_h = w / want
+        top += (h - cut_h) * rise
+        bottom = top + cut_h
+    cut = img.crop((round(left), round(top), round(right), round(bottom)))
+    return cut.resize(size, Image.Resampling.LANCZOS)
+
+
+def _focused(img: Image.Image, box: tuple[int, int, int, int], accent: str) -> Image.Image:
+    """A cover built on `box` of `img`: zoomed in to fill the slide when a 9:16 cut of it keeps
+    most of it sharp enough, else the whole of it as a full-width card over its own blur."""
+    left, top, right, bottom = box
+    w, h = right - left, bottom - top
+    if w < 1 or h < 1:
+        return _full_bleed(img, accent)
+    cut_h = min(h, w * SLIDE_H / SLIDE_W)
+    cut_w = cut_h * SLIDE_W / SLIDE_H
+    if cut_w >= FILL_KEEP * w and SLIDE_H / cut_h <= MAX_ZOOM:
+        x = left + (w - cut_w) / 2
+        y = top + (h - cut_h) / 2
+        cut = img.crop((round(x), round(y), round(x + cut_w), round(y + cut_h)))
+        return cut.resize(SIZE, Image.Resampling.LANCZOS).convert("RGBA")
+    crop = img.crop(box)
+    canvas = _blurred(crop, SIZE, COVER_BLUR, COVER_DIM).convert("RGBA")
+    card = fit_inside(w, h, Box(0, 0, SLIDE_W, CARD_MAX_H))
+    scaled = crop.resize((card.w, card.h), Image.Resampling.LANCZOS).convert("RGBA")
+    y = max(0, CARD_Y - card.h // 2)
+    _paste_with_shadow(canvas, scaled, (SLIDE_W - card.w) // 2, y)
+    return canvas
 
 
 def _brightness(img: Image.Image) -> float:
@@ -273,7 +348,30 @@ def _draw_pill(draw: ImageDraw.ImageDraw, pill: Pill, accent, filled: bool) -> N
     )
 
 
+class _Remembered:
+    """A picker that answers the same question once per render: several cover versions ask
+    for the same title's best piece, and each answer costs CLIP and OCR time."""
+
+    def __init__(self, picker: PicturePicker) -> None:
+        self._picker = picker
+        self._seen: dict[tuple, list] = {}
+
+    def forget(self) -> None:
+        self._seen.clear()
+
+    def focus(self, images: list[Image.Image], count: int = 1) -> list:
+        key = (tuple(id(img) for img in images), count)
+        if key not in self._seen:
+            self._seen[key] = self._picker.focus(images, count)
+        return self._seen[key]
+
+
 class PillowRenderer:
+    def __init__(self, picker: PicturePicker | None = None) -> None:
+        """`picker` chooses a cover's picture; without one a chapter cover takes its most
+        mid-bright panel and a hero cover the first title's cover."""
+        self._picker = _Remembered(picker) if picker is not None else None
+
     def render(self, post: ListPost, art: dict[int, SlideArt], out_dir: Path) -> list[Path]:
         """Write 01.png (cover) … NN.png (end slide) into out_dir, replacing old slides, plus
         every cover version as cover-<style>.png; the post's chosen one is also 01.png."""
@@ -283,11 +381,15 @@ class PillowRenderer:
                 old.unlink()
         except OSError as e:
             raise StorageError(f"could not prepare slide folder {out_dir}: {e}") from e
+        if self._picker is not None:
+            self._picker.forget()  # the pictures are loaded afresh: their answers don't carry
         if post.chapter is not None:
-            return self._render_chapter(post, out_dir)
+            return self._render_chapter(post, art, out_dir)
         wants_banner = post.art in (ArtStyle.BACKGROUND, ArtStyle.PANEL)
         # The quad cover draws the first four titles' characters whatever the post's style.
         quad_ids = {it.manhwa.anilist_id for it in post.items[:QUAD_COUNT]}
+        # The hero cover's picker chooses among the first title's scenes whatever the style.
+        hero_id = post.items[0].manhwa.anilist_id if post.items else None
         loaded = {
             m_id: _Art(
                 _load(one.cover),
@@ -301,14 +403,14 @@ class PillowRenderer:
                     for img in (_load(p) for p in one.gallery[:QUAD_COUNT])
                     if img is not None
                 )
-                if post.art is ArtStyle.QUAD
+                if post.art is ArtStyle.QUAD or m_id == hero_id
                 else (),
             )
             for m_id, one in art.items()
         }
         covers = {m_id: one.cover for m_id, one in loaded.items()}
         versions = {style: self.cover_slide(post, loaded, style) for style in CoverStyle}
-        slides = [versions[post.cover]]
+        slides = [versions[post.cover]]  # CoverStyle keys
         slides += [self.item_slide(post, i, loaded) for i in range(len(post.items))]
         slides.append(self.end_slide(post, covers))
         paths = []
@@ -320,11 +422,26 @@ class PillowRenderer:
             _save(slide, out_dir / f"cover-{style.value}.png")
         return paths
 
-    def _render_chapter(self, post: ListPost, out_dir: Path) -> list[Path]:
-        """A chapter post: the cover, one slide per panel, the end slide. A chapter has one
-        sensible cover, so the other versions are not drawn."""
+    def _render_chapter(
+        self, post: ListPost, art: dict[int, SlideArt], out_dir: Path
+    ) -> list[Path]:
+        """A chapter post: the cover, one slide per panel, the end slide. Every chapter cover
+        version is drawn from the picker's three best pieces; the chosen one is also 01.png."""
+        from manhwatok.adapters.cover_designs import chapter_cover
+
         panels = [_load(out_dir / name) for name in post.chapter.panels]
-        slides = [self.chapter_cover_slide(post, _backdrop_panel(panels))]
+        drawn = [p for p in panels if p is not None]
+        if self._picker is not None and drawn:
+            pieces = [(drawn[f.index], f.box) for f in self._picker.focus(drawn, 3)]
+        else:
+            best = _backdrop_panel(panels)
+            pieces = [_whole(best)] if best is not None else []
+        title = art.get(post.chapter.anilist_id)
+        title_cover = _load(title.cover) if title else None
+        versions = {
+            style: chapter_cover(style, post, pieces, title_cover) for style in ChapterCoverStyle
+        }
+        slides = [versions[post.chapter_cover]]
         slides += [self.panel_slide(post, panel) for panel in panels]
         slides.append(self.chapter_end_slide(post, panels[-1] if panels else None))
         paths = []
@@ -332,7 +449,8 @@ class PillowRenderer:
             path = out_dir / f"{n:02d}.png"
             _save(slide, path)
             paths.append(path)
-        _save(slides[0], out_dir / f"cover-{CoverStyle.FAN.value}.png")
+        for style, slide in versions.items():
+            _save(slide, out_dir / f"cover-{style.value}.png")
         return paths
 
     def panel_slide(self, post: ListPost, panel: Image.Image | None) -> Image.Image:
@@ -341,35 +459,6 @@ class PillowRenderer:
         accent = readable_accent(post.accent)
         canvas = _full_bleed(panel, accent) if panel else _accent_gradient(SIZE, accent).convert("RGBA")
         _draw_byline(canvas, byline_of(_byline(post)))
-        return canvas
-
-    def chapter_cover_slide(self, post: ListPost, first: Image.Image | None) -> Image.Image:
-        """The chapter's first panel, blurred, under the chapter's name and its part bar."""
-        part = post.chapter
-        accent_hex = readable_accent(post.accent)
-        accent = hex_to_rgb(accent_hex)
-        canvas = (
-            _blurred(first, SIZE, COVER_BLUR, COVER_DIM)
-            if first
-            else _accent_gradient(SIZE, accent_hex)
-        ).convert("RGBA")
-        _bottom_gradient(canvas)
-        layout = layout_chapter_cover(
-            part.manhwa_title, part.number, part.part, part.parts, _byline(post)
-        )
-        draw = ImageDraw.Draw(canvas)
-        _draw_pill(draw, layout.kicker, accent, filled=True)
-        _draw_text(draw, layout.title, WHITE, accent)
-        dim_layer = Image.new("RGBA", SIZE, (0, 0, 0, 0))
-        dim_draw = ImageDraw.Draw(dim_layer)
-        for i, seg in enumerate(layout.bar):
-            rect = (seg.x, seg.y, seg.right, seg.bottom)
-            if i == layout.lit:
-                draw.rounded_rectangle(rect, radius=BAR_H // 2, fill=accent)
-            else:
-                dim_draw.rounded_rectangle(rect, radius=BAR_H // 2, fill=DIM)
-        canvas.alpha_composite(dim_layer)
-        _draw_byline(canvas, layout.byline)
         return canvas
 
     def chapter_end_slide(self, post: ListPost, last: Image.Image | None) -> Image.Image:
@@ -459,10 +548,17 @@ class PillowRenderer:
     def cover_slide(
         self, post: ListPost, loaded: dict[int, _Art], style: CoverStyle = CoverStyle.FAN
     ) -> Image.Image:
-        if style is CoverStyle.QUAD:
+        from manhwatok.adapters.cover_designs import list_cover_art, magazine_slide
+
+        if style is CoverStyle.MAGAZINE:
+            return magazine_slide(post, loaded, self._picker)
+        designed = list_cover_art(style, post, loaded, self._picker)
+        if designed is not None:
+            canvas = designed
+        elif style is CoverStyle.QUAD:
             canvas = self._quad_art(post, loaded)
         elif style is CoverStyle.HERO:
-            canvas = self._hero_art(post, loaded)
+            canvas = self._hero_art(post, loaded, self._picker)
         else:
             canvas = self._fan_art(post, loaded)
         return self._cover_text(canvas, post)
@@ -479,11 +575,12 @@ class PillowRenderer:
             else _accent_gradient(SIZE, readable_accent(post.accent))
         ).convert("RGBA")
         fan = post.items[:3]
-        # (item index, size, rotation, centre x, top y); drawn back to front so the centre card is on top
+        # (item index, size, rotation, centre x, top y); drawn back to front so the centre card is
+        # on top. Lifted a little with the cover's text, so the two don't meet.
         slots = {
-            0: ((440, 624), 0, SLIDE_W // 2, 312),
-            1: ((416, 588), 11, SLIDE_W // 2 - 250, 384),
-            2: ((416, 588), -11, SLIDE_W // 2 + 250, 384),
+            0: ((440, 624), 0, SLIDE_W // 2, 250),
+            1: ((416, 588), 11, SLIDE_W // 2 - 250, 322),
+            2: ((416, 588), -11, SLIDE_W // 2 + 250, 322),
         }
         for i in [i for i in (1, 2, 0) if i < len(fan)]:
             size, angle, cx, top = slots[i]
@@ -496,7 +593,7 @@ class PillowRenderer:
             _paste_with_shadow(
                 canvas, rotated, cx - rotated.width // 2, top - (rotated.height - size[1]) // 2
             )
-        _bottom_gradient(canvas)
+        _bottom_gradient(canvas, FAN_GRADIENT_H)
         return canvas
 
     @staticmethod
@@ -514,16 +611,19 @@ class PillowRenderer:
                 or _accent_gradient(QUARTER, readable_accent(m.cover_color, post.accent))
             )
         canvas = _grid(tiles, readable_accent(post.accent))
-        _bottom_gradient(canvas, SCENE_GRADIENT_H)
+        _bottom_gradient(canvas, COVER_GRADIENT_H)
         return canvas
 
     @staticmethod
-    def _hero_art(post: ListPost, loaded: dict[int, _Art]) -> Image.Image:
-        """The first title's picked art, else its cover, filling the whole slide."""
+    def _hero_art(
+        post: ListPost, loaded: dict[int, _Art], picker: PicturePicker | None = None
+    ) -> Image.Image:
+        """The first title's best piece (`_best_piece`) filling the whole slide."""
         m = post.items[0].manhwa
-        art = loaded.get(m.anilist_id) or _Art(None, None, None, None)
-        canvas = _full_bleed(art.custom or art.cover, readable_accent(m.cover_color, post.accent))
-        _bottom_gradient(canvas, SCENE_GRADIENT_H)
+        accent = readable_accent(m.cover_color, post.accent)
+        piece = _best_piece(loaded.get(m.anilist_id) or _Art(None, None, None, None), picker)
+        canvas = _focused(*piece, accent) if piece else _full_bleed(None, accent)
+        _bottom_gradient(canvas, COVER_GRADIENT_H)
         return canvas
 
     @staticmethod

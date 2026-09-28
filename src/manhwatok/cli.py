@@ -15,6 +15,7 @@ from manhwatok.domain.models import (
     ArtSourceName,
     ArtStyle,
     ChapterSourceName,
+    ChapterCoverStyle,
     CoverStyle,
     SearchQuery,
     Sort,
@@ -415,12 +416,12 @@ def render(
     replace: bool = typer.Option(
         False, "--replace", help="Pick again for titles that already have picked art too."
     ),
-    cover: Optional[CoverStyle] = typer.Option(
+    cover: Optional[str] = typer.Option(
         None,
         "--cover",
-        help="Which cover version becomes 01.png: 'fan' (three covers fanned out), 'quad' "
-        "(four characters, one per quadrant) or 'hero' (the first pick's art, full screen). "
-        "All three are always written as cover-<version>.png; switch later with "
+        help="Which cover version becomes 01.png. A list post: "
+        f"{', '.join(CoverStyle)}. A chapter post: {', '.join(ChapterCoverStyle)}. "
+        "All of them are always written as cover-<version>.png; switch later with "
         "`manhwatok cover`.",
     ),
 ) -> None:
@@ -489,14 +490,16 @@ def render(
 @app.command("cover")
 def cover_cmd(
     post_id: str = typer.Argument(..., help="Post id, see `manhwatok posts`."),
-    style: Optional[CoverStyle] = typer.Argument(
-        None, help="fan, quad or hero. Leave out to list the versions render drew."
+    style: Optional[str] = typer.Argument(
+        None,
+        help=f"A list post: {', '.join(CoverStyle)}. A chapter post: "
+        f"{', '.join(ChapterCoverStyle)}. Leave out to list the versions render drew.",
     ),
 ) -> None:
     """Pick which cover version is the post's first slide.
 
-    Every render draws all three next to the slides as cover-fan.png, cover-quad.png and
-    cover-hero.png; this swaps the one you like into 01.png without rendering again.
+    Every render draws every version next to the slides as cover-<version>.png; this swaps
+    the one you like into 01.png without rendering again.
     """
     from manhwatok.app.render_post import choose_cover, cover_version
 
@@ -504,19 +507,19 @@ def cover_cmd(
     try:
         tools = _tools(settings)
         if style is None:
-            current = tools.posts.get(post_id).cover
-            for one in CoverStyle:
+            post = tools.posts.get(post_id)
+            for one in post.cover_styles:
                 path = cover_version(post_id, one, tools)
-                mark = " (current)" if one is current else ""
+                mark = " (current)" if one == post.chosen_cover else ""
                 missing = f"not rendered — run: manhwatok render {post_id}"
                 where = path if path.is_file() else missing
-                typer.echo(f"{one.value}{mark}: {where}")
-            typer.echo(f"pick one with: manhwatok cover {post_id} <{'|'.join(CoverStyle)}>")
+                typer.echo(f"{one}{mark}: {where}")
+            typer.echo(f"pick one with: manhwatok cover {post_id} <{'|'.join(post.cover_styles)}>")
             return
         first = choose_cover(post_id, style, tools)
     except ManhwatokError as e:
         _fail(e)
-    typer.echo(f"post {post_id} · {style.value} cover → {first}")
+    typer.echo(f"post {post_id} · {style} cover → {first}")
 
 
 @app.command()

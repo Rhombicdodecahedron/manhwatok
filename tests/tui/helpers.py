@@ -31,17 +31,15 @@ class PngRenderer(FakeRenderer):
     def render(self, post, art, out_dir):
         from PIL import Image
 
-        from manhwatok.domain.models import CoverStyle
-
         paths = super().render(post, art, out_dir)
         for n, path in enumerate(paths):
             Image.new("RGB", (27, 48), (40 * n % 255, 80, 120)).save(path)
         for old in out_dir.glob("cover-*.png"):
             old.unlink()
-        for k, style in enumerate(CoverStyle):
-            version = out_dir / f"cover-{style.value}.png"
-            Image.new("RGB", (27, 48), (200, 60 * k, 10)).save(version)
-            if style is post.cover:
+        for k, style in enumerate(post.cover_styles):
+            version = out_dir / f"cover-{style}.png"
+            Image.new("RGB", (27, 48), (200, 40 * k, 10)).save(version)
+            if style == post.chosen_cover:
                 paths[0].write_bytes(version.read_bytes())
         return paths
 

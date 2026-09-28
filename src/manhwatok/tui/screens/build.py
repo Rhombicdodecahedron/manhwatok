@@ -31,6 +31,7 @@ from manhwatok.app.chapter_form import (
     check_chapter,
 )
 from manhwatok.app.context import AppContext
+from manhwatok.app.render_post import choose_cover
 from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account
 from manhwatok.domain.color import check_accent
@@ -38,6 +39,7 @@ from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import (
     ArtStyle,
     ChapterSourceName,
+    ChapterCoverStyle,
     CoverStyle,
     Manhwa,
     SearchQuery,
@@ -137,6 +139,14 @@ class BuildPane(VerticalScroll):
                     value=CoverStyle.FAN,
                     allow_blank=False,
                     id="cover",
+                )
+            with Vertical(classes="field narrow chapter"):
+                yield Label("Cover")
+                yield Select(
+                    [(c.value, c) for c in ChapterCoverStyle],
+                    value=ChapterCoverStyle.FOCUS,
+                    allow_blank=False,
+                    id="chapter-cover",
                 )
         yield Button("Search", id="search", variant="primary", classes="list")
         yield Static("", id="status", markup=False, classes="list")
@@ -483,6 +493,7 @@ class BuildPane(VerticalScroll):
         except ManhwatokError as e:
             self.app.fail(e)
             return
+        cover = self.query_one("#chapter-cover", Select).value
 
         def job(ctx: AppContext):
             notify = ctx.tools.progress
@@ -493,9 +504,11 @@ class BuildPane(VerticalScroll):
                 else:
                     notify(msg)
 
-            return build_requested(
-                ctx, req, replace(ctx.tools, progress=progress), self.app.clock()
-            )
+            tools = replace(ctx.tools, progress=progress)
+            post, slides = build_requested(ctx, req, tools, self.app.clock())
+            if cover is not post.chapter_cover:
+                choose_cover(post.id, cover, tools)  # every version is drawn: swap it in
+            return post, slides
 
         if self.app.start_render_in_context(job, self._chapter_built):
             self._set_next("building…")

@@ -25,6 +25,7 @@ class ChapterPart(BaseModel):
     source: ChapterSourceName = ChapterSourceName.MANGADEX
     anilist_id: int
     manhwa_title: str  # drawn on the cover; post.title carries the *starred* styling
+    cover_url: str = ""  # the title's cover, behind the page cover; older posts have none
     number: str  # MangaDex's own chapter text: "12", "12.5", "" for a oneshot
     chapter_id: str  # the MangaDex chapter this came from
     language: str = "en"

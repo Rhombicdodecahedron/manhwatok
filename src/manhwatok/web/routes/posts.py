@@ -17,7 +17,7 @@ from manhwatok.app.upload_post import set_visibility, sounds_for, visibility_for
 from manhwatok.domain.account import DEFAULT_TIMEZONE, Account
 from manhwatok.domain.caption import upload_description, upload_title
 from manhwatok.domain.errors import AccountNotFound, ManhwatokError, NotRendered, PostNotFound
-from manhwatok.domain.models import CoverStyle, Visibility
+from manhwatok.domain.models import Visibility
 from manhwatok.domain.post import ListPost
 from manhwatok.web.jobs import RENDER, Busy
 from manhwatok.web.routes.common import STILL_RENDERING, ctx_of, done, page
@@ -145,9 +145,9 @@ def _detail(ctx: AppContext, post_id: str) -> _Detail:
     except NotRendered:
         slides = []
     covers = []
-    for style in CoverStyle:
+    for style in post.cover_styles:
         path: Path = cover_version(post.id, style, ctx.tools)
-        covers.append(_Cover(style.value, _url_or_none(path), style is post.cover))
+        covers.append(_Cover(style, _url_or_none(path), style == post.chosen_cover))
     caption, rendered = caption_text(post, posts)
     if account is not None:
         shown = visibility_for(post, account)
@@ -279,14 +279,13 @@ def cover(request: Request, post_id: str, style: str = Form(...)) -> Response:
         return done(request, STILL_RENDERING, "warning")
     ctx = ctx_of(request)
     try:
-        chosen = CoverStyle(style)
-        choose_cover(post_id, chosen, ctx.tools)
+        choose_cover(post_id, style, ctx.tools)
     except NotRendered:
         return _start_render(request, [post_id], f"render post {post_id}",
                              f"rendering post {post_id} with the {style} cover…")
     except (ManhwatokError, ValueError) as e:
         return done(request, str(e), "error")
-    return done(request, f"post {post_id} · {chosen.value} cover", changed=["posts"])
+    return done(request, f"post {post_id} · {style} cover", changed=["posts"])
 
 
 @router.post("/posts/{post_id}/visibility")

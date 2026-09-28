@@ -22,7 +22,7 @@ from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_from_source, render_post, restyle, set_cover
 from manhwatok.domain.errors import DraftError, ManhwatokError, PostNotFound
 from manhwatok.domain.labels import chapter_label
-from manhwatok.domain.models import ArtOrder, ArtSourceName, ArtStyle, CoverStyle
+from manhwatok.domain.models import ArtOrder, ArtSourceName, ArtStyle
 from manhwatok.domain.post import MAX_ITEMS, ListPost, PostItem
 from manhwatok.domain.text import first_sentence
 from manhwatok.web.jobs import RENDER, Busy
@@ -85,7 +85,7 @@ def edit_page(request: Request, post_id: str) -> HTMLResponse:
         post=post,
         chapter=chapter_refusal(post) if post.chapter else "",
         arts=list(ArtStyle),
-        covers=list(CoverStyle),
+        covers=post.cover_styles,
         sources=list(ArtSourceName),
         orders=list(ArtOrder),
     )
@@ -101,13 +101,13 @@ async def save_settings(request: Request, post_id: str) -> Response:
         post = ctx.tools.posts.get(post_id)
         texts = {name: str(form[name]) for name in TEXT_FIELDS if name in form}
         art = ArtStyle(str(form["art"])) if form.get("art") else post.art
-        cover = CoverStyle(str(form["cover"])) if form.get("cover") else post.cover
-        if post.chapter and (art is not post.art or cover is not post.cover):
+        cover = str(form["cover"]) if form.get("cover") else post.chosen_cover
+        if post.chapter and art is not post.art:
             raise ManhwatokError(chapter_refusal(post))
         update_post_texts(post_id, texts, ctx.tools)
         if art is not post.art:
             restyle(post_id, art, ctx.tools)
-        if cover is not post.cover:
+        if cover != post.chosen_cover:
             set_cover(post_id, cover, ctx.tools)
     except (ManhwatokError, ValueError, KeyError) as e:
         return done(request, str(e), "error")

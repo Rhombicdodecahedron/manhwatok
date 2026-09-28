@@ -341,6 +341,7 @@ def build_chapter_post(
         source=ct.source,
         anilist_id=manhwa.anilist_id,
         manhwa_title=manhwa.title,
+        cover_url=manhwa.cover_url,
         number=chapter.number,
         chapter_id=chapter.chapter_id,
         language=language,

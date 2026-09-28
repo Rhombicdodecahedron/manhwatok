@@ -5,7 +5,7 @@ from __future__ import annotations
 from manhwatok.app.post_view import caption_text, post_status, scheduled_text, sent_text  # noqa: F401
 from manhwatok.domain.emoji import AUTO, post_emojis
 from manhwatok.domain.labels import chapter_label
-from manhwatok.domain.models import ArtStyle, CoverStyle
+from manhwatok.domain.models import ArtStyle
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 from manhwatok.ports.posts import PostRepository
@@ -31,8 +31,8 @@ def post_details(post: ListPost, posts: PostRepository, sounds: list[str]) -> st
         lines.append(f"{which} · {len(part.panels)} panels of {part.pages} pages ({part.language})")
     if post.art is not ArtStyle.NONE and not part:
         lines.append(f"Art: {post.art.value}")
-    if post.cover is not CoverStyle.FAN:
-        lines.append(f"Cover: {post.cover.value}")
+    if post.chosen_cover != post.cover_styles[0]:
+        lines.append(f"Cover: {post.chosen_cover}")
     if post.visibility is not None:  # without one its account decides, as `upload` does
         lines.append(f"Visible to: {post.visibility.spoken}")
     emojis = post_emojis(post)

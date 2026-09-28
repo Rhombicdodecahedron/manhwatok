@@ -1036,7 +1036,9 @@ def test_cover_command_before_render_asks_for_one(wire):
 
 def test_cover_command_rejects_an_unknown_style(wire):
     _, post_id = _built(wire)
-    assert runner.invoke(app, ["cover", post_id, "spiral"]).exit_code == 2
+    out = runner.invoke(app, ["cover", post_id, "spiral"])
+    assert out.exit_code == 1
+    assert "fan" in out.output and "magazine" in out.output  # it names the post's own versions
 
 
 def test_render_quad_source_fills_the_gaps_and_keeps_picked_art(wire, monkeypatch):

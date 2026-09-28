@@ -2,6 +2,7 @@ import pytest
 
 from manhwatok.adapters.fonts import body, display
 from manhwatok.adapters.layout import (
+    COVER_BOTTOM,
     SAFE,
     SLIDE_H,
     SLIDE_W,
@@ -204,6 +205,51 @@ def test_end_layout_wraps_a_long_follow_line_onto_two_lines():
 def test_end_layout_with_long_custom_ctas_stays_in_safe_area(n):
     layout = layout_end([LONG_NAME] * n, LONG_NAME + " *" + LONG_NAME + "*", LONG_NAME)
     assert all(SAFE.contains(b) for b in layout.text_boxes())
+
+
+@pytest.mark.parametrize("count", [1, 5, 33])
+def test_cover_text_ends_above_tiktoks_caption(count):
+    """TikTok lays its caption, sound and buttons over the foot of a slide, so a cover's text
+    ends higher than an item slide's."""
+    layout = layout_cover("*" + LONG_NAME + "* and " + LONG_NAME, count)
+    assert max(b.bottom for b in layout.text_boxes()) == COVER_BOTTOM < SAFE.bottom
+
+
+@pytest.mark.parametrize("parts", [1, 3])
+def test_chapter_cover_text_ends_above_tiktoks_caption(parts):
+    layout = layout_chapter_cover(LONG_NAME + " " + LONG_NAME, "1024.5", 1, parts, BY)
+    assert max(b.bottom for b in layout.text_boxes()) == COVER_BOTTOM
+
+
+@pytest.mark.parametrize("count", [1, 12, 35])
+def test_the_big_number_stays_clear_of_the_cover_text(count):
+    from manhwatok.adapters.layout import layout_number
+
+    number = layout_number(count).box
+    text = layout_cover("*" + LONG_NAME + "* and " + LONG_NAME, count)
+    assert SAFE.contains(number)
+    assert number.bottom <= min(b.y for b in text.text_boxes())
+
+
+@pytest.mark.parametrize("number", ["12", "1024.5", ""])
+def test_the_tease_number_stays_clear_of_the_chapter_cover_text(number):
+    from manhwatok.adapters.layout import layout_tease
+
+    tease = layout_tease(number)
+    text = layout_chapter_cover(LONG_NAME + " " + LONG_NAME, number, 1, 3, BY)
+    assert all(SAFE.contains(b) for b in tease.text_boxes())
+    assert max(b.bottom for b in tease.text_boxes()) <= min(b.y for b in text.text_boxes())
+
+
+@pytest.mark.parametrize("title", ["Kubera", "*" + LONG_NAME + "* and " + LONG_NAME])
+def test_the_magazine_layout_stacks_title_rule_and_art_inside_the_safe_area(title):
+    from manhwatok.adapters.layout import layout_magazine
+
+    layout = layout_magazine(title, 12, BY)
+    assert all(SAFE.contains(b) for b in layout.text_boxes())
+    assert layout.title.box.bottom < layout.rule.y < layout.art.y
+    assert layout.art.bottom == COVER_BOTTOM
+    assert layout.art.h >= 400
 
 
 def test_cover_kicker_is_singular_for_one_pick():

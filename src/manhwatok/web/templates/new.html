@@ -36,6 +36,9 @@
   <label class="field">Hashtags <input name="hashtags" placeholder="the account's"></label>
   <label class="field">Accent <input name="accent" placeholder="the account's"></label>
   <label class="field">Emojis <input name="emojis" placeholder="the account's"></label>
+  <label class="field">Cover
+    <select name="cover">{% for c in chapter_covers %}<option value="{{ c.value }}">{{ c.value }}</option>{% endfor %}</select>
+  </label>
   <div class="wide">
     <div id="chapter-next" class="muted"></div>
     <span class="spacer"></span>

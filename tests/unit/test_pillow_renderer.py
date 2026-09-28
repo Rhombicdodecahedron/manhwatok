@@ -548,6 +548,48 @@ def _same_image(a, b):
         return x.tobytes() == y.tobytes()
 
 
+def test_the_number_cover_draws_the_count_big_in_the_accent(tmp_path):
+    from manhwatok.adapters.layout import layout_number
+
+    PillowRenderer().render(_post(3), {1: SlideArt(None, None)}, tmp_path / "out")
+    big = layout_number(3).box
+    accent = hex_to_rgb(readable_accent(_post(3).accent))
+    with Image.open(tmp_path / "out" / "cover-number.png") as img:
+        row = [img.getpixel((x, big.y + big.h // 2)) for x in range(big.x, big.right)]
+    assert any(all(abs(a - b) < 30 for a, b in zip(px, accent)) for px in row)
+
+
+def test_the_split_cover_shows_three_picks_side_by_side(tmp_path):
+    colours = [(220, 30, 30), (30, 210, 30), (30, 30, 230)]
+    art = {i: SlideArt(cover_file(tmp_path / "c", i, color=colours[i - 1]), None) for i in (1, 2, 3)}
+    PillowRenderer().render(_post(3), art, tmp_path / "out")
+    cover = tmp_path / "out" / "cover-split.png"
+    assert [_dominant(_pixel(cover, (x, 300))) for x in (170, 540, 910)] == [0, 1, 2]
+
+
+def test_the_podium_cover_ranks_its_cards_with_accent_badges(tmp_path):
+    from manhwatok.adapters.cover_designs import BADGE_R, PODIUM
+
+    art = {i: SlideArt(cover_file(tmp_path / "c", i, color=(128, 128, 128)), None) for i in (1, 2, 3)}
+    PillowRenderer().render(_post(3), art, tmp_path / "out")
+    accent = hex_to_rgb(readable_accent(_post(3).accent))
+    rank, size, cx, top = PODIUM[2]  # the winner's card
+    edge = (cx - size[0] // 2 + BADGE_R // 3 - BADGE_R + 12, top + BADGE_R // 3)
+    px = _pixel(tmp_path / "out" / "cover-podium.png", edge)
+    assert all(abs(a - b) < 30 for a, b in zip(px, accent))
+
+
+def test_the_magazine_cover_puts_the_first_picks_art_under_its_title(tmp_path):
+    from manhwatok.adapters.layout import layout_magazine
+
+    art = {1: SlideArt(cover_file(tmp_path / "c", 1, color=(30, 210, 30), size=(900, 700)), None)}
+    PillowRenderer().render(_post(1), art, tmp_path / "out")
+    area = layout_magazine(_post(1).title, 1).art
+    cover = tmp_path / "out" / "cover-magazine.png"
+    assert _dominant(_pixel(cover, (area.x + area.w // 2, area.y + area.h // 2))) == 1
+    assert max(_pixel(cover, (1000, 60))) < 90  # the dark page above
+
+
 def test_render_writes_every_cover_version_next_to_the_slides(tmp_path):
     covers = {i: cover_file(tmp_path / "covers", i) for i in (1, 2, 3)}
     paths = PillowRenderer().render(_post(3), _art(covers), tmp_path / "out")
@@ -578,7 +620,7 @@ def test_rerender_removes_stale_cover_versions(tmp_path):
     ]
 
 
-QUADRANTS = [(270, 300), (810, 300), (270, 1020), (810, 1020)]  # the lower two under the scrim
+QUADRANTS = [(270, 300), (810, 300), (270, 970), (810, 970)]  # the lower two under the scrim
 COLORS = [(230, 30, 30), (30, 210, 30), (30, 30, 230), (230, 210, 30)]
 
 
@@ -640,6 +682,84 @@ def test_hero_cover_uses_the_cover_without_picked_art(tmp_path):
     PillowRenderer().render(_post(1), {1: SlideArt(_red_cover(tmp_path), None)}, tmp_path / "out")
     r, g, b = _pixel(tmp_path / "out" / "cover-hero.png", (4, 300))
     assert r > 180 and r > b + 100
+
+
+class _Picks:
+    """A picker that always focuses on `box` (default: the whole picture) of picture `index`."""
+
+    def __init__(self, index, box=None):
+        self.index, self.box, self.shown = index, box, []
+
+    def focus(self, images, count=1):
+        from manhwatok.ports.picker import Focus
+
+        self.shown.append(len(images))
+        order = [self.index, *(n for n in range(len(images)) if n != self.index)][:count]
+        return [
+            Focus(n, self.box if n == self.index and self.box else (0, 0, images[n].width, images[n].height))
+            for n in order
+        ]
+
+
+def test_hero_cover_takes_the_pickers_favourite_of_the_cover_and_scenes(tmp_path):
+    scene = cover_file(tmp_path / "s", 1, color=(30, 210, 30), size=(600, 900))
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, None, (scene,))}
+    picker = _Picks(1)
+    PillowRenderer(picker).render(_post(1), art, tmp_path / "out")
+    assert _dominant(_pixel(tmp_path / "out" / "cover-hero.png", (4, 300))) == 1
+    assert picker.shown == [2]  # asked once, though several cover versions use the answer
+
+
+def test_hero_cover_keeps_hand_picked_art_whatever_the_picker_likes(tmp_path):
+    pick = cover_file(tmp_path / "pick", 1, color=(30, 30, 230))
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, pick)}
+    PillowRenderer(_Picks(0)).render(_post(1), art, tmp_path / "out")
+    assert _dominant(_pixel(tmp_path / "out" / "cover-hero.png", (4, 300))) == 2
+
+
+def test_hero_cover_does_not_offer_the_picker_a_thumbnail(tmp_path):
+    """A small picture stretched over the whole slide goes soft."""
+    thumb = cover_file(tmp_path / "t", 1, color=(30, 210, 30), size=(230, 345))
+    art = {1: SlideArt(_red_cover(tmp_path), None, None, None, (thumb,))}
+    picker = _Picks(0)
+    PillowRenderer(picker).render(_post(1), art, tmp_path / "out")
+    assert picker.shown == [1]
+
+
+def _halves(size=(1080, 1920)):
+    """Top half red, bottom half blue."""
+    img = Image.new("RGB", size, (220, 30, 30))
+    img.paste((30, 30, 220), (0, size[1] // 2, size[0], size[1]))
+    return img
+
+
+def test_a_tall_focus_is_zoomed_in_to_fill_the_slide():
+    from manhwatok.adapters.pillow_renderer import _focused
+
+    canvas = _focused(_halves(), (0, 960, 1080, 1920), "#43c9e4")  # the blue half
+    assert canvas.size == (1080, 1920)
+    assert _dominant(canvas.getpixel((10, 10))[:3]) == 2
+    assert _dominant(canvas.getpixel((1070, 1910))[:3]) == 2
+
+
+def test_a_wide_focus_is_shown_whole_as_a_card_over_its_own_blur():
+    """A 9:16 cut of a wide panel would lose most of it, so it is shown whole instead."""
+    from manhwatok.adapters.pillow_renderer import CARD_Y, _focused
+
+    img = Image.new("RGB", (1080, 1920), (255, 255, 255))
+    img.paste((30, 200, 30), (0, 300, 1080, 900))  # one wide green panel on a white page
+    canvas = _focused(img, (0, 300, 1080, 900), "#43c9e4")
+    assert _dominant(canvas.getpixel((540, CARD_Y))[:3]) == 1  # the panel, at the card's middle
+    assert _dominant(canvas.getpixel((5, 5))[:3]) == 1  # its blur behind, not the white page
+    assert max(canvas.getpixel((5, 5))[:3]) < 200
+
+
+def test_the_cover_scrim_darkens_behind_the_raised_text_and_leaves_the_top_alone(tmp_path):
+    white = cover_file(tmp_path / "w", 1, color=(250, 250, 250), size=(1080, 1920))
+    PillowRenderer().render(_post(1), {1: SlideArt(white, None)}, tmp_path / "out")
+    hero = tmp_path / "out" / "cover-hero.png"
+    assert max(_pixel(hero, (20, 1150))) < 60  # dark behind the title
+    assert min(_pixel(hero, (20, 250))) > 200  # the art above untouched
 
 
 def _byline_row(path):
@@ -759,7 +879,28 @@ def test_the_chapter_cover_skips_a_black_opening_panel_for_a_drawn_one(tmp_path)
     """Chapters often open on a black page; blurring it gives a cover with nothing on it."""
     post, folder = _chapter_post(tmp_path, colours=((2, 2, 2), (40, 200, 40)))
     paths = PillowRenderer().render(post, {}, folder)
-    assert _dominant(_pixel(paths[0], (540, 200))) == 1  # the drawn panel, blurred
+    assert _dominant(_pixel(paths[0], (540, 200))) == 1  # the drawn panel
+
+
+def test_the_chapter_cover_takes_the_pickers_favourite_panel(tmp_path):
+    post, folder = _chapter_post(tmp_path, colours=((200, 40, 40), (40, 200, 40), (40, 40, 200)))
+    picker = _Picks(2)
+    paths = PillowRenderer(picker).render(post, {}, folder)
+    assert _dominant(_pixel(paths[0], (540, 200))) == 2
+    assert picker.shown == [3]
+
+
+def test_the_chapter_cover_zooms_onto_the_pickers_focus(tmp_path):
+    post, folder = _chapter_post(tmp_path)
+    _halves().save(folder / post.chapter.panels[1])
+    paths = PillowRenderer(_Picks(1, (0, 960, 1080, 1920))).render(post, {}, folder)
+    assert _dominant(_pixel(paths[0], (540, 200))) == 2  # the blue half fills the cover
+
+
+def test_the_chapter_cover_shows_its_panel_sharp(tmp_path):
+    post, folder = _chapter_post(tmp_path, colours=((200, 40, 40),))
+    paths = PillowRenderer().render(post, {}, folder)
+    assert _pixel(paths[0], (540, 200)) == (200, 40, 40)
 
 
 def test_the_chapter_cover_uses_the_only_panel_there_is(tmp_path):
@@ -791,10 +932,69 @@ def test_rerendering_a_chapter_post_removes_stale_slides(tmp_path):
     ]
 
 
-def test_a_chapter_post_writes_only_the_cover_version_it_uses(tmp_path):
+def test_a_chapter_post_writes_every_chapter_cover_version(tmp_path):
+    from manhwatok.domain.models import ChapterCoverStyle
+
     post, folder = _chapter_post(tmp_path)
     PillowRenderer().render(post, {}, folder)
-    assert [p.name for p in sorted(folder.glob("cover-*.png"))] == ["cover-fan.png"]
+    names = sorted(p.name for p in folder.glob("cover-*.png"))
+    assert names == sorted(f"cover-{s.value}.png" for s in ChapterCoverStyle)
+    for name in names:
+        with Image.open(folder / name) as img:
+            assert img.size == (1080, 1920)
+
+
+@pytest.mark.parametrize("style", ["focus", "cinematic", "triptych", "tease", "page"])
+def test_the_chosen_chapter_cover_is_the_first_slide(tmp_path, style):
+    post, folder = _chapter_post(tmp_path)
+    post = post.with_cover(style)
+    paths = PillowRenderer().render(post, {}, folder)
+    assert paths[0].read_bytes() == (folder / f"cover-{style}.png").read_bytes()
+
+
+def test_the_cinematic_cover_puts_the_panel_in_a_band_on_black(tmp_path):
+    post, folder = _chapter_post(tmp_path, colours=((200, 40, 40),))
+    PillowRenderer().render(post, {}, folder)
+    cover = folder / "cover-cinematic.png"
+    assert _pixel(cover, (540, 200)) == (0, 0, 0)
+    assert _dominant(_pixel(cover, (540, 670))) == 0
+
+
+def test_the_tease_cover_draws_the_chapter_number_big_in_the_accent(tmp_path):
+    from manhwatok.adapters.layout import layout_tease
+
+    post, folder = _chapter_post(tmp_path, colours=((40, 40, 40),))
+    PillowRenderer().render(post, {}, folder)
+    big = layout_tease(post.chapter.number).number.box
+    accent = hex_to_rgb(readable_accent(post.accent))
+    with Image.open(folder / "cover-tease.png") as img:
+        row = [img.getpixel((x, big.y + big.h // 2)) for x in range(big.x, big.right)]
+    assert any(all(abs(a - b) < 30 for a, b in zip(px, accent)) for px in row)
+
+
+def test_the_page_cover_sits_on_the_titles_own_cover(tmp_path):
+    post, folder = _chapter_post(tmp_path, colours=((200, 40, 40),))
+    blue = cover_file(tmp_path / "c", post.chapter.anilist_id, color=(30, 30, 230))
+    PillowRenderer().render(post, {post.chapter.anilist_id: SlideArt(blue, None)}, folder)
+    assert _dominant(_pixel(folder / "cover-page.png", (20, 150))) == 2  # the blue cover, blurred
+    assert _dominant(_pixel(folder / "cover-page.png", (540, 560))) == 0  # the red panel on it
+
+
+def test_the_page_cover_falls_back_to_a_panel_without_the_titles_cover(tmp_path):
+    post, folder = _chapter_post(tmp_path, colours=((200, 40, 40),))
+    PillowRenderer().render(post, {}, folder)
+    assert _dominant(_pixel(folder / "cover-page.png", (20, 150))) == 0
+
+
+def test_the_triptych_shows_the_pickers_three_best_panels(tmp_path):
+    colours = ((200, 40, 40), (40, 200, 40), (40, 40, 200))
+    post, folder = _chapter_post(tmp_path, colours=colours)
+    PillowRenderer(_Picks(2)).render(post, {}, folder)
+    cover = folder / "cover-triptych.png"
+    from manhwatok.adapters.cover_designs import STRIP, STRIP_STEP, STRIP_TOP
+
+    seen = [_dominant(_pixel(cover, (540, STRIP_TOP + k * STRIP_STEP + STRIP[1] // 2))) for k in range(3)]
+    assert seen[0] == 2 and sorted(seen) == [0, 1, 2]
 
 
 def test_the_mark_is_the_handle_alone_when_a_post_carries_no_byline(tmp_path):

@@ -37,6 +37,20 @@ class CoverStyle(StrEnum):
     FAN = "fan"  # the first three covers fanned out — the original look
     QUAD = "quad"  # four characters, one per quadrant of the slide
     HERO = "hero"  # the first pick's art filling the whole slide
+    NUMBER = "number"  # the post's count, giant, over the first pick's art
+    SPLIT = "split"  # the first three picks' art as three tall slices, edge to edge
+    PODIUM = "podium"  # the first three picks' covers on a podium, rank badges on each
+    MAGAZINE = "magazine"  # a big title up top, the first pick's art as a card below
+
+
+class ChapterCoverStyle(StrEnum):
+    """A chapter post's cover versions: drawn like a list post's, from the chapter's panels."""
+
+    FOCUS = "focus"  # the best panel, zoomed in to fill the slide
+    CINEMATIC = "cinematic"  # the best panel in a wide letterbox band on black
+    TRIPTYCH = "triptych"  # the three best panels as tilted framed strips
+    TEASE = "tease"  # the best panel blurred behind a giant chapter number
+    PAGE = "page"  # the best panel as a tilted framed page over the title's cover
 
 
 class ArtSourceName(StrEnum):
