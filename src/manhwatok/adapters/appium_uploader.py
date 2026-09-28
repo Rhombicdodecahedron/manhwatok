@@ -50,6 +50,7 @@ XPATH = "xpath"
 ENTER = 66  # Android's KEYCODE_ENTER
 BACK = 4  # KEYCODE_BACK
 POLL_S = 0.3  # how often to look again for something that isn't on the screen yet
+PICK_PAUSE_S = (0.15, 0.4)  # seconds before each picker tap: a person picks faster than they type
 REDRAWS = 5  # times a list is read again when the app redraws it mid-read, however late
 SLIDES_FIX = "pick the slides yourself from Pictures/manhwatok, in order"
 SCHEDULE_PROBLEM = (
@@ -356,8 +357,10 @@ class AppiumUploader:
     def _mobile(self, command: str, **args):
         return self._driver.execute_script(f"mobile: {command}", args)
 
-    def _pause(self) -> None:
-        low, high = self._pause_s
+    def _pause(self, pause: tuple[float, float] | None = None) -> None:
+        low, high = self._pause_s if pause is None else (
+            min(pause[0], self._pause_s[0]), min(pause[1], self._pause_s[1])
+        )
         if high > 0:
             time.sleep(random.uniform(low, high))
 
@@ -378,8 +381,8 @@ class AppiumUploader:
         self._pause()
         element.click()
 
-    def _tap_at(self, x: float, y: float) -> None:
-        self._pause()
+    def _tap_at(self, x: float, y: float, pause: tuple[float, float] | None = None) -> None:
+        self._pause(pause)
         self._mobile("clickGesture", x=round(x), y=round(y))
 
     def _push(self, slides: list[Path]) -> None:
@@ -538,13 +541,21 @@ class AppiumUploader:
         if len(boxes) < count and not _fills(grid, boxes):  # all there is: the user picks
             return f"TikTok's picker showed {len(boxes)} of the {count} slides — {SLIDES_FIX}"
         picked = scrolls = 0
+        circles: list[tuple[dict, str]] = []
+        after: int | None = None
         while picked < count:
-            grid, circles = self._circles()
-            if picked == 0:
-                after = 0 if circles else None
-            else:
-                at = next((n for n, c in enumerate(circles) if c[1] == str(picked)), None)
-                after = None if at is None else at + 1
+            # The circles read before the last tap still hold once the tray is up (after the
+            # first pick) and nothing moved: the next cell is the one after the last tapped.
+            # Reading them all again costs two round trips a circle, so only when needed —
+            # after a scroll, or a tap in the bottom row, whose cell may be cut off and so
+            # scroll into view.
+            if picked < 2 or after is None or after >= len(circles):
+                grid, circles = self._circles()
+                if picked == 0:
+                    after = 0 if circles else None
+                else:
+                    at = next((n for n, c in enumerate(circles) if c[1] == str(picked)), None)
+                    after = None if at is None else at + 1
             if after is None or after >= len(circles):
                 if scrolls >= count:
                     return (
@@ -559,15 +570,20 @@ class AppiumUploader:
                     endY=start - grid["height"] // 2, speed=800,
                 )
                 scrolls += 1
+                after = None
                 continue
             box = circles[after][0]
-            self._tap_at(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+            self._tap_at(
+                box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, PICK_PAUSE_S
+            )
             if not self._picked_becomes(picked + 1):
                 return (
                     f"TikTok says {self._picked_count()} pictures are selected, not "
                     f"{picked + 1} — {SLIDES_FIX}"
                 )
             picked += 1
+            bottom_row = max(b["y"] for b, _ in circles)
+            after = None if box["y"] >= bottom_row - 2 else after + 1
         return None
 
     def _picked_becomes(self, n: int) -> bool:

@@ -78,6 +78,30 @@
     if (e.key === "ArrowRight") show(at + 1);
   });
 
+  // Upload: Enter in the sound boxes never starts the upload.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.closest(".sounds input:not([type=radio])")) e.preventDefault();
+  });
+
+  // Upload: the filter hides sounds (and emptied groups); typing another sound chooses it.
+  document.addEventListener("input", (e) => {
+    if (e.target.classList.contains("custom-sound")) {
+      e.target.closest(".sound").querySelector('input[type="radio"]').checked = true;
+      return;
+    }
+    if (!e.target.classList.contains("sound-filter")) return;
+    const words = e.target.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const list = e.target.closest(".sounds").querySelector(".sound-list");
+    let group = null, shown = 0;
+    const close = () => { if (group) group.hidden = shown === 0; };
+    for (const el of list.children) {
+      if (el.classList.contains("sound-group")) { close(); group = el; shown = 0; continue; }
+      el.hidden = !words.every((w) => el.dataset.sound.includes(w));
+      if (!el.hidden) shown++;
+    }
+    close();
+  });
+
   // New post: the theme fills the title unless one was typed.
   document.addEventListener("change", (e) => {
     if (e.target.id !== "theme") return;

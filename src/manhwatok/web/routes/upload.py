@@ -12,10 +12,18 @@ from manhwatok.app.context import UPLOAD_MODE_LABELS
 from manhwatok.app.login_account import login_account
 from manhwatok.app.move_post import move_post
 from manhwatok.app.render_post import render_post
-from manhwatok.app.upload_post import schedule_for, upload_post, visibility_for
+from manhwatok.app.upload_post import (
+    at_random,
+    preset_sound,
+    schedule_for,
+    theme_sounds,
+    upload_post,
+    visibility_for,
+)
 from manhwatok.domain.account import normalize_handle
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import Visibility
+from manhwatok.domain.text import clean_sounds
 from manhwatok.web.jobs import BROWSER, RENDER, Busy
 from manhwatok.web.routes.common import STILL_RENDERING, ctx_of, done, page
 
@@ -54,19 +62,69 @@ def _phone_for(state, mode: str, wanted: str, owner: str = "") -> str:
     return ready[0].serial
 
 
-def _upload_one(ctx, io, post_id: str, handle: str, uploader, now, debug, visibility) -> bool:
+def _upload_one(
+    ctx, io, post_id: str, handle: str, uploader, now, debug, visibility,
+    sound: str | None = None, random_sound: bool = False,
+) -> bool:
+    """`sound` and `random_sound` are what the dialog chose, as `upload --sound` and
+    `--random-sound`; without them the account's own rules decide, asking on the page."""
     post = ctx.tools.posts.get(post_id)
 
     def choose_sound(sounds: list[str]) -> str | None:
         choices = [(s, s) for s in sounds] + [("No sound", "")]
         return io.choose(f"Sound for @{handle}", choices) or None
 
+    def pick(sounds: list[str]) -> str:
+        chosen = at_random(sounds)
+        io.progress(f"sound, by chance: {chosen}")
+        return chosen
+
     return upload_post(
         post_id, ctx.tools.posts, ctx.store.accounts, ctx.store.history, uploader,
-        io.confirm, io.progress, now=now, debug=debug, choose_sound=choose_sound,
+        io.confirm, io.progress, now=now, debug=debug, sound=sound, choose_sound=choose_sound,
         themes=ctx.store.themes, chapters=ctx.store.chapters,
         schedule_at=schedule_for(post, now), visibility=visibility,
+        random_sound=random_sound, pick=pick,
     )
+
+
+RANDOM, NONE, CUSTOM, CHOSEN = "random", "none", "custom", "s:"  # the Sound choice's values
+
+
+def _sound_groups(ctx, post, account) -> list[tuple[str, list[str]]]:
+    """The sounds the dialog offers, as `upload` would: the post's theme's first, then the
+    account's (its default first), each sound once."""
+    themed = theme_sounds(post, ctx.store.themes)
+    own = [s for s in clean_sounds([account.default_sound, *account.sounds]) if s not in themed]
+    groups = [(f"Theme {post.theme}", themed), (f"{account.display}", own)]
+    return [(label, sounds) for label, sounds in groups if sounds]
+
+
+def _sound_default(ctx, post, account, offered: bool) -> str:
+    """What the Sound choice starts on: the account's own habit, else the first on offer."""
+    if account.random_sound and offered:
+        return RANDOM
+    preset = preset_sound(post, account, ctx.store.themes)
+    if preset:
+        return CHOSEN + preset
+    first = next(iter(theme_sounds(post, ctx.store.themes) + account.sounds), None)
+    return CHOSEN + first if first else NONE
+
+
+def _sound_from(choice: str, custom: str) -> tuple[str | None, bool]:
+    """(`sound`, `random_sound`) for upload_post from the Sound choice; ("", False) is none at
+    all and (None, False) leaves it to the account's rules."""
+    if choice == RANDOM:
+        return None, True
+    if choice == NONE:
+        return "", False
+    if choice == CUSTOM:
+        if not custom.strip():
+            raise ManhwatokError("type the sound to search for, or pick one")
+        return " ".join(custom.split()), False
+    if choice.startswith(CHOSEN) and choice[len(CHOSEN):].strip():
+        return choice[len(CHOSEN):].strip(), False
+    return None, False
 
 
 @router.get("/posts/{post_id}/upload", response_class=HTMLResponse)
@@ -83,8 +141,11 @@ def upload_dialog(request: Request, post_id: str, account: str = "") -> HTMLResp
     phone = account.phone if account and account.phone else only
     missing = bool(account and account.phone and account.phone not in {p.serial for p in ready})
     when = schedule_for(post, request.app.state.clock())
+    groups = _sound_groups(ctx, post, account) if account else []
     return page(
         request, "_upload_dialog.html", post=post, accounts=accounts, account=account,
+        sound_groups=groups,
+        sound=_sound_default(ctx, post, account, bool(groups)) if account else NONE,
         modes=list(UPLOAD_MODE_LABELS.items()), mode=ctx.upload_mode, phones=ready,
         phone=phone, missing=missing, phones_error=error, when=when,
         visibilities=list(Visibility),
@@ -101,6 +162,8 @@ def start_upload(
     phone: str = Form(""),
     visibility: str = Form(""),
     debug: str = Form(""),
+    sound: str = Form(""),
+    custom_sound: str = Form(""),
 ) -> Response:
     ctx, state = ctx_of(request), request.app.state
     bus = state.bus
@@ -116,6 +179,7 @@ def start_upload(
             raise ManhwatokError(f"no upload mode {mode!r}")
         serial = _phone_for(state, mode, phone or target.phone, owner="" if phone else handle)
         chosen = Visibility(visibility) if visibility else None
+        sound_search, random_sound = _sound_from(sound, custom_sound)
         uploader = ctx.uploader_for(mode, serial)
     except (ManhwatokError, ValueError) as e:
         return done(request, str(e), "error")
@@ -127,7 +191,7 @@ def start_upload(
             slides = render_post(post_id, replace(ctx.tools, progress=io.progress))
             io.progress(f"post {post_id} · {len(slides)} slides")
         posted = _upload_one(ctx, io, post_id, handle, uploader,
-                             state.clock(), bool(debug), chosen)
+                             state.clock(), bool(debug), chosen, sound_search, random_sound)
         bus.publish("changed", what="posts")
         return f"recorded post {post_id} as sent" if posted else "nothing recorded"
 

@@ -22,6 +22,30 @@
         {% for v in visibilities %}<option value="{{ v.value }}">{{ v.spoken }}</option>{% endfor %}</select>
     </label>
   </div>
+  {% if account %}
+  <fieldset class="sounds">
+    <legend>Sound</legend>
+    {% if sound_groups %}<input type="search" class="sound-filter" placeholder="Filter sounds…" aria-label="Filter sounds">{% endif %}
+    <div class="sound-list" role="radiogroup" aria-label="Sound">
+      {% for label, sounds in sound_groups %}
+      <p class="sound-group">{{ label }}</p>
+      {% for s in sounds %}
+      <label class="sound" data-sound="{{ s | lower }}">
+        <input type="radio" name="sound" value="s:{{ s }}"{% if sound == "s:" ~ s %} checked{% endif %}>
+        <span class="sound-name">{{ s }}</span>
+        <a class="listen" href="https://www.youtube.com/results?search_query={{ s | urlencode }}" target="_blank" rel="noopener" title="Listen to {{ s }} on YouTube" aria-label="Listen to {{ s }}">▶</a>
+      </label>
+      {% endfor %}
+      {% endfor %}
+    </div>
+    <div class="sound-extra">
+      {% if sound_groups %}<label class="sound special"><input type="radio" name="sound" value="random"{% if sound == "random" %} checked{% endif %}> Random from these</label>{% endif %}
+      <label class="sound special"><input type="radio" name="sound" value="none"{% if sound == "none" %} checked{% endif %}> No sound</label>
+      <label class="sound special custom"><input type="radio" name="sound" value="custom"> Another
+        <input name="custom_sound" class="custom-sound" placeholder="Song title Artist"></label>
+    </div>
+  </fieldset>
+  {% endif %}
   {% if missing %}<p class="art-error">{{ account.display }}'s phone ({{ account.phone }}) isn't plugged in.</p>{% endif %}
   {% if phones_error %}<p class="muted">{{ phones_error }}</p>{% endif %}
   <p class="muted">{% if when %}Planned for {{ when.astimezone().strftime("%a %d %b %H:%M") }} — the browser upload fills in TikTok's schedule; the phone can't, and says so.{% else %}Goes out now.{% endif %}

@@ -354,6 +354,26 @@ def test_a_picker_that_redraws_while_read_is_read_again(tmp_path, monkeypatch):
     assert _taps(driver) == [(85, 30), (185, 30), (285, 30)]
 
 
+def test_the_circles_are_read_again_only_when_the_picker_may_have_moved(tmp_path, monkeypatch):
+    driver = FakeDriver()
+    driver.long_picker(total=20)
+    reads = []
+    find = driver.picker.find_elements
+
+    def counted(by, value):
+        if by != "xpath":
+            reads.append(value)
+        return find(by, value)
+
+    driver.picker.find_elements = counted
+    _fake(monkeypatch, driver)
+    report = _upload(_uploader(tmp_path), tmp_path, slides=_slides(tmp_path, 3))
+    assert report.attached, report.problems
+    assert driver.picker.picked == [0, 1, 2]
+    # Before the first tap and after it (the tray comes up); the third is the one after.
+    assert len(reads) == 2
+
+
 def test_more_slides_than_the_screen_holds_are_picked_scrolling(tmp_path, monkeypatch):
     driver = FakeDriver()
     driver.long_picker(total=20)

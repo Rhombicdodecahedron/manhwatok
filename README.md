@@ -859,7 +859,10 @@ its sounds and who can see it. Render, Export, Delete and visibility work on the
 Render/Export/Delete on ticked posts too. **New post** searches like the TUI's Build — an
 account, then a theme or tags/genres — and shows the titles as covers, all picked: click one to
 drop it or pick it again, drag the picks (or use ↑↓) to order them, edit their hook lines, give
-the post a title, then Save and render opens the new post. **Edit** (on any post) changes
+the post a title, then Save and render opens the new post. Its **Chapter** tab builds a title's
+next chapter part, as the TUI's Chapter mode: pick a tracked title or name a new one, leave
+chapter and part blank for the next, Check says which part that is, and Build cuts and renders
+it in the render lane (its job page shows the progress). **Edit** (on any post) changes
 anything about it and renders it again: its title, hashtags, emojis, byline, end-slide texts and
 accent (a colour picker); its art style (background, panel, character, scene, quad…) and cover;
 its picks (drop, add back from its candidates, reorder, hooks — each kept title keeps its
@@ -868,8 +871,11 @@ picture); and each title's picture, found in MangaDex covers, fanart, Pinterest 
 link — or every title at once from one source. Chapter posts change their texts only.
 **Upload** (on a post, or "Upload ticked") asks how — browser, phone, or phone all by itself —
 which phone, and as which account (another account moves the post to it and renders it again
-first), then opens the upload's own page: its log as it happens, the phone's screen live, and
-the upload's questions (which sound, "Posted?", the Story) in a dialog on whatever page is open.
+first), and which sound: the post's theme's sounds, then the account's, with a filter, a ▶ to
+hear each on YouTube, Random, No sound, or another search typed in. It starts on the account's
+default (or Random when the account picks at random). Then it opens the upload's own page: its
+log as it happens, the phone's screen live, and the upload's questions ("Posted?", the Story;
+which sound, for "Upload ticked") in a dialog on whatever page is open.
 **Phones** lists the phones plugged in (ready, or what's wrong: USB debugging not allowed,
 offline), whether TikTok is installed, each phone's screen live, and the accounts that live on
 it — `account set @x --phone SERIAL` ties an account to its phone (the Accounts tab has it too),

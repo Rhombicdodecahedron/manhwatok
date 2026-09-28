@@ -1,7 +1,50 @@
 {% extends "base.html" %}
 {% block title %}New post · manhwatok{% endblock %}
 {% block content %}
-<h1>New post</h1>
+<div class="toolbar"><h1>New post</h1>
+  <nav class="tabs" aria-label="Kind of post">
+    <a href="/new" {% if kind == "list" %}aria-current="page"{% endif %}>Recommendation list</a>
+    <a href="/new?type=chapter" {% if kind == "chapter" %}aria-current="page"{% endif %}>Chapter</a>
+  </nav>
+</div>
+{% if kind == "chapter" %}
+<form class="panel search" hx-post="/new/chapter/check" hx-target="#chapter-next" hx-swap="innerHTML"
+      hx-indicator="#checking">
+  <label class="field">Account
+    <select name="account">
+      <option value="">No account</option>
+      {% for a in accounts %}<option value="{{ a.handle }}">{{ a.display }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">Title (one already tracked)
+    <select name="tracked">
+      <option value="">Pick a title</option>
+      {% for anilist_id, name in titles %}<option value="{{ anilist_id }}">{{ name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">Or a new title <input name="text" placeholder="name or AniList id"></label>
+  <label class="field">Source
+    <select name="source">
+      <option value="">Auto</option>
+      {% for s in sources %}<option value="{{ s.value }}">{{ s.value }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">Language <input name="language" value="en"></label>
+  <label class="field">Chapter <input name="number" placeholder="next"></label>
+  <label class="field">Part <input name="part" inputmode="numeric" placeholder="next"></label>
+  <label class="field">Post title <input name="title" placeholder="<title> *Chapter N*"></label>
+  <label class="field">Hashtags <input name="hashtags" placeholder="the account's"></label>
+  <label class="field">Accent <input name="accent" placeholder="the account's"></label>
+  <label class="field">Emojis <input name="emojis" placeholder="the account's"></label>
+  <div class="wide">
+    <div id="chapter-next" class="muted"></div>
+    <span class="spacer"></span>
+    <span id="checking" class="htmx-indicator muted">Checking…</span>
+    <button class="button">Check</button>
+    <button class="button primary" type="button" hx-post="/new/chapter/build" hx-include="closest form">Build</button>
+  </div>
+</form>
+{% else %}
 <form class="panel search" hx-post="/new/search" hx-target="#results" hx-swap="innerHTML"
       hx-indicator="#searching">
   <label class="field">Account
@@ -33,4 +76,5 @@
   </div>
 </form>
 <div id="results"><p class="empty">Choose a theme or some tags, then find titles.</p></div>
+{% endif %}
 {% endblock %}

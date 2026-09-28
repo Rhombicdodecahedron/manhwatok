@@ -246,3 +246,77 @@ def test_a_post_without_an_account_must_be_given_one(tmp_path):
     assert '<option value="" selected disabled>Pick an account</option>' in html
     assert _notice(response) == {"text": "pick an account to upload as", "level": "error"}
     assert ctx.tools.posts.get(PID).account is None and uploader.uploads == []
+
+
+# --- the sound choice --------------------------------------------------------------------------
+
+
+def _theme_post(ctx, sounds):
+    from manhwatok.domain.theme import Theme
+
+    ctx.store.themes.add(Theme(name="murim", tags=["Martial Arts"], title="Murim", sounds=sounds))
+    ctx.tools.posts.save(ctx.tools.posts.get(PID).model_copy(update={"theme": "murim"}))
+
+
+def _upload_with(client, **form):
+    data = {"account": "reads", "mode": "browser", "phone": "", "visibility": "", **form}
+    return client.post(f"/posts/{PID}/upload", data=data)
+
+
+def test_the_dialog_offers_the_themes_sounds_then_the_accounts_each_once(tmp_path):
+    ctx, _, _, phones = _world(tmp_path)
+    _theme_post(ctx, ["INVOCADO CHAXZER", "Phonk"])
+    with client_for(ctx, phones=phones) as client:
+        html = client.get(f"/posts/{PID}/upload").text
+    theme, account = html.index("Theme murim"), html.index('class="sound-group">@reads')
+    assert theme < html.index('value="s:INVOCADO CHAXZER" checked') < account
+    assert html.count('value="s:Phonk"') == 1 and html.index('value="s:Phonk"') < account
+    assert account < html.index('value="s:Lofi"')
+    assert "youtube.com/results?search_query=INVOCADO%20CHAXZER" in html
+    assert 'value="random"' in html and 'value="none"' in html and 'value="custom"' in html
+
+
+def test_the_dialog_starts_on_the_accounts_default_or_random(tmp_path):
+    ctx, _, _, phones = _world(tmp_path)
+    _default_sound(ctx, "Phonk")
+    with client_for(ctx, phones=phones) as client:
+        assert 'value="s:Phonk" checked' in client.get(f"/posts/{PID}/upload").text
+        reads = ctx.store.accounts.get("reads")
+        ctx.store.accounts.update(reads.model_copy(update={"random_sound": True}))
+        assert 'value="random" checked' in client.get(f"/posts/{PID}/upload").text
+
+
+@pytest.mark.parametrize(
+    "form, used",
+    [
+        ({"sound": "s:Lofi"}, "Lofi"),
+        ({"sound": "none"}, None),
+        ({"sound": "custom", "custom_sound": "  Sailor  Song Gigi Perez "}, "Sailor Song Gigi Perez"),
+    ],
+)
+def test_the_chosen_sound_is_used_without_asking(tmp_path, form, used):
+    ctx, uploader, _, phones = _world(tmp_path)
+    with client_for(ctx, phones=phones) as client:
+        job_id = _upload_with(client, **form).headers["HX-Redirect"].rsplit("/", 1)[1]
+        asked = _answer_all(client, ["no"])
+        wait_job(client, job_id)
+    assert asked == ["Posted on @reads?"]
+    assert uploader.uploads[0][4] == used
+
+
+def test_random_picks_one_on_offer_and_says_which(tmp_path):
+    ctx, uploader, _, phones = _world(tmp_path)
+    with client_for(ctx, phones=phones) as client:
+        job_id = _upload_with(client, sound="random").headers["HX-Redirect"].rsplit("/", 1)[1]
+        _answer_all(client, ["no"])
+        job = wait_job(client, job_id)
+    assert uploader.uploads[0][4] in {"Lofi", "Phonk"}
+    assert f"sound, by chance: {uploader.uploads[0][4]}" in job.log
+
+
+def test_another_sound_left_blank_is_refused_before_anything(tmp_path):
+    ctx, uploader, _, phones = _world(tmp_path)
+    with client_for(ctx, phones=phones) as client:
+        response = _upload_with(client, sound="custom", custom_sound=" ")
+    assert _notice(response)["level"] == "error" and "type the sound" in _notice(response)["text"]
+    assert not uploader.uploads and not client.app.state.jobs.recent()

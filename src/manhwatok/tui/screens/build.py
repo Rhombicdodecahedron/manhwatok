@@ -4,7 +4,7 @@ chapter part, as `chapter next` and `chapter build` do."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -23,21 +23,16 @@ from textual.widgets.option_list import Option
 from textual.worker import Worker, get_current_worker
 
 from manhwatok.app.build_post import prefill_items, save_new_post
-from manhwatok.app.chapter_post import (
-    ChapterTools,
-    Chosen,
-    build_chapter_post,
-    chosen_part,
-    next_to_build,
-    pick_source,
-    resolve_title,
-    tracked_title,
+from manhwatok.app.chapter_form import (
+    ChapterRequest,
+    build_requested,
+    built_line,
+    chapter_request,
+    check_chapter,
 )
 from manhwatok.app.context import AppContext
-from manhwatok.app.post_tools import ProgressFn
 from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account
-from manhwatok.domain.chapter import NextPart
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import (
@@ -55,7 +50,6 @@ from manhwatok.ports.chapters import PageCount
 from manhwatok.tui.screens.picks import PicksScreen
 
 MAX_TAG_HITS = 30
-MAX_PARTS = 99  # parts of one chapter: far more than any chapter is cut into
 
 
 def _number(raw: str, name: str, low: int, high: int, default: int | None) -> int | None:
@@ -78,48 +72,6 @@ def matching_tags(tags: list[TagInfo], search: str) -> list[TagInfo]:
     by_name = [t for t in tags if s in t.name.casefold()]
     by_text = [t for t in tags if t not in by_name and s in t.description.casefold()]
     return (sorted(by_name, key=lambda t: t.name) + by_text)[:MAX_TAG_HITS]
-
-
-@dataclass(frozen=True)
-class ChapterRequest:
-    """What the Chapter form asks for, read on the app thread for a worker to act on."""
-
-    text: str  # a title typed in: a name or an AniList id; wins over `tracked`
-    tracked: tuple[int, str] | None  # (AniList id, name) of the tracked title chosen
-    source: ChapterSourceName | None  # None: the one it is tracked under, else the first with it
-    language: str
-    number: str | None  # a chapter asked for by name; None takes the next one in turn
-    part: int | None  # which part of it; None takes the next unbuilt one
-    account: Account | None
-    title: str | None
-    hashtags: str | None
-    accent: str | None
-    emojis: str | None
-
-    @property
-    def asked_for(self) -> bool:
-        """Whether a chapter or part was named, rather than taken in turn."""
-        return self.number is not None or self.part is not None
-
-
-def next_line(manhwa: Manhwa, source: ChapterSourceName, found: NextPart | None) -> str:
-    """What `chapter next` says, in one line."""
-    where = f"{manhwa.title} · {source.value}"
-    if found is None:
-        return f"{where} — every listed chapter is built"
-    parts = f" of {found.parts}" if found.parts else ""
-    return f"{where} — next: chapter {found.chapter.number}, part {found.part}{parts}"
-
-
-def chosen_line(manhwa: Manhwa, source: ChapterSourceName, chosen: Chosen) -> str:
-    """What Check says about a chapter and part asked for by name."""
-    found = chosen.part
-    parts = f" of {found.parts}" if found.parts else ""
-    built = " — built already" if chosen.built else ""
-    return (
-        f"{manhwa.title} · {source.value} — asked for: chapter {found.chapter.number}, "
-        f"part {found.part}{parts}{built}"
-    )
 
 
 class BuildPane(VerticalScroll):
@@ -466,44 +418,21 @@ class BuildPane(VerticalScroll):
     # --- chapter mode ----------------------------------------------------------------------
 
     def _chapter_request(self) -> ChapterRequest:
-        """The Chapter form, checked. Raises ManhwatokError on what can be told without asking
-        AniList or the source."""
-        text = self._input("chapter-new-title").value.strip()
+        """The Chapter form, checked (see `chapter_request`)."""
         chosen = self.query_one("#chapter-title", Select).selection
-        if not text and chosen is None:
-            raise ManhwatokError("name a title, or its AniList id")
-        language = self._input("chapter-language").value.strip().lower()
-        if not language:
-            raise ManhwatokError("give a chapter language, e.g. en")
-        accent = self._input("accent").value.strip() or None
-        if accent is not None:
-            accent = check_accent(accent)
-        part = _number(self._input("chapter-part").value, "part", 1, MAX_PARTS, None)
-        return ChapterRequest(
-            text=text,
+        return chapter_request(
+            text=self._input("chapter-new-title").value,
             tracked=None if chosen is None else (chosen, self._titles.get(chosen, str(chosen))),
             source=self.query_one("#chapter-source", Select).selection,
-            language=language,
-            number=self._input("chapter-number").value.strip() or None,
-            part=part,
+            language=self._input("chapter-language").value,
+            number=self._input("chapter-number").value,
+            part=self._input("chapter-part").value,
             account=self._account(),
-            title=self._input("chapter-post-title").value.strip() or None,
-            hashtags=self._input("hashtags").value.strip() or None,
-            accent=accent,
-            emojis=self._input("emojis").value.strip() or None,
+            title=self._input("chapter-post-title").value,
+            hashtags=self._input("hashtags").value,
+            accent=self._input("accent").value,
+            emojis=self._input("emojis").value,
         )
-
-    @staticmethod
-    def _title_tools(
-        ctx: AppContext, req: ChapterRequest, progress: ProgressFn
-    ) -> tuple[Manhwa, ChapterTools]:
-        """The title asked for and the chapter tools of its source (worker thread)."""
-        if req.text or req.tracked is None:
-            manhwa = resolve_title(req.text, ctx.metadata, ctx.store.cache)
-        else:
-            manhwa = tracked_title(*req.tracked, ctx.metadata, ctx.store.cache)
-        ct = pick_source(manhwa, ctx.chapter_tools, req.language, req.source, progress)
-        return manhwa, ct
 
     def _set_next(self, text: str) -> None:
         self.query_one("#chapter-next", Static).update(text)
@@ -526,16 +455,7 @@ class BuildPane(VerticalScroll):
                     self.app.later(self._set_next, str(msg))
 
             try:
-                manhwa, ct = self._title_tools(ctx, req, progress)
-                now = self.app.clock()
-                if req.asked_for:
-                    chosen = chosen_part(
-                        manhwa, ct, now, req.number, req.part, req.language, progress
-                    )
-                    line = chosen_line(manhwa, ct.source, chosen)
-                else:
-                    found = next_to_build(manhwa, ct, now, req.language, progress)
-                    line = next_line(manhwa, ct.source, found)
+                line = check_chapter(ctx, req, self.app.clock(), progress)
             except ManhwatokError as e:
                 if not worker.is_cancelled:
                     self.app.later(self._chapter_failed, e)
@@ -573,27 +493,8 @@ class BuildPane(VerticalScroll):
                 else:
                     notify(msg)
 
-            tools = replace(ctx.tools, progress=progress)
-            now = self.app.clock()
-            manhwa, ct = self._title_tools(ctx, req, progress)
-            if not req.asked_for and next_to_build(manhwa, ct, now, req.language, progress) is None:
-                raise ManhwatokError(
-                    f"every listed chapter of {manhwa.title} is already built — "
-                    f"{ct.source.value} has nothing new"
-                )
-            return build_chapter_post(
-                manhwa,
-                tools,
-                ct,
-                req.account,
-                now,
-                number=req.number,
-                part=req.part,
-                language=req.language,
-                title=req.title,
-                hashtags=req.hashtags,
-                accent=req.accent,
-                emojis=req.emojis,
+            return build_requested(
+                ctx, req, replace(ctx.tools, progress=progress), self.app.clock()
             )
 
         if self.app.start_render_in_context(job, self._chapter_built):
@@ -601,11 +502,7 @@ class BuildPane(VerticalScroll):
 
     def _chapter_built(self, built) -> None:
         post, slides = built
-        where = post.chapter
-        text = (
-            f"post {post.id} · chapter {where.number} part {where.part}/{where.parts} · "
-            f"{len(slides)} slides"
-        )
+        text = built_line(post, slides)
         self._set_next(text)
         self.app.notify(text)
         self.refresh_data()

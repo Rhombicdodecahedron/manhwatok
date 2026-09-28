@@ -1,5 +1,6 @@
-"""New post: search as the TUI's Build does (an account's filters and history, a theme or
-tags/genres), pick and order the titles in the page, then save and render."""
+"""New post, as the TUI's Build: a recommendation list — search (an account's filters and
+history, a theme or tags/genres), pick and order the titles in the page, then save and render —
+or a chapter post, a title's next part (`chapter next` / `chapter build`)."""
 
 from __future__ import annotations
 
@@ -9,12 +10,19 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, Response
 
 from manhwatok.app.build_post import prefill_items, store_new_post
+from manhwatok.app.chapter_form import (
+    ChapterRequest,
+    build_requested,
+    built_line,
+    chapter_request,
+    check_chapter,
+)
 from manhwatok.app.render_post import render_post
 from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.labels import chapter_label
-from manhwatok.domain.models import ArtStyle, CoverStyle, SearchQuery, Sort
+from manhwatok.domain.models import ArtStyle, ChapterSourceName, CoverStyle, SearchQuery, Sort
 from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS, MAX_ITEMS, PostItem
 from manhwatok.domain.text import first_sentence, split_names
 from manhwatok.web.jobs import RENDER, Busy
@@ -64,15 +72,18 @@ def _account(ctx, handle: str) -> Account | None:
 
 
 @router.get("/new", response_class=HTMLResponse)
-def new_page(request: Request) -> HTMLResponse:
+def new_page(request: Request, type: str = "list") -> HTMLResponse:
     ctx = ctx_of(request)
     return page(
         request,
         "new.html",
         page="new",
+        kind="chapter" if type == "chapter" else "list",
         accounts=ctx.store.accounts.list(),
         themes=ctx.store.themes.list(),
         sorts=list(Sort),
+        titles=ctx.store.chapters.titles(),
+        sources=list(ChapterSourceName),
     )
 
 
@@ -180,4 +191,114 @@ async def save(request: Request) -> Response:
         level = "warning"
     response = trigger(Response(status_code=200), text_, level, changed=["posts"])
     response.headers["HX-Redirect"] = f"/posts?post={post.id}"
+    return response
+
+
+# --- chapter posts -------------------------------------------------------------------------
+
+
+def _chapter_form(
+    request: Request,
+    account: str,
+    tracked: str,
+    text: str,
+    source: str,
+    language: str,
+    number: str,
+    part: str,
+    title: str,
+    hashtags: str,
+    accent: str,
+    emojis: str,
+) -> ChapterRequest:
+    ctx = ctx_of(request)
+    chosen = None
+    if tracked:
+        wanted = _number(tracked, "Title", 1, 10**9, None)
+        chosen = (wanted, dict(ctx.store.chapters.titles()).get(wanted, str(wanted)))
+    return chapter_request(
+        text=text,
+        tracked=chosen,
+        source=ChapterSourceName(source) if source else None,
+        language=language,
+        number=number,
+        part=part,
+        account=_account(ctx, account),
+        title=title,
+        hashtags=hashtags,
+        accent=accent,
+        emojis=emojis,
+    )
+
+
+@router.post("/new/chapter/check", response_class=HTMLResponse)
+def chapter_check(
+    request: Request,
+    account: str = Form(""),
+    tracked: str = Form(""),
+    text: str = Form(""),
+    source: str = Form(""),
+    language: str = Form(""),
+    number: str = Form(""),
+    part: str = Form(""),
+    title: str = Form(""),
+    hashtags: str = Form(""),
+    accent: str = Form(""),
+    emojis: str = Form(""),
+) -> Response:
+    """Which part a Build would make — listing the title from its source (and so tracking it)
+    when nothing unbuilt is on record."""
+    ctx = ctx_of(request)
+    try:
+        req = _chapter_form(
+            request, account, tracked, text, source, language, number, part, title,
+            hashtags, accent, emojis,
+        )
+        line = check_chapter(ctx, req, request.app.state.clock(), lambda _: None)
+    except (ManhwatokError, ValueError) as e:
+        return done(request, str(e), "error")
+    return page(request, "_chapter_next.html", line=line)
+
+
+@router.post("/new/chapter/build")
+def chapter_build(
+    request: Request,
+    account: str = Form(""),
+    tracked: str = Form(""),
+    text: str = Form(""),
+    source: str = Form(""),
+    language: str = Form(""),
+    number: str = Form(""),
+    part: str = Form(""),
+    title: str = Form(""),
+    hashtags: str = Form(""),
+    accent: str = Form(""),
+    emojis: str = Form(""),
+) -> Response:
+    """Build and render the part in the render lane; the job's page shows its progress."""
+    ctx = ctx_of(request)
+    try:
+        req = _chapter_form(
+            request, account, tracked, text, source, language, number, part, title,
+            hashtags, accent, emojis,
+        )
+    except (ManhwatokError, ValueError) as e:
+        return done(request, str(e), "error")
+    bus, clock = request.app.state.bus, request.app.state.clock
+    name = req.text or (req.tracked[1] if req.tracked else "")
+
+    def work(io) -> str:
+        tools = replace(ctx.tools, progress=lambda msg: io.progress(str(msg)))
+        post, slides = build_requested(ctx, req, tools, clock())
+        bus.publish("changed", what="posts")
+        return built_line(post, slides)
+
+    try:
+        job = request.app.state.jobs.start(RENDER, f"build a chapter post of {name}", work)
+    except Busy:
+        running = request.app.state.jobs.busy(RENDER)
+        other = running.heading if running else "the other render"
+        return done(request, f"build it when {other} is done", "warning")
+    response = trigger(Response(status_code=200), f"building {name}…")
+    response.headers["HX-Redirect"] = f"/jobs/{job.id}"
     return response

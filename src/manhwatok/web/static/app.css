@@ -105,6 +105,9 @@ details > summary { cursor: pointer; font-weight: 700; color: var(--muted); marg
 .empty { color: var(--muted); padding: 40px 0; }
 
 /* new post */
+.tabs { display: flex; gap: 4px; background: var(--gutter); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.tabs a { padding: 6px 12px; border-radius: 7px; color: var(--muted); text-decoration: none; font-size: 14px; }
+.tabs a[aria-current="page"] { background: var(--panel); color: var(--paper); box-shadow: inset 0 -2px 0 var(--accent); }
 .new { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 38%); gap: 24px; align-items: start; }
 .search { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
 .search .wide { grid-column: 1 / -1; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
@@ -180,3 +183,22 @@ ul.plain { list-style: none; padding: 0; margin: 0; }
 .outcome.failed { color: var(--danger); }
 #question { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--paper); padding: 22px; min-width: 360px; }
 #question::backdrop { background: rgba(12, 11, 16, .7); }
+
+/* upload dialog: sound choice */
+.sounds { border: 1px solid var(--line); border-radius: var(--radius-card); padding: 10px 12px 12px; margin: 14px 0 0; min-width: 0; }
+.sounds legend { font-size: 13px; color: var(--muted); padding: 0 6px; }
+.sound-filter { width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+.sound-list { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.sound-group { margin: 8px 0 2px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.sound-group:first-child { margin-top: 0; }
+.sound { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.sound:hover { background: var(--raised); }
+.sound:has(input:checked) { background: var(--raised); box-shadow: inset 3px 0 0 var(--accent); }
+.sound input[type="radio"] { accent-color: var(--accent); margin: 0; }
+.sound-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sound .listen { color: var(--muted); text-decoration: none; font-size: 12px; width: 26px; height: 26px; border-radius: 13px; display: grid; place-items: center; border: 1px solid var(--line); flex: none; }
+.sound .listen:hover { color: var(--accent); border-color: var(--accent); }
+.sound[hidden], .sound-group[hidden] { display: none; }
+.sound-extra { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.sound.custom { flex: 1 1 100%; flex-wrap: wrap; }
+.sound.custom .custom-sound { flex: 1 1 140px; min-width: 0; width: auto; }
