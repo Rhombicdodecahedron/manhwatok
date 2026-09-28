@@ -101,9 +101,15 @@ def fill(
     days: int = DEFAULT_DAYS,
     warn: WarnFn = _noop,
     on_post: Callable[[ListPost], None] = _ignore,
+    *,
+    after: datetime | None = None,
 ) -> list[ListPost]:
     """Make the account's next post (as `next` does) for each of its slots in the next `days`
     days that no post of its has yet, and schedule it there; returns them in slot order.
+
+    `after` moves where those days are counted from — the web's calendar fills the week it is
+    showing, not always the one it is on; it defaults to `now`. Whichever it is, a slot whose
+    time has already gone is left alone, so nothing is ever scheduled in the past.
 
     Running it again makes nothing new. A sent post keeps its slot. It stops at the first
     failure and raises it: the posts made before it are saved and scheduled, and each was
@@ -121,8 +127,8 @@ def fill(
         )
     empty = [
         row.at
-        for row in plan_rows([account], ctx.tools.posts.list(), now, days)
-        if row.post is None
+        for row in plan_rows([account], ctx.tools.posts.list(), after or now, days)
+        if row.post is None and row.at > now
     ]
     made: list[ListPost] = []
     for slot in empty:

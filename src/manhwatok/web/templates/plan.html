@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Plan · manhwatok{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <h1>Plan</h1>
+  <nav class="week" aria-label="Week">
+    <a class="button" href="/plan?week={{ week - 1 }}&amp;account={{ account }}" aria-label="A week back">←</a>
+    <strong class="week-label">{{ days[0].strftime("%d %b") }} – {{ days[6].strftime("%d %b %Y") }}</strong>
+    <a class="button" href="/plan?week={{ week + 1 }}&amp;account={{ account }}" aria-label="A week forward">→</a>
+    {% if week %}<a class="button" href="/plan">This week</a>{% endif %}
+  </nav>
+  <span class="spacer"></span>
+  <form id="plan-filters" hx-get="/plan/grid" hx-target="#plan-grid" hx-trigger="change">
+    <input type="hidden" name="week" value="{{ week }}">
+    <select name="account" aria-label="Account">
+      <option value="">Every account</option>
+      {% for a in accounts %}
+      <option value="{{ a.handle }}" {% if a.handle == account %}selected{% endif %}>{{ a.display }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% if week >= 0 %}
+  <button class="button primary" hx-post="/plan/fill-all" hx-include="#plan-filters" hx-swap="none">Fill all</button>
+  {% endif %}
+</div>
+
+<div id="upload-panel"></div>
+<div id="plan-move"></div>
+
+<div id="plan-grid" hx-get="/plan/grid" hx-include="#plan-filters"
+     hx-trigger="changed-posts from:body, changed-store from:body">
+  {% include "_plan_grid.html" %}
+</div>
+{% endblock %}

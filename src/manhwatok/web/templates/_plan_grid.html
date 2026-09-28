@@ -1,0 +1,24 @@
+{% if hint %}<p class="empty">{{ hint }}</p>{% endif %}
+{% if overdue %}{% include "_plan_overdue.html" %}{% endif %}
+
+<div class="plan">
+  <div class="plan-corner"></div>
+  {% for d in days %}
+  <div class="plan-day{% if d == today %} is-today{% endif %}">{{ d.strftime("%a %d %b") }}</div>
+  {% endfor %}
+
+  {% for line in lines %}
+  <div class="plan-account">
+    <a class="name" href="/plan?week={{ week }}&amp;account={{ line.account.handle }}">{{ line.account.display }}</a>
+    {% if week >= 0 %}
+    <button class="button tiny" hx-post="/plan/fill-all" hx-swap="none"
+            hx-vals='{"account": "{{ line.account.handle }}", "week": {{ week }}}'>Fill account</button>
+    {% endif %}
+  </div>
+  {% for cell in line.cells %}
+  <div class="plan-cell{% if not cell %} is-empty{% endif %}">
+    {% for s in cell %}{% include "_plan_cell.html" %}{% endfor %}
+  </div>
+  {% endfor %}
+  {% endfor %}
+</div>

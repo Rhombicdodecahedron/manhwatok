@@ -1,0 +1,17 @@
+<section class="plan-overdue" aria-label="Overdue">
+  <h3>Overdue — still to go out</h3>
+  {% for s in overdue %}
+  <div class="overdue-row">
+    <span class="when">{{ s.at.strftime("%a %d %b %H:%M") }}</span>
+    <span class="who">@{{ s.account.handle }}</span>
+    <a class="title" href="/posts?post={{ s.post.id }}">{{ s.post.title | plain or "(untitled)" }}</a>
+    <span class="dot" data-status="{{ s.status }}"></span><span class="status">{{ s.status }}</span>
+    <span class="spacer"></span>
+    <button class="button tiny" hx-get="/posts/{{ s.post.id }}/upload" hx-target="#upload-panel" hx-swap="innerHTML">Upload</button>
+    <button class="button tiny" hx-get="/plan/move/{{ s.post.id }}" hx-target="#plan-move" hx-swap="innerHTML"
+            hx-vals='{"week": {{ week }}, "account": "{{ account }}"}'>Move</button>
+    <button class="button tiny danger" hx-post="/plan/{{ s.post.id }}/unschedule" hx-swap="none"
+            hx-confirm="Take {{ s.post.id }} off its time?">Unschedule</button>
+  </div>
+  {% endfor %}
+</section>

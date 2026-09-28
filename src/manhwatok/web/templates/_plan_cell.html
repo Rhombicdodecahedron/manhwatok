@@ -1,0 +1,34 @@
+{% if s.post %}
+<article class="plan-post{% if s.overdue %} is-overdue{% endif %}{% if s.post.sent_at %} is-sent{% endif %}">
+  <span class="when">{{ s.at.strftime("%H:%M") }}</span>
+  <div class="who">
+    {% if s.thumb %}<img class="cover" src="{{ s.thumb }}" alt="" loading="lazy">{% endif %}
+    <div>
+      <a class="title" href="/posts?post={{ s.post.id }}" title="{{ s.post.title | plain }}">{{ s.post.title | plain or "(untitled)" }}</a>
+      <div class="meta">
+        <span class="dot" data-status="{{ s.status }}"></span><span class="status">{{ s.status }}</span>
+        {% if not s.on_slot %}<span>not a slot</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="acts">
+    <button class="button tiny" hx-get="/posts/{{ s.post.id }}/upload" hx-target="#upload-panel" hx-swap="innerHTML">Upload</button>
+    <button class="button tiny" hx-get="/plan/move/{{ s.post.id }}" hx-target="#plan-move" hx-swap="innerHTML"
+            hx-vals='{"week": {{ week }}, "account": "{{ account }}"}'>Move</button>
+    {% if not s.post.sent_at %}
+    <button class="button tiny danger" hx-post="/plan/{{ s.post.id }}/unschedule" hx-swap="none"
+            hx-confirm="Take {{ s.post.id }} off its time?">Unschedule</button>
+    {% endif %}
+  </div>
+</article>
+{% else %}
+<div class="plan-empty">
+  <span class="when">{{ s.at.strftime("%H:%M") }}</span>
+  {% if s.past %}
+  <span class="past">past</span>
+  {% else %}
+  <button class="button tiny" hx-post="/plan/fill" hx-swap="none"
+          hx-vals='{"account": "{{ s.account.handle }}", "when": "{{ s.at.isoformat() }}"}'>+ fill</button>
+  {% endif %}
+</div>
+{% endif %}

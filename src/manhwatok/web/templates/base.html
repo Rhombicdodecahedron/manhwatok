@@ -15,6 +15,7 @@
     <a href="/posts" {% if page == "posts" %}aria-current="page"{% endif %}>Posts</a>
     <a href="/new" {% if page == "new" %}aria-current="page"{% endif %}>New post</a>
     <a href="/phones" {% if page == "phones" %}aria-current="page"{% endif %}>Phones</a>
+    <a href="/plan" {% if page == "plan" %}aria-current="page"{% endif %}>Plan</a>
     <div id="header" class="sidebar-foot">{% include "_header.html" %}</div>
   </nav>
   <main class="main">{% block content %}{% endblock %}</main>

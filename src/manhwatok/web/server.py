@@ -26,7 +26,7 @@ from manhwatok.web import events
 from manhwatok.web.jobs import EventBus, JobRunner
 from manhwatok.web.drafts import ArtLists, Drafts
 from manhwatok.web.phones import Phones
-from manhwatok.web.routes import edit, files, header, jobs as job_routes, new, posts, upload
+from manhwatok.web.routes import edit, files, header, jobs as job_routes, new, plan, posts, upload
 from manhwatok.web.routes import phones as phone_routes
 
 HERE = Path(__file__).parent
@@ -118,6 +118,7 @@ def create_app(
     app.include_router(job_routes.router)
     app.include_router(upload.router)
     app.include_router(new.router)
+    app.include_router(plan.router)
 
     @app.get("/")
     def home() -> RedirectResponse:

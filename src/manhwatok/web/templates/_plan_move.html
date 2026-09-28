@@ -1,0 +1,26 @@
+{% if post %}
+<aside class="panel plan-move" aria-label="Move a post">
+  <div class="toolbar">
+    <h3>Move post {{ post.id }}</h3>
+    <span class="muted">to an empty slot of {{ account_label }}</span>
+    <span class="spacer"></span>
+    <button class="button tiny" hx-get="/plan/move/close" hx-target="#plan-move" hx-swap="innerHTML">Close</button>
+  </div>
+  {% if slots %}
+  <div class="slots">
+    {% for at in slots %}
+    <button class="button slot" hx-post="/plan/{{ post.id }}/schedule" hx-target="#plan-move" hx-swap="innerHTML"
+            hx-vals='{"when": "{{ at.isoformat() }}"}'>{{ at.strftime("%a %d %b %H:%M") }}</button>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty">No free slot of {{ account_label }} in this week.
+    <a href="/plan?week={{ week + 1 }}&amp;account={{ account }}">Look a week later</a>.</p>
+  {% endif %}
+</aside>
+{% elif why %}
+<aside class="panel plan-move" aria-label="Move a post">
+  <p class="empty">{{ why }}</p>
+  <button class="button tiny" hx-get="/plan/move/close" hx-target="#plan-move" hx-swap="innerHTML">Close</button>
+</aside>
+{% endif %}

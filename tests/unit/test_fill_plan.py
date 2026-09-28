@@ -207,6 +207,16 @@ def test_fill_looks_only_as_far_as_days(ctx, store, made):
     assert [p.scheduled_at for p in fill(ctx, "reads", NOW, days=3)] == [THU]
 
 
+def test_fill_counts_its_days_from_after_and_skips_a_slot_that_has_gone(ctx, store, made):
+    _reads(store)
+    after = datetime(2026, 9, 21, 0, 0, tzinfo=PARIS)  # the calendar's week starts on Monday
+
+    posts = fill(ctx, "reads", NOW, after=after)
+
+    assert [p.scheduled_at for p in posts] == [THU]  # Thursday; Monday's 19:00 is behind us
+    assert all(p.scheduled_at != MON for p in ctx.tools.posts.list())
+
+
 @pytest.mark.parametrize("days", [0, 11])
 def test_fill_days_must_be_one_to_ten(ctx, store, made, days):
     _reads(store)
