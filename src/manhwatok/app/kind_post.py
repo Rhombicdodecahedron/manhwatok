@@ -8,7 +8,8 @@ from typing import Callable
 from manhwatok.app.suggest import _drop_blocked, _fill_chapters
 from manhwatok.domain.account import Account
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import Manhwa, SearchQuery
+from manhwatok.domain.models import CharacterPick, Manhwa, SearchQuery
+from manhwatok.domain.post import PostItem
 from manhwatok.domain.text import clean_names
 from manhwatok.ports.metadata import ChapterSource, MetadataSource
 from manhwatok.ports.store import HistoryRepository
@@ -50,3 +51,35 @@ def similar_candidates(
             + ("" if account is None else " that the account hasn't posted or blocked")
         )
     return _fill_chapters(found, chapters, progress)
+
+
+def character_choices(
+    items: list[PostItem], metadata: MetadataSource
+) -> dict[int, list[CharacterPick]]:
+    """Each pick's pictured characters, most favourited first: what a characters post offers."""
+    return metadata.characters([i.manhwa.anilist_id for i in items])
+
+
+def with_characters(
+    items: list[PostItem], metadata: MetadataSource, choice: dict[int, int] | None = None
+) -> list[PostItem]:
+    """Each pick with its character: `choice[id]` (an index into its choices), else its most
+    favourited. The title's pictures are refreshed so the character's index finds its image;
+    a hook left blank says who the character is."""
+    cast = character_choices(items, metadata)
+    out = []
+    for item in items:
+        picks = cast.get(item.manhwa.anilist_id) or []
+        if not picks:
+            raise ManhwatokError(f"{item.manhwa.title} has no pictured characters on AniList")
+        wanted = (choice or {}).get(item.manhwa.anilist_id, 0)
+        chosen = picks[min(max(wanted, 0), len(picks) - 1)]
+        m = item.manhwa.model_copy(
+            update={
+                "character_urls": [p.image_url for p in picks],
+                "character_url": picks[0].image_url,
+            }
+        )
+        hook = item.hook or " · ".join(x for x in (chosen.role.title(), m.title) if x)
+        out.append(item.model_copy(update={"manhwa": m, "character": chosen, "hook": hook}))
+    return out

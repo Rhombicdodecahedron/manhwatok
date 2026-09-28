@@ -397,12 +397,13 @@ class PillowRenderer:
         hero_id = post.items[0].manhwa.anilist_id if post.items else None
         # A guess post's clues look past the cover to every title's characters and scenes.
         every = post.kind is PostKind.GUESS
+        portraits = post.kind is PostKind.CHARACTERS
         loaded = {
             m_id: _Art(
                 _load(one.cover),
                 _load(one.banner) if wants_banner else None,
                 _load(one.character)
-                if post.art is ArtStyle.CHARACTER or m_id in quad_ids or every
+                if post.art is ArtStyle.CHARACTER or m_id in quad_ids or every or portraits
                 else None,
                 _load(one.custom),
                 tuple(
@@ -500,11 +501,15 @@ class PillowRenderer:
         accent = hex_to_rgb(accent_hex)
         art = loaded.get(m.anilist_id) or _Art(None, None, None, None)
         img, banner = art.cover, art.banner
-        layout = layout_item(
-            index + 1, m.title, chapter_label(m), item.hook, art=post.art, byline=_byline(post)
-        )
+        # A characters post ranks the character: its name is the headline, its title the pill,
+        # and its portrait the picture whatever the post's art style.
+        ranked = post.kind is PostKind.CHARACTERS and item.character is not None
+        name = item.character.name if ranked else m.title
+        pill = m.title if ranked else chapter_label(m)
+        style = ArtStyle.CHARACTER if ranked else post.art
+        layout = layout_item(index + 1, name, pill, item.hook, art=style, byline=_byline(post))
         area = layout.cover_area
-        if post.art is ArtStyle.SCENE:
+        if style is ArtStyle.SCENE:
             # One picture, the whole slide, square-cornered: no card, so no backdrop behind it,
             # no rounding and no shadow. Art the user picked by hand is the point of the style;
             # the cover stands in, cropped to the same shape, so a title without one still fills
@@ -512,7 +517,7 @@ class PillowRenderer:
             canvas = _full_bleed(art.custom or img, accent_hex)
             _bottom_gradient(canvas, SCENE_GRADIENT_H)
             return self._item_text(canvas, layout, accent)
-        if post.art is ArtStyle.QUAD:
+        if style is ArtStyle.QUAD:
             # Four of the title's own pictures, edge to edge: its characters, picked art and
             # scenes, topped up with the cover and repeated when it has fewer.
             pictures = list(art.gallery)
@@ -522,7 +527,7 @@ class PillowRenderer:
             _bottom_gradient(canvas, SCENE_GRADIENT_H)
             return self._item_text(canvas, layout, accent)
         canvas = _backdrop(banner, img, accent_hex).convert("RGBA")
-        if post.art is ArtStyle.PANEL:
+        if style is ArtStyle.PANEL:
             # The banner is the point of this style; the cover stands in, cropped to the same
             # shape, so a title without a banner doesn't break the post's rhythm. Art the user
             # picked by hand beats both, and is framed like a cover since it could be anything.

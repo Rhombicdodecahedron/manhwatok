@@ -140,6 +140,11 @@ def end_names(post: ListPost) -> list[str]:
     """The end slide's recap rows, per kind."""
     if post.kind is PostKind.VERSUS:
         return [f"{a.manhwa.title} vs {b.manhwa.title}" for a, b in _pairs(post.items)]
+    if post.kind is PostKind.CHARACTERS:
+        return [
+            f"{i.character.name} ({i.manhwa.title})" if i.character else i.manhwa.title
+            for i in post.items
+        ]
     return [i.manhwa.title for i in post.items]
 
 

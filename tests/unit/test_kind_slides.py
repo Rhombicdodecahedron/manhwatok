@@ -128,3 +128,33 @@ def test_a_later_titles_clue_uses_its_scene_not_its_cover(tmp_path):
     paths = PillowRenderer().render(post(items=items, kind=PostKind.GUESS), art, tmp_path / "o")
     r, g, b = _px(paths[3], (540, 300))  # the second title's clue
     assert g > r + 80
+
+
+def test_a_character_slide_shows_the_portrait_and_the_name(tmp_path, monkeypatch):
+    from manhwatok.adapters import pillow_renderer
+    from manhwatok.domain.models import CharacterPick
+
+    names = []
+    real = pillow_renderer.layout_item
+
+    def spy(rank, name, pill, *a, **k):
+        names.append((name, pill))
+        return real(rank, name, pill, *a, **k)
+
+    monkeypatch.setattr(pillow_renderer, "layout_item", spy)
+    item = PostItem(manhwa=manhwa(anilist_id=1, title="T1"), character=CharacterPick(name="Jin"))
+    portrait = cover_file(tmp_path / "ch", 1, color=(30, 210, 30), size=(230, 345))
+    cover = cover_file(tmp_path / "c", 1, color=(220, 30, 30))
+    p = post(items=[item], kind=PostKind.CHARACTERS)
+    paths = PillowRenderer().render(p, {1: SlideArt(cover, None, portrait)}, tmp_path / "o")
+    assert ("Jin", "T1") in names
+    r, g, b = _px(paths[1], (540, 700))
+    assert g > r + 80  # the portrait, not the cover
+
+
+def test_characters_end_recaps_names_with_titles():
+    from manhwatok.adapters.kind_slides import end_names
+    from manhwatok.domain.models import CharacterPick
+
+    item = PostItem(manhwa=manhwa(anilist_id=1, title="T1"), character=CharacterPick(name="Jin"))
+    assert end_names(post(items=[item], kind=PostKind.CHARACTERS)) == ["Jin (T1)"]

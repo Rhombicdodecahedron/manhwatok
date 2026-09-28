@@ -55,15 +55,18 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
     # clues look for every title's.
     every = post.art is ArtStyle.CHARACTER or post.kind is PostKind.GUESS
     wanted = post.items if every else post.items[:QUAD_PICTURES]
-    characters = _fetch_each(
-        post,
-        tools.covers.get_character,
-        tools.covers.cached_character,
-        lambda m: m.character_url,
-        "character",
-        tools,
-        wanted,
-    )
+    if post.kind is PostKind.CHARACTERS:
+        characters = _picked_characters(post, tools)
+    else:
+        characters = _fetch_each(
+            post,
+            tools.covers.get_character,
+            tools.covers.cached_character,
+            lambda m: m.character_url,
+            "character",
+            tools,
+            wanted,
+        )
     if post.art in (ArtStyle.BACKGROUND, ArtStyle.PANEL):
         banners = _fetch_each(
             post,
@@ -103,6 +106,24 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
         )
         for m_id, path in covers.items()
     }
+
+
+def _picked_characters(post: ListPost, tools: PostTools) -> dict[int, Path | None]:
+    """A characters post's portraits: each pick's own character, by its place in the title's
+    pictures. After the first failed download, only what's already cached."""
+    found: dict[int, Path | None] = {}
+    failed = False
+    for item in post.items:
+        m, index = item.manhwa, item.character.index if item.character else 0
+        path = tools.covers.cached_character(m, index)
+        if path is None and not failed and index < len(m.characters):
+            try:
+                path = tools.covers.get_character(m, index)
+            except MetadataError as e:
+                failed = True
+                tools.progress(f"{e} — using the portraits already downloaded")
+        found[m.anilist_id] = path
+    return found
 
 
 def _chapter_art(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:

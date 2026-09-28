@@ -613,3 +613,23 @@ def test_a_guess_post_fetches_every_titles_character_and_scenes(tmp_path):
     _, passed = tools.renderer.calls[0]
     assert covers.character_calls == [1, 2, 3, 4, 5, 6]
     assert passed[6].gallery == (folder / "s6.jpg",)
+
+
+def test_a_characters_post_fetches_each_picks_own_character(tmp_path):
+    from manhwatok.domain.models import CharacterPick, PostKind
+
+    m = manhwa(anilist_id=1, character_urls=["https://x/a.png", "https://x/b.png"])
+    item = PostItem(manhwa=m, character=CharacterPick(name="B", index=1))
+    covers = FakeCovers({1: tmp_path / "1.jpg"}, characters={1: tmp_path / "1-char.png"})
+    seen = []
+    real = covers.get_character
+
+    def spy(manhwa, index=0):
+        seen.append(index)
+        return real(manhwa, index)
+
+    covers.get_character = spy
+    tools = make_tools(tmp_path, covers=covers)
+    tools.posts.save(post(items=[item], kind=PostKind.CHARACTERS))
+    render_post("20260914-a3f9", tools)
+    assert seen == [1]

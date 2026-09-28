@@ -23,3 +23,11 @@ def test_a_guess_post_keeps_its_answers_below_the_fold():
     text = upload_description(post(items=items, kind=PostKind.GUESS))
     assert text.startswith("Guess all 2 before you swipe!")
     assert "Answers:\n1. T1\n2. T2" in text
+
+
+def test_a_characters_post_names_who_and_from_where():
+    from manhwatok.domain.models import CharacterPick
+    from manhwatok.domain.post import PostItem
+
+    item = PostItem(manhwa=manhwa(anilist_id=1, title="T1"), character=CharacterPick(name="Jin"))
+    assert upload_description(post(items=[item], kind=PostKind.CHARACTERS)).startswith("1. Jin (T1)")

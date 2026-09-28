@@ -26,6 +26,13 @@ def upload_description(post: ListPost) -> str:
         if part.parts > 1:
             which += f" · part {part.part}/{part.parts}"
         return f"{which}\n\n{post.hashtags}".strip()
+    if post.kind is PostKind.CHARACTERS:
+        rows = "\n".join(
+            f"{i}. {it.character.name} ({it.manhwa.title})" if it.character
+            else f"{i}. {it.manhwa.title}"
+            for i, it in enumerate(post.items, 1)
+        )
+        return f"{rows}\n\n{post.hashtags}".strip()
     if post.kind is PostKind.GUESS:
         answers = "\n".join(f"{i}. {it.manhwa.title}" for i, it in enumerate(post.items, 1))
         lead = f"Guess all {len(post.items)} before you swipe!"
