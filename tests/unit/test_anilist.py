@@ -304,3 +304,36 @@ def test_find_without_words_asks_nothing():
         raise AssertionError("no request expected")
 
     assert _source(handler).find("  ") == []
+
+
+def _canned(body):
+    return _source(lambda request: httpx.Response(200, json=body))
+
+
+def test_recommendations_are_the_seeds_rated_titles_korean_first():
+    jp = {**DOOM_BREAKER, "id": 4, "title": {"english": "JP", "romaji": "JP"}, "isAdult": False, "countryOfOrigin": "JP"}
+    kr = {**DOOM_BREAKER, "id": 2, "title": {"english": "KR", "romaji": "KR"}, "isAdult": False, "countryOfOrigin": "KR"}
+    adult = {**kr, "id": 3, "isAdult": True}
+    seed_again = {**kr, "id": 1}
+    nodes = [{"mediaRecommendation": m} for m in (jp, kr, adult, seed_again)] + [{"mediaRecommendation": None}]
+    source = _canned({"data": {"Media": {"recommendations": {"nodes": nodes}}}})
+    assert [m.title for m in source.recommendations(1)] == ["KR", "JP"]
+
+
+def test_characters_follow_the_picture_order():
+    edges = [
+        {"role": "MAIN", "node": {"name": {"full": "Jin"}, "favourites": 90, "image": {"large": "https://x/jin.png"}}},
+        {"role": "MAIN", "node": {"name": {"full": "Nobody"}, "favourites": 80, "image": {"large": "https://x/default.jpg"}}},
+        {"role": "SUPPORTING", "node": {"name": {"full": "Hae"}, "favourites": 70, "image": {"large": "https://x/hae.png"}}},
+    ]
+    source = _canned({"data": {"Page": {"media": [{"id": 7, "characters": {"edges": edges}}]}}})
+    picks = source.characters([7])[7]
+    assert [(p.name, p.role, p.index, p.image_url) for p in picks] == [
+        ("Jin", "MAIN", 0, "https://x/jin.png"),
+        ("Hae", "SUPPORTING", 1, "https://x/hae.png"),
+    ]
+
+
+def test_no_ids_no_character_lookup():
+    source = _source(lambda request: pytest.fail("asked AniList"))
+    assert source.characters([]) == {}

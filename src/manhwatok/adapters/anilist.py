@@ -8,7 +8,15 @@ import re
 import httpx
 
 from manhwatok.domain.errors import MetadataError
-from manhwatok.domain.models import QUAD_PICTURES, Manhwa, SearchQuery, Sort, Status, TagInfo
+from manhwatok.domain.models import (
+    QUAD_PICTURES,
+    CharacterPick,
+    Manhwa,
+    SearchQuery,
+    Sort,
+    Status,
+    TagInfo,
+)
 from manhwatok.ports.metadata import TitleExtras
 
 ANILIST_URL = "https://graphql.anilist.co"
@@ -74,6 +82,51 @@ query ($ids: [Int]) {
       id
       characters(sort: FAVOURITES_DESC, perPage: 8) { nodes { image { large } } }
       synonyms
+    }
+  }
+}
+"""
+
+_RECOMMEND = """
+query ($id: Int, $perPage: Int) {
+  Media(id: $id, type: MANGA) {
+    recommendations(sort: [RATING_DESC], perPage: $perPage) {
+      nodes {
+        mediaRecommendation {
+          id
+          isAdult
+          countryOfOrigin
+          title { english romaji }
+          status
+          chapters
+          startDate { year }
+          genres
+          tags { name rank isMediaSpoiler }
+          averageScore
+          popularity
+          coverImage { extraLarge color }
+          bannerImage
+          characters(sort: FAVOURITES_DESC, perPage: 8) { nodes { image { large } } }
+          synonyms
+          description(asHtml: false)
+          siteUrl
+        }
+      }
+    }
+  }
+}
+"""
+
+# The same characters, in the same order, as the media queries' pictures: a pick's place in
+# this list is its place in Manhwa.characters.
+_CHARACTERS = """
+query ($ids: [Int]) {
+  Page(page: 1, perPage: 50) {
+    media(id_in: $ids, type: MANGA) {
+      id
+      characters(sort: FAVOURITES_DESC, perPage: 8) {
+        edges { role node { name { full } favourites image { large } } }
+      }
     }
   }
 }
@@ -156,6 +209,41 @@ class AniListSource:
             m["id"]: TitleExtras(_character_images(m), [s for s in m.get("synonyms") or [] if s])
             for m in data["Page"]["media"]
         }
+
+    def recommendations(self, anilist_id: int, limit: int = 25) -> list[Manhwa]:
+        """What AniList's readers recommend to someone who liked the title, best rated first.
+        Korean titles first, as everything else manhwatok suggests; adult ones never."""
+        data = self._post(_RECOMMEND, {"id": anilist_id, "perPage": limit})
+        nodes = ((data.get("Media") or {}).get("recommendations") or {}).get("nodes") or []
+        found = [n["mediaRecommendation"] for n in nodes if n and n.get("mediaRecommendation")]
+        found = [m for m in found if not m.get("isAdult") and m["id"] != anilist_id]
+        found.sort(key=lambda m: m.get("countryOfOrigin") != "KR")  # stable: rating order kept
+        return [_to_manhwa(m) for m in found]
+
+    def characters(self, ids: list[int]) -> dict[int, list[CharacterPick]]:
+        """Each title's pictured characters with their names, in `Manhwa.characters` order."""
+        if not ids:
+            return {}
+        data = self._post(_CHARACTERS, {"ids": list(ids)})
+        found: dict[int, list[CharacterPick]] = {}
+        for m in data["Page"]["media"]:
+            picks: list[CharacterPick] = []
+            for edge in (m.get("characters") or {}).get("edges") or []:
+                node = (edge or {}).get("node") or {}
+                url = (node.get("image") or {}).get("large") or ""
+                if not url or "default" in url:
+                    continue  # unpictured: not in Manhwa.characters either
+                picks.append(
+                    CharacterPick(
+                        name=(node.get("name") or {}).get("full") or "?",
+                        role=edge.get("role") or "",
+                        favourites=node.get("favourites") or 0,
+                        index=len(picks),
+                        image_url=url,
+                    )
+                )
+            found[m["id"]] = picks[:QUAD_PICTURES]
+        return found
 
     def list_tags(self) -> list[TagInfo]:
         data = self._post(_TAGS, {})

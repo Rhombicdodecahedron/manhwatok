@@ -32,6 +32,9 @@ class FakeMetadata:
         self.synonyms: dict[int, list[str]] = {}
         self.extra_lookups: list[list[int]] = []
         self.extra_error: Exception | None = None
+        # What recommendations() and characters() answer, by id.
+        self.recommended: dict[int, list[Manhwa]] = {}
+        self.cast: dict = {}
 
     def search(self, query: SearchQuery) -> list[Manhwa]:
         self.queries.append(query)
@@ -51,6 +54,12 @@ class FakeMetadata:
             i: TitleExtras(list(self.character_urls.get(i, [])), list(self.synonyms.get(i, [])))
             for i in ids
         }
+
+    def recommendations(self, anilist_id: int, limit: int = 25) -> list[Manhwa]:
+        return list(self.recommended.get(anilist_id, []))[:limit]
+
+    def characters(self, ids: list[int]) -> dict:
+        return {i: list(self.cast.get(i, [])) for i in ids}
 
     def list_tags(self) -> list[TagInfo]:
         return list(self.tags)
