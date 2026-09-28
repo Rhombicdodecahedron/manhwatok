@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from manhwatok.domain.errors import DraftError
-from manhwatok.domain.models import Manhwa
-from manhwatok.domain.post import MAX_ITEMS, PostItem
+from manhwatok.domain.models import Manhwa, PostKind
+from manhwatok.domain.post import MAX_GUESS, MAX_ITEMS, PostItem
 from manhwatok.domain.text import first_sentence
 
 HELP = (
@@ -75,14 +75,26 @@ def parse_draft(text: str, candidates: list[Manhwa]) -> tuple[str, list[PostItem
     return title, items
 
 
-def check_picks(title: str, items: list[PostItem]) -> None:
-    """The rules a post's picks follow when they come from a form instead of a draft file."""
+def check_picks(title: str, items: list[PostItem], kind: PostKind = PostKind.LIST) -> None:
+    """The rules a post's picks follow when they come from a form instead of a draft file,
+    and the ones its kind adds."""
     if not title.strip():
         raise DraftError("give the post a title")
     if not items:
         raise DraftError("pick at least one title")
-    if len(items) > MAX_ITEMS:
-        raise DraftError(f"{len(items)} titles — a TikTok post fits at most {MAX_ITEMS}")
+    most = {PostKind.VERSUS: 2 * MAX_ITEMS, PostKind.GUESS: MAX_GUESS}.get(kind, MAX_ITEMS)
+    if len(items) > most:
+        if kind in (PostKind.VERSUS, PostKind.GUESS):
+            raise DraftError(f"{len(items)} titles — a {kind.value} post fits at most {most}")
+        raise DraftError(f"{len(items)} titles — a TikTok post fits at most {most}")
+    if kind is PostKind.VERSUS and len(items) % 2:
+        raise DraftError(
+            f"{len(items)} titles — a versus post takes them in pairs; add or drop one"
+        )
+    if kind is PostKind.CHARACTERS:
+        bare = [i.manhwa.title for i in items if i.character is None]
+        if bare:
+            raise DraftError(f"pick a character for {', '.join(bare)}")
     ids = [item.manhwa.anilist_id for item in items]
     if len(set(ids)) != len(ids):
         raise DraftError("a title is picked twice")

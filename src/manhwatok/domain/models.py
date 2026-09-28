@@ -53,6 +53,17 @@ class ChapterCoverStyle(StrEnum):
     PAGE = "page"  # the best panel as a tilted framed page over the title's cover
 
 
+class PostKind(StrEnum):
+    """What a post's slides are about. A list post ranks titles; the others reshape that."""
+
+    LIST = "list"  # a recommendation list: one slide per title
+    CHAPTER = "chapter"  # part of a chapter: one slide per panel
+    SIMILAR = "similar"  # "if you liked X": X's AniList recommendations as a list
+    VERSUS = "versus"  # titles in pairs, one slide per pair, viewers vote
+    GUESS = "guess"  # per title a clue slide, then its reveal
+    CHARACTERS = "characters"  # a ranking of characters, one per title
+
+
 class ArtSourceName(StrEnum):
     """Where a title's alternative art is looked for."""
 
@@ -92,6 +103,17 @@ class ArtOrder(StrEnum):
     SIZE = "size"  # biggest picture first
     PORTRAIT = "portrait"  # closest to a slide's 9:16 first
     POPULAR = "popular"  # most liked first, where the source counts likes (Pinterest)
+
+
+class CharacterPick(BaseModel):
+    """One of a title's characters, as a characters post ranks it. `index` is its place in
+    the title's `characters` (pictured, most favourited first), where its picture is fetched."""
+
+    name: str
+    role: str = ""  # AniList's MAIN / SUPPORTING / BACKGROUND
+    favourites: int = 0
+    index: int = 0
+    image_url: str = ""
 
 
 class Manhwa(BaseModel):

@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
-from pydantic import AwareDatetime, BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
 from manhwatok.domain.chapter import SLIDES_PER_POST, ChapterPart
-from manhwatok.domain.models import ArtStyle, ChapterCoverStyle, CoverStyle, Manhwa, Visibility
+from manhwatok.domain.models import (
+    ArtStyle,
+    CharacterPick,
+    ChapterCoverStyle,
+    CoverStyle,
+    Manhwa,
+    PostKind,
+    Visibility,
+)
 
 DEFAULT_ACCENT = "#43c9e4"
 DEFAULT_HASHTAGS = "#manhwa #manhwarecommendation #webtoon #manhwatiktok"
@@ -23,6 +31,8 @@ class PostItem(BaseModel):
     # Extra pictures for the quad style, where the title's characters leave gaps: files in the
     # post's folder, in the order they fill the grid.
     scenes: list[str] = Field(default_factory=list)
+    # A characters post's pick: which of the title's characters this slide ranks.
+    character: CharacterPick | None = None
 
 
 class ListPost(BaseModel):
@@ -60,11 +70,26 @@ class ListPost(BaseModel):
     # A chapter post: its slides are this part of a chapter, drawn from `chapter.panels`
     # instead of from picks. None on every recommendation-list post.
     chapter: ChapterPart | None = None
+    kind: PostKind = PostKind.LIST
+    seed: Manhwa | None = None  # a similar post's "if you liked" title; never one of its items
+
+    @model_validator(mode="after")
+    def _chapter_kind(self) -> "ListPost":
+        # Chapter posts saved before `kind` existed say so only by carrying a chapter.
+        if self.chapter is not None and self.kind is not PostKind.CHAPTER:
+            object.__setattr__(self, "kind", PostKind.CHAPTER)
+        return self
 
     @property
     def slide_count(self) -> int:
-        drawn = len(self.chapter.panels) if self.chapter else len(self.items)
-        return drawn + 2
+        if self.chapter:
+            return len(self.chapter.panels) + 2
+        n = len(self.items)
+        if self.kind is PostKind.VERSUS:
+            return (n + 1) // 2 + 2
+        if self.kind is PostKind.GUESS:
+            return 2 * n + 2
+        return n + 2
 
     @property
     def is_unfinished(self) -> bool:
@@ -91,3 +116,21 @@ class ListPost(BaseModel):
         if self.chapter:
             return self.model_copy(update={"chapter_cover": ChapterCoverStyle(style)})
         return self.model_copy(update={"cover": CoverStyle(style)})
+
+
+MAX_GUESS = (SLIDES_PER_POST - 1) // 2  # two slides a title, within a post's slides
+
+
+def cover_kicker(post: ListPost) -> str:
+    """The pill on a non-chapter cover: what the post holds."""
+    n = len(post.items)
+    if post.kind is PostKind.SIMILAR:
+        return "IF YOU LIKED"
+    if post.kind is PostKind.VERSUS:
+        rounds = (n + 1) // 2
+        return "1 ROUND" if rounds == 1 else f"{rounds} ROUNDS"
+    if post.kind is PostKind.GUESS:
+        return f"GUESS {n}"
+    if post.kind is PostKind.CHARACTERS:
+        return f"TOP {n}"
+    return f"{n} PICK" if n == 1 else f"{n} PICKS"
