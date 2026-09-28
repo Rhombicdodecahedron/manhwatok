@@ -522,6 +522,45 @@ def layout_magazine(
     return MagazineLayout(placed, rule, kicker, art, byline_of(byline))
 
 
+# --- versus slide --------------------------------------------------------------------------
+
+HALF = SLIDE_H // 2
+VS_SIZE = 200
+
+
+@dataclass(frozen=True)
+class VersusLayout:
+    a_name: Placed
+    a_pill: Pill
+    b_name: Placed
+    b_pill: Pill
+    badge: Box  # the round "VS" on the line between the halves
+    byline: Placed | None = None
+
+    def text_boxes(self) -> list[Box]:
+        return [self.a_name.box, self.a_pill.box, self.b_name.box, self.b_pill.box]
+
+
+def layout_versus(
+    name_a: str, pill_a: str, name_b: str, pill_b: str, byline: str = ""
+) -> VersusLayout:
+    """Each title's name and pill at the foot of its own half: the top one's above the badge,
+    the bottom one's above the byline."""
+    x = SAFE.x
+    placed = []
+    for name, label, bottom in (
+        (name_a, pill_a, HALF - VS_SIZE // 2 - 40),
+        (name_b, pill_b, SAFE.bottom),
+    ):
+        name_t = fit_words(plain_words(name.upper() or "?"), display, ITEM_TEXT_W, 2, 62, 42, 1.08)
+        pill = make_pill(label.upper(), bold, 32, ITEM_TEXT_W, x)
+        tops = stack_up([name_t.height, pill.box.h], bottom)
+        placed.append((Placed(name_t, x, tops[0], ITEM_TEXT_W), _at(pill, tops[1])))
+    badge = Box((SLIDE_W - VS_SIZE) // 2, HALF - VS_SIZE // 2, VS_SIZE, VS_SIZE)
+    (a_name, a_pill), (b_name, b_pill) = placed
+    return VersusLayout(a_name, a_pill, b_name, b_pill, badge, byline_of(byline))
+
+
 # --- end slide ----------------------------------------------------------------------------
 
 END_TITLE_TOP, FOLLOW_BOTTOM = 480, 1560

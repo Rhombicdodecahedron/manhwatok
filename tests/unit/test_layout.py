@@ -478,3 +478,12 @@ def test_chapter_end_centres_its_three_blocks():
 
     layout = layout_chapter_end("The Boxer", "Chapter *13* done", "Follow for chapter 14")
     assert [p.align for p in (layout.name, layout.title, layout.follow)] == ["center"] * 3
+
+
+def test_versus_text_sits_at_the_foot_of_each_half():
+    from manhwatok.adapters.layout import layout_versus
+
+    v = layout_versus(LONG_NAME, "ongoing", LONG_NAME, "finished", BY)
+    assert all(SAFE.contains(b) for b in v.text_boxes())
+    assert v.a_pill.box.bottom <= v.badge.y - 20
+    assert v.b_name.box.y >= v.badge.bottom + 20

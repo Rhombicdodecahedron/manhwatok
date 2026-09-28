@@ -27,6 +27,13 @@ from manhwatok.domain.text import first_sentence
 from manhwatok.ports.posts import PostRepository
 
 
+KIND_CTA = {
+    PostKind.VERSUS: "Which one *wins?*",
+    PostKind.GUESS: "How many did you *get?*",
+    PostKind.CHARACTERS: "Who's *your #1?*",
+}
+
+
 def create_post(
     post_id: str,
     now: datetime,
@@ -53,6 +60,10 @@ def create_post(
         accent = account.accent if account else DEFAULT_ACCENT
     if art is None:
         art = account.art if account else ArtStyle.NONE
+    cta_title = account.cta_title if account else DEFAULT_CTA_TITLE
+    if cta_title == DEFAULT_CTA_TITLE:
+        # "Which one have you read?" asks about a list; the other kinds ask their own question.
+        cta_title = KIND_CTA.get(kind, cta_title)
     return ListPost(
         id=post_id,
         created_at=now,
@@ -64,7 +75,7 @@ def create_post(
         emojis=emojis.strip(),
         accent=check_accent(accent),
         account=account.handle if account else None,
-        cta_title=account.cta_title if account else DEFAULT_CTA_TITLE,
+        cta_title=cta_title,
         cta_follow=account.cta_follow if account else DEFAULT_CTA_FOLLOW,
         byline=account.byline if account else "",
         art=art,

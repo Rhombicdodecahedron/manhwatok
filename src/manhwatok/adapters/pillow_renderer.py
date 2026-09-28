@@ -250,6 +250,11 @@ def _save(slide: Image.Image, path: Path) -> None:
 
 def _bottom_gradient(canvas: Image.Image, height: int = GRADIENT_H) -> None:
     """Darken the lowest `height` px: transparent → 88% black at 55% → black."""
+    _gradient_at(canvas, SLIDE_H - height, height)
+
+
+def _gradient_at(canvas: Image.Image, top: int, height: int) -> None:
+    """`_bottom_gradient`'s curve over rows top … top+height of `canvas`."""
     alpha = []
     for y in range(height):
         t = y / (height - 1)
@@ -257,8 +262,8 @@ def _bottom_gradient(canvas: Image.Image, height: int = GRADIENT_H) -> None:
         alpha.append(round(255 * a))
     mask = Image.new("L", (1, height))
     mask.putdata(alpha)
-    mask = mask.resize((SLIDE_W, height))
-    canvas.paste((0, 0, 0), (0, SLIDE_H - height, SLIDE_W, SLIDE_H), mask)
+    mask = mask.resize((canvas.width, height))
+    canvas.paste((0, 0, 0), (0, top, canvas.width, top + height), mask)
 
 
 def _rounded(img: Image.Image, radius: int) -> Image.Image:
@@ -411,8 +416,10 @@ class PillowRenderer:
         covers = {m_id: one.cover for m_id, one in loaded.items()}
         versions = {style: self.cover_slide(post, loaded, style) for style in CoverStyle}
         slides = [versions[post.cover]]  # CoverStyle keys
-        slides += [self.item_slide(post, i, loaded) for i in range(len(post.items))]
-        slides.append(self.end_slide(post, covers))
+        from manhwatok.adapters.kind_slides import end_names, middle_slides
+
+        slides += middle_slides(post, loaded, self._picker, self.item_slide)
+        slides.append(self.end_slide(post, covers, end_names(post)))
         paths = []
         for n, slide in enumerate(slides, 1):
             path = out_dir / f"{n:02d}.png"
@@ -657,7 +664,14 @@ class PillowRenderer:
         _draw_byline(canvas, layout.byline)
         return canvas
 
-    def end_slide(self, post: ListPost, images: dict[int, Image.Image | None]) -> Image.Image:
+    def end_slide(
+        self,
+        post: ListPost,
+        images: dict[int, Image.Image | None],
+        names: list[str] | None = None,
+    ) -> Image.Image:
+        """`names` are the recap's rows (default: the picks' titles); a row's number takes its
+        pick's colour only while rows and picks match one to one."""
         accent = hex_to_rgb(readable_accent(post.accent))
         tiles = [images.get(it.manhwa.anilist_id) for it in post.items[:4]]
         tiles = [t for t in tiles if t is not None]
@@ -671,8 +685,10 @@ class PillowRenderer:
             canvas = _blurred(grid, SIZE, 30, 0.30).convert("RGBA")
         else:
             canvas = _accent_gradient(SIZE, readable_accent(post.accent)).convert("RGBA")
+        names = names or [it.manhwa.title for it in post.items]
+        per_pick = len(names) == len(post.items)
         layout = layout_end(
-            [it.manhwa.title for it in post.items],
+            names,
             post.cta_title,
             post.cta_follow,
             _byline(post),
@@ -681,8 +697,8 @@ class PillowRenderer:
         _draw_text(draw, layout.title, WHITE, accent)
         for i, row in enumerate(layout.rows):
             if row.number:
-                item = post.items[i].manhwa
-                num_color = hex_to_rgb(readable_accent(item.cover_color, post.accent))
+                tint = post.items[i].manhwa.cover_color if per_pick else None
+                num_color = hex_to_rgb(readable_accent(tint, post.accent))
                 _draw_text(draw, row.number, num_color, num_color)
             _draw_text(draw, row.name, WHITE, accent)
         _draw_text(draw, layout.follow, WHITE, accent)

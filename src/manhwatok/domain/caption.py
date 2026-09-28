@@ -26,6 +26,13 @@ def upload_description(post: ListPost) -> str:
         if part.parts > 1:
             which += f" · part {part.part}/{part.parts}"
         return f"{which}\n\n{post.hashtags}".strip()
+    if post.kind is PostKind.VERSUS:
+        its = post.items
+        rounds = "\n".join(
+            f"{n}. {its[i].manhwa.title} vs {its[i + 1].manhwa.title}"
+            for n, i in enumerate(range(0, len(its) - 1, 2), 1)
+        )
+        return f"{rounds}\n\n{post.hashtags}".strip()
     picks = "\n".join(f"{i}. {item.manhwa.title}" for i, item in enumerate(post.items, 1))
     if post.kind is PostKind.SIMILAR and post.seed is not None:
         return f"If you liked {post.seed.title}, read:\n{picks}\n\n{post.hashtags}".strip()
