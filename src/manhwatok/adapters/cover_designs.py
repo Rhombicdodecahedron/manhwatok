@@ -42,6 +42,7 @@ from manhwatok.adapters.pillow_renderer import (
     _draw_text,
     _focused,
     _full_bleed,
+    _lead,
     _paste_with_shadow,
     _rounded,
 )
@@ -87,7 +88,7 @@ def _framed(img: Image.Image, border: int, angle: float) -> Image.Image:
 def number_art(post: ListPost, loaded: dict[int, _Art], picker: PicturePicker | None) -> Image.Image:
     """The first pick's best piece, dimmed, under the post's count drawn giant."""
     accent_hex = readable_accent(post.accent)
-    piece = _best_piece(_art_of(post, loaded, 0), picker)
+    piece = _best_piece(_lead(post, loaded)[1], picker)
     canvas = _focused(*piece, accent_hex) if piece else _full_bleed(None, accent_hex)
     canvas = ImageEnhance.Brightness(canvas.convert("RGB")).enhance(NUMBER_DIM).convert("RGBA")
     _bottom_gradient(canvas, COVER_GRADIENT_H)
@@ -173,7 +174,7 @@ def magazine_slide(
     glow.putalpha(70)
     canvas.alpha_composite(glow)
     layout = layout_magazine(post.title, len(post.items), _byline(post), kicker=cover_kicker(post))
-    piece = _best_piece(_art_of(post, loaded, 0), picker)
+    piece = _best_piece(_lead(post, loaded)[1], picker)
     area = layout.art
     if piece:
         # The box is the design: the piece fills it, cut round where a face would sit.

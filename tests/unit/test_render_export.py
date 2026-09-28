@@ -633,3 +633,15 @@ def test_a_characters_post_fetches_each_picks_own_character(tmp_path):
     tools.posts.save(post(items=[item], kind=PostKind.CHARACTERS))
     render_post("20260914-a3f9", tools)
     assert seen == [1]
+
+
+def test_an_if_you_liked_post_fetches_its_seeds_cover(tmp_path):
+    from manhwatok.domain.models import PostKind
+
+    seed = manhwa(anilist_id=99, title="Seed")
+    covers = FakeCovers({1: tmp_path / "1.jpg", 99: tmp_path / "99.jpg"})
+    tools = make_tools(tmp_path, covers=covers)
+    tools.posts.save(post(items=[PostItem(manhwa=manhwa(anilist_id=1))], kind=PostKind.SIMILAR, seed=seed))
+    render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert passed[99].cover == tmp_path / "99.jpg"

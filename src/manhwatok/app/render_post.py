@@ -96,7 +96,7 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
         galleries = {first.manhwa.anilist_id: tuple(scenes)} if scenes else {}
     else:
         galleries = {}  # a chapter post: its slides are its panels
-    return {
+    found = {
         m_id: SlideArt(
             path,
             banners.get(m_id),
@@ -106,6 +106,14 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
         )
         for m_id, path in covers.items()
     }
+    if post.kind is PostKind.SIMILAR and post.seed is not None and post.seed.cover_url:
+        # An if-you-liked cover leads with the title it starts from.
+        seed = post.seed
+        try:
+            found[seed.anilist_id] = SlideArt(tools.covers.cached(seed) or tools.covers.get(seed), None)
+        except MetadataError as e:
+            tools.progress(f"{e} — the cover leads with the first pick instead")
+    return found
 
 
 def _picked_characters(post: ListPost, tools: PostTools) -> dict[int, Path | None]:

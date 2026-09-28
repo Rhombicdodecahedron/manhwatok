@@ -199,3 +199,28 @@ def test_a_clue_cut_from_the_cover_keeps_clear_of_its_lettering():
     cover = Image.new("RGB", (460, 650), (30, 30, 220))
     _, (left, top, right, bottom) = clue_piece(_Art(cover, None, None, None), None)
     assert top >= 650 * 0.25 and bottom <= 650 * 0.75
+
+
+def test_an_if_you_liked_cover_leads_with_the_seeds_art(tmp_path):
+    """Review finding 7: the spec's seed-led hero, number and magazine covers."""
+    seed = manhwa(anilist_id=99, title="Seed")
+    items = [PostItem(manhwa=manhwa(anilist_id=1, title="T1"))]
+    art = {
+        1: SlideArt(cover_file(tmp_path / "c", 1, color=(220, 30, 30)), None),
+        99: SlideArt(cover_file(tmp_path / "c", 99, color=(30, 30, 220)), None),
+    }
+    paths = PillowRenderer().render(post(items=items, kind=PostKind.SIMILAR, seed=seed), art, tmp_path / "o")
+    r, g, b = _px(tmp_path / "o" / "cover-hero.png", (60, 300))
+    assert b > r + 80
+    assert len(paths) == 3  # the seed is no slide of its own
+
+
+def test_a_character_slide_keeps_its_portrait_over_picked_art(tmp_path):
+    from manhwatok.domain.models import CharacterPick
+
+    item = PostItem(manhwa=manhwa(anilist_id=1, title="T1"), character=CharacterPick(name="Jin"))
+    portrait = cover_file(tmp_path / "ch", 1, color=(30, 210, 30), size=(230, 345))
+    picked = cover_file(tmp_path / "p", 1, color=(30, 30, 220), size=(600, 900))
+    paths = PillowRenderer().render(post(items=[item], kind=PostKind.CHARACTERS), {1: SlideArt(None, None, portrait, picked)}, tmp_path / "o")
+    r, g, b = _px(paths[1], (540, 700))
+    assert g > b + 80  # the named character, not fan art

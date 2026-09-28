@@ -31,7 +31,14 @@ from manhwatok.domain.errors import StorageError
 from manhwatok.domain.labels import chapter_label
 from manhwatok.ports.picker import PicturePicker
 from manhwatok.ports.posts import SlideArt
-from manhwatok.domain.models import QUAD_PICTURES, ArtStyle, ChapterCoverStyle, CoverStyle, PostKind
+from manhwatok.domain.models import (
+    QUAD_PICTURES,
+    ArtStyle,
+    ChapterCoverStyle,
+    CoverStyle,
+    Manhwa,
+    PostKind,
+)
 from manhwatok.domain.post import ListPost, cover_kicker
 
 WHITE = (255, 255, 255)
@@ -178,6 +185,15 @@ def _best_piece(art: _Art, picker: PicturePicker | None) -> Piece | None:
         if found:
             return candidates[found[0].index], found[0].box
     return _whole(art.cover) if art.cover is not None else None
+
+
+def _lead(post: ListPost, loaded: dict[int, _Art]) -> tuple[Manhwa, _Art]:
+    """The title a cover leads with: an if-you-liked post's seed when its art is at hand, else
+    the first pick."""
+    if post.kind is PostKind.SIMILAR and post.seed is not None and post.seed.anilist_id in loaded:
+        return post.seed, loaded[post.seed.anilist_id]
+    m = post.items[0].manhwa
+    return m, loaded.get(m.anilist_id) or _Art(None, None, None, None)
 
 
 def _crop_to(piece: Piece, size: tuple[int, int], rise: float = 0.35) -> Image.Image:
@@ -546,7 +562,9 @@ class PillowRenderer:
             # Portraits are loaded for other uses too (the quad cover, a guess post's clues), so
             # the style decides, not whether one is at hand.
             portrait = art.character if style is ArtStyle.CHARACTER else None
-            src = art.custom or portrait or img or _accent_gradient((460, 650), accent_hex)
+            # A ranked character is the slide: its portrait beats any art picked for the title.
+            first, second = (portrait, art.custom) if ranked else (art.custom, portrait)
+            src = first or second or img or _accent_gradient((460, 650), accent_hex)
             box = fit_inside(src.width, src.height, area)
             card = _rounded(src.resize((box.w, box.h), Image.Resampling.LANCZOS), 24)
         _paste_with_shadow(canvas, card, box.x, box.y)
@@ -640,10 +658,10 @@ class PillowRenderer:
     def _hero_art(
         post: ListPost, loaded: dict[int, _Art], picker: PicturePicker | None = None
     ) -> Image.Image:
-        """The first title's best piece (`_best_piece`) filling the whole slide."""
-        m = post.items[0].manhwa
+        """The lead title's best piece (`_best_piece`) filling the whole slide."""
+        m, art = _lead(post, loaded)
         accent = readable_accent(m.cover_color, post.accent)
-        piece = _best_piece(loaded.get(m.anilist_id) or _Art(None, None, None, None), picker)
+        piece = _best_piece(art, picker)
         canvas = _focused(*piece, accent) if piece else _full_bleed(None, accent)
         _bottom_gradient(canvas, COVER_GRADIENT_H)
         return canvas
