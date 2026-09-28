@@ -122,7 +122,8 @@ def test_character_image_is_kept_beside_the_cover_and_banner(tmp_path):
     first = cache.get_character(m)
     assert first == tmp_path / "covers" / "136220-char.png"
     assert cache.get_character(m) == first and len(cdn.requests) == 1
-    assert {p.name for p in (tmp_path / "covers").iterdir()} == {"136220-char.png"}
+    kept = {p.name for p in (tmp_path / "covers").iterdir() if p.suffix != ".src"}
+    assert kept == {"136220-char.png"}
 
 
 def test_cached_character_never_downloads(tmp_path):
@@ -164,3 +165,36 @@ def test_a_character_past_the_last_one_is_missing(tmp_path):
 def test_an_old_title_with_one_character_still_has_it(tmp_path):
     m = manhwa(anilist_id=5, character_url=CHARACTER)  # saved before character_urls existed
     assert _cache(tmp_path, Cdn()).get_character(m, 0).name == "5-char.png"
+
+
+def test_a_portrait_whose_character_moved_is_fetched_again(tmp_path):
+    """Portraits are filed by place (-char2…); when AniList's order shifts, the file at that
+    place is another character's, so its source is checked (review finding 6)."""
+    cdn = Cdn()
+    cache = _cache(tmp_path, cdn)
+    first = [CHARACTER, CHARACTER.replace("abc", "def")]
+    moved = [CHARACTER, CHARACTER.replace("abc", "xyz")]
+    cache.get_character(manhwa(anilist_id=7, character_urls=first), 1)
+    m = manhwa(anilist_id=7, character_urls=moved)
+    assert cache.cached_character(m, 1) is None
+    cache.get_character(m, 1)
+    assert len(cdn.requests) == 2
+    assert cache.cached_character(m, 1) is not None
+
+
+def test_a_portrait_kept_before_sources_were_recorded_is_fetched_again(tmp_path):
+    cdn = Cdn()
+    cache = _cache(tmp_path, cdn)
+    (tmp_path / "covers").mkdir()
+    (tmp_path / "covers" / "7-char2.png").write_bytes(b"old")
+    m = manhwa(anilist_id=7, character_urls=[CHARACTER, CHARACTER.replace("abc", "def")])
+    assert cache.cached_character(m, 1) is None
+    assert cache.get_character(m, 1).read_bytes() == b"\x89PNG fake"
+
+
+def test_a_cover_kept_before_sources_were_recorded_still_counts(tmp_path):
+    cdn = Cdn()
+    (tmp_path / "covers").mkdir()
+    (tmp_path / "covers" / "136220.png").write_bytes(b"old")
+    m = manhwa(anilist_id=136220, cover_url=URL)
+    assert _cache(tmp_path, cdn).get(m).read_bytes() == b"old" and cdn.requests == []

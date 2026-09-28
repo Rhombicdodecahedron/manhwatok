@@ -32,20 +32,33 @@ class CoverCache:
         return self._dir / f"{manhwa.anilist_id}{suffix}{ext if ext in _EXTENSIONS else '.jpg'}"
 
     @staticmethod
-    def _usable(path: Path) -> bool:
-        return path.is_file() and path.stat().st_size > 0
+    def _source(path: Path) -> Path:
+        """Where the address a file was downloaded from is kept, beside it."""
+        return path.with_name(path.name + ".src")
+
+    def _usable(self, path: Path, url: str, suffix: str) -> bool:
+        """A downloaded file that is still the picture at `url`. Portraits are filed by their
+        place in a title's list (-char, -char2…), which AniList reorders as favourites change,
+        so a portrait counts only when it came from `url`. A cover or banner is filed under the
+        title alone and kept even from before sources were recorded."""
+        if not (path.is_file() and path.stat().st_size > 0):
+            return False
+        source = self._source(path)
+        if source.is_file():
+            return source.read_text(encoding="utf-8").strip() == url
+        return not suffix.startswith("-char")
 
     def _cached(self, manhwa: Manhwa, url: str, suffix: str) -> Path | None:
         if not url:
             return None
         path = self._path_for(manhwa, url, suffix)
-        return path if self._usable(path) else None
+        return path if self._usable(path, url, suffix) else None
 
     def _get(self, manhwa: Manhwa, url: str, suffix: str, kind: str) -> Path:
         if not url:
             raise MetadataError(f"{manhwa.title}: AniList has no {kind} image")
         path = self._path_for(manhwa, url, suffix)
-        if self._usable(path):
+        if self._usable(path, url, suffix):
             return path
         try:
             resp = self._client.get(url, headers={"User-Agent": USER_AGENT})
@@ -59,6 +72,7 @@ class CoverCache:
         partial = path.with_name(path.name + ".part")
         partial.write_bytes(resp.content)
         partial.replace(path)
+        self._source(path).write_text(url, encoding="utf-8")
         return path
 
     def cached(self, manhwa: Manhwa) -> Path | None:
