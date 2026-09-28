@@ -186,6 +186,37 @@ uv run manhwatok render <id> --cover hero   # or choose while rendering
 
 The characters for the quad cover are fetched for the first four titles whatever `--art` is.
 
+## Post kinds
+
+Besides recommendation lists and chapters, a post can be one of four other kinds. Build them
+with the CLI below, the web app's *New post* tabs, or the terminal app's Build mode switch.
+
+- **If you liked X** (`build --like "Title"`): the title's AniList recommendations, less what
+  the account blocks or posted recently, as a normal list. The post is titled "If you liked
+  *X*" and the caption says so.
+- **Versus** (`build --kind versus`): picks go in pairs, one slide per pair, the first title on
+  the top half and the second below, with a VS badge between. The end slide asks which one
+  wins. It needs an even number of picks; the web picks list numbers them 1A, 1B, 2A…
+- **Guess the manhwa** (`build --kind guess`): per title, a clue then the reveal. The clue is a
+  tight crop of the title's picked art, scenes or a character (the cover, whose lettering names
+  the title, only as a last resort), with "GUESS #n" and a hint: two genres, the year it began
+  and its status. Up to 16 titles; the caption keeps the answers below the fold.
+- **Character ranking** (`build --kind characters`): each pick ranks one of its title's
+  pictured characters, by name, with the title as the label and the portrait as the art. On the
+  web, choose the character in the picks list; in the CLI draft, end a line with `| N` for the
+  title's Nth character (default: the most favourited). The terminal app always takes the most
+  favourited.
+
+Every kind uses the list covers; the pill says what the post holds (IF YOU LIKED, 3 ROUNDS,
+GUESS 10, TOP 5).
+
+```bash
+uv run manhwatok build --like "Omniscient Reader"
+uv run manhwatok build --theme regression --kind versus --limit 8
+uv run manhwatok build --theme regression --kind guess --limit 10
+uv run manhwatok build --theme regression --kind characters --limit 5
+```
+
 ## Publishing chapters
 
 A different kind of post: the chapter itself, cut into slides, a part at a time.

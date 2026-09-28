@@ -538,7 +538,10 @@ class PillowRenderer:
             # Hand-picked art first, then the character portrait when this style has one, then
             # the cover. All are fitted, never cropped: the art is already framed tightly on its
             # subject, and the bigger box is there to show more of it, not less.
-            src = art.custom or art.character or img or _accent_gradient((460, 650), accent_hex)
+            # Portraits are loaded for other uses too (the quad cover, a guess post's clues), so
+            # the style decides, not whether one is at hand.
+            portrait = art.character if style is ArtStyle.CHARACTER else None
+            src = art.custom or portrait or img or _accent_gradient((460, 650), accent_hex)
             box = fit_inside(src.width, src.height, area)
             card = _rounded(src.resize((box.w, box.h), Image.Resampling.LANCZOS), 24)
         _paste_with_shadow(canvas, card, box.x, box.y)

@@ -158,3 +158,16 @@ def test_characters_end_recaps_names_with_titles():
 
     item = PostItem(manhwa=manhwa(anilist_id=1, title="T1"), character=CharacterPick(name="Jin"))
     assert end_names(post(items=[item], kind=PostKind.CHARACTERS)) == ["Jin (T1)"]
+
+
+def test_a_plain_slide_shows_the_cover_even_when_a_portrait_was_loaded(tmp_path):
+    """The quad cover (and a guess post's clues) load portraits; a list slide in the plain
+    style still shows the title's cover."""
+    cover = cover_file(tmp_path / "c", 1, color=(220, 30, 30))
+    portrait = cover_file(tmp_path / "ch", 1, color=(30, 210, 30), size=(230, 345))
+    for kind in (PostKind.LIST, PostKind.GUESS):
+        items = [PostItem(manhwa=manhwa(anilist_id=1, title="T1"))]
+        paths = PillowRenderer().render(post(items=items, kind=kind), {1: SlideArt(cover, None, portrait)}, tmp_path / kind.value)
+        reveal = paths[1] if kind is PostKind.LIST else paths[2]
+        r, g, b = _px(reveal, (540, 600))
+        assert r > g + 80, kind  # the red cover card, not the green portrait
