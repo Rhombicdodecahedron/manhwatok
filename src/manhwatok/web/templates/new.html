@@ -3,8 +3,8 @@
 {% block content %}
 <div class="toolbar"><h1>New post</h1>
   <nav class="tabs" aria-label="Kind of post">
-    <a href="/new" {% if kind == "list" %}aria-current="page"{% endif %}>Recommendation list</a>
-    <a href="/new?type=chapter" {% if kind == "chapter" %}aria-current="page"{% endif %}>Chapter</a>
+    {% for k, label in kinds.items() %}<a href="/new{% if k != 'list' %}?type={{ k }}{% endif %}" {% if kind == k %}aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
   </nav>
 </div>
 {% if kind == "chapter" %}
@@ -47,9 +47,35 @@
     <button class="button primary" type="button" hx-post="/new/chapter/build" hx-include="closest form">Build</button>
   </div>
 </form>
+{% elif kind == "similar" %}
+<form class="panel search" hx-post="/new/similar" hx-target="#results" hx-swap="innerHTML"
+      hx-indicator="#searching">
+  <label class="field">Account
+    <select name="account">
+      <option value="">No account</option>
+      {% for a in accounts %}<option value="{{ a.handle }}">{{ a.display }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">If you liked (one already tracked)
+    <select name="seed">
+      <option value="">Pick a title</option>
+      {% for anilist_id, name in titles %}<option value="{{ anilist_id }}">{{ name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="field">Or any title <input name="seed_text" placeholder="name or AniList id"></label>
+  <div class="wide">
+    <label><input type="checkbox" name="chapters" checked> Fill chapter counts</label>
+    <label><input type="checkbox" name="repeats"> Allow titles posted recently</label>
+    <span class="spacer"></span>
+    <span id="searching" class="htmx-indicator muted">Asking AniList…</span>
+    <button class="button primary">Find recommendations</button>
+  </div>
+</form>
+<div id="results"><p class="empty">Name a title: its AniList recommendations become the post.</p></div>
 {% else %}
 <form class="panel search" hx-post="/new/search" hx-target="#results" hx-swap="innerHTML"
       hx-indicator="#searching">
+  <input type="hidden" name="kind" value="{{ kind }}">
   <label class="field">Account
     <select name="account">
       <option value="">No account</option>
@@ -78,6 +104,7 @@
     <button class="button primary">Find titles</button>
   </div>
 </form>
+{% if hint %}<p class="muted">{{ hint }}</p>{% endif %}
 <div id="results"><p class="empty">Choose a theme or some tags, then find titles.</p></div>
 {% endif %}
 {% endblock %}

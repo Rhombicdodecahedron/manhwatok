@@ -1,0 +1,16 @@
+<li class="pick" draggable="true" data-id="{{ m.anilist_id }}">
+  <input type="hidden" name="pick" value="{{ m.anilist_id }}">
+  {% if m.cover_url %}<img src="{{ m.cover_url }}" alt="" referrerpolicy="no-referrer">{% else %}<span></span>{% endif %}
+  <div><div class="name">{{ m.title }}</div>
+    <input name="hook-{{ m.anilist_id }}" value="{{ hook_text }}" placeholder="Hook line" aria-label="Hook for {{ m.title }}">
+    {% if kind == "characters" %}
+    <select name="character-{{ m.anilist_id }}" aria-label="Character for {{ m.title }}">
+      {% for c in cast.get(m.anilist_id, []) %}<option value="{{ loop.index0 }}">{{ c.name }}{% if c.role %} · {{ c.role | lower }}{% endif %}</option>{% else %}<option value="0">no pictured characters</option>{% endfor %}
+    </select>
+    {% endif %}
+  </div>
+  <div class="moves">
+    <button type="button" data-move="up" aria-label="Move {{ m.title }} up">↑</button>
+    <button type="button" data-move="down" aria-label="Move {{ m.title }} down">↓</button>
+  </div>
+</li>

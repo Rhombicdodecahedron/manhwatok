@@ -7,7 +7,7 @@ from __future__ import annotations
 import secrets
 import threading
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.domain.models import Manhwa
@@ -19,6 +19,9 @@ class Draft:
     candidates: list[Manhwa]
     account: str | None
     theme: str | None
+    kind: str = "list"  # a PostKind value: what the save makes of the picks
+    seed: Manhwa | None = None  # a similar search's "if you liked" title
+    cast: dict = field(default_factory=dict)  # a characters search's choices, by title id
 
 
 class Drafts:
@@ -27,8 +30,18 @@ class Drafts:
         self._lock = threading.Lock()
         self._drafts: OrderedDict[str, Draft] = OrderedDict()
 
-    def add(self, candidates: list[Manhwa], account: str | None, theme: str | None) -> Draft:
-        draft = Draft(secrets.token_urlsafe(8), list(candidates), account, theme)
+    def add(
+        self,
+        candidates: list[Manhwa],
+        account: str | None,
+        theme: str | None,
+        kind: str = "list",
+        seed: Manhwa | None = None,
+        cast: dict | None = None,
+    ) -> Draft:
+        draft = Draft(
+            secrets.token_urlsafe(8), list(candidates), account, theme, kind, seed, cast or {}
+        )
         with self._lock:
             self._drafts[draft.id] = draft
             while len(self._drafts) > self._keep:

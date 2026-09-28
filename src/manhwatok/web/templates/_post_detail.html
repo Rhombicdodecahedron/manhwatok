@@ -2,6 +2,7 @@
      hx-trigger="changed-posts from:body, changed-store from:body" hx-swap="outerHTML">
   <h2>{{ d.post.title | plain or "(untitled)" }}</h2>
   <p class="meta muted"><span class="dot" data-status="{{ d.status }}"></span> {{ d.status }}
+    {% if d.post.kind.value not in ("list", "chapter") %}· {{ d.post.kind.value }} post{% endif %}
     · {{ d.account_label }} · visible to {{ d.visibility }}
     {% if d.sent != "-" %}· sent {{ d.sent }}{% elif d.planned != "-" %}· planned {{ d.planned }}{% endif %}</p>
 

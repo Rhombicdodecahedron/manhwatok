@@ -10,6 +10,8 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, Response
 
 from manhwatok.app.build_post import prefill_items, store_new_post
+from manhwatok.app.chapter_post import resolve_title
+from manhwatok.app.kind_post import character_choices, similar_candidates, similar_title, with_characters
 from manhwatok.app.chapter_form import (
     ChapterRequest,
     build_requested,
@@ -20,17 +22,18 @@ from manhwatok.app.chapter_form import (
 from manhwatok.app.render_post import choose_cover, render_post
 from manhwatok.app.suggest import suggest_for_account
 from manhwatok.domain.account import Account
-from manhwatok.domain.errors import ManhwatokError
+from manhwatok.domain.errors import ManhwatokError, MetadataError
 from manhwatok.domain.labels import chapter_label
 from manhwatok.domain.models import (
     ArtStyle,
     ChapterCoverStyle,
     ChapterSourceName,
     CoverStyle,
+    PostKind,
     SearchQuery,
     Sort,
 )
-from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS, MAX_ITEMS, PostItem
+from manhwatok.domain.post import DEFAULT_ACCENT, DEFAULT_HASHTAGS, MAX_GUESS, MAX_ITEMS, PostItem
 from manhwatok.domain.text import first_sentence, split_names
 from manhwatok.web.jobs import RENDER, Busy
 from manhwatok.web.routes.common import ctx_of, done, page, trigger
@@ -78,6 +81,23 @@ def _account(ctx, handle: str) -> Account | None:
     return ctx.store.accounts.get(handle) if handle else None
 
 
+# The New post page's tabs: every kind of post, by its ?type=.
+KINDS = {
+    "list": "Recommendation list",
+    "similar": "If you liked",
+    "versus": "Versus",
+    "guess": "Guess",
+    "characters": "Characters",
+    "chapter": "Chapter",
+}
+# What each list-searched kind asks of its picks, under the search form.
+KIND_HINTS = {
+    "versus": "Pick an even number: 1 vs 2, 3 vs 4… Each pair is one slide.",
+    "guess": "Up to 16 titles: each gets a clue slide, then its reveal.",
+    "characters": "Each pick ranks one of its characters — choose which in the picks list.",
+}
+
+
 @router.get("/new", response_class=HTMLResponse)
 def new_page(request: Request, type: str = "list") -> HTMLResponse:
     ctx = ctx_of(request)
@@ -85,7 +105,9 @@ def new_page(request: Request, type: str = "list") -> HTMLResponse:
         request,
         "new.html",
         page="new",
-        kind="chapter" if type == "chapter" else "list",
+        kind=type if type in KINDS else "list",
+        kinds=KINDS,
+        hint=KIND_HINTS.get(type, ""),
         accounts=ctx.store.accounts.list(),
         themes=ctx.store.themes.list(),
         sorts=list(Sort),
@@ -108,9 +130,13 @@ def search(
     repeats: str = Form(""),
     chapters: str = Form(""),
     title: str = Form(""),
+    kind: str = Form("list"),
 ) -> Response:
     ctx = ctx_of(request)
     try:
+        post_kind = PostKind(kind or "list")
+        if post_kind in (PostKind.CHAPTER, PostKind.SIMILAR):
+            raise ManhwatokError(f"a {post_kind.value} post isn't built from a search")
         query = _query(ctx, theme, tags, genres, sort, min_rank, limit)
         who = _account(ctx, account)
         results = suggest_for_account(
@@ -122,18 +148,33 @@ def search(
             request.app.state.clock(),
             bool(repeats),
         )
-    except (ManhwatokError, ValueError) as e:
+        cast = (
+            character_choices([PostItem(manhwa=m) for m in results], ctx.metadata)
+            if post_kind is PostKind.CHARACTERS
+            else {}
+        )
+    except (ManhwatokError, MetadataError, ValueError) as e:
         return done(request, str(e), "error")
-    draft = request.app.state.drafts.add(results, who.handle if who else None, theme or None)
+    draft = request.app.state.drafts.add(
+        results, who.handle if who else None, theme or None, kind=post_kind.value, cast=cast
+    )
     if not title and theme:
         title = ctx.store.themes.get(theme).title
+    return _results(request, draft, who, title)
+
+
+def _results(request: Request, draft, who: Account | None, title: str) -> HTMLResponse:
+    """The candidates and the picks editor for a search, whichever kind it is for."""
+    most = {"versus": 2 * MAX_ITEMS, "guess": MAX_GUESS}.get(draft.kind, MAX_ITEMS)
     return page(
         request,
         "_new_results.html",
         draft=draft,
-        candidates=results,
-        picks=prefill_items(results),
-        picked={m.anilist_id for m in results[:MAX_ITEMS]},
+        kind=draft.kind,
+        cast=draft.cast,
+        candidates=draft.candidates,
+        picks=prefill_items(draft.candidates)[:most],
+        picked={m.anilist_id for m in draft.candidates[:most]},
         label=chapter_label,
         hook=first_sentence,
         title=title,
@@ -141,8 +182,42 @@ def search(
         defaults={"hashtags": DEFAULT_HASHTAGS, "accent": DEFAULT_ACCENT},
         arts=list(ArtStyle),
         covers=list(CoverStyle),
-        max_items=MAX_ITEMS,
+        max_items=most,
     )
+
+
+@router.post("/new/similar", response_class=HTMLResponse)
+def similar(
+    request: Request,
+    account: str = Form(""),
+    seed: str = Form(""),
+    seed_text: str = Form(""),
+    repeats: str = Form(""),
+    chapters: str = Form(""),
+) -> Response:
+    """An "if you liked" search: the seed title's AniList recommendations."""
+    ctx = ctx_of(request)
+    try:
+        text = (seed_text or seed).strip()
+        if not text:
+            raise ManhwatokError("name the title the post starts from")
+        who = _account(ctx, account)
+        seed_m = resolve_title(text, ctx.metadata, ctx.store.cache)
+        results = similar_candidates(
+            seed_m,
+            who,
+            ctx.metadata,
+            ctx.chapters if chapters else None,
+            ctx.store.history,
+            request.app.state.clock(),
+            bool(repeats),
+        )
+    except (ManhwatokError, MetadataError, ValueError) as e:
+        return done(request, str(e), "error")
+    draft = request.app.state.drafts.add(
+        results, who.handle if who else None, None, kind=PostKind.SIMILAR.value, seed=seed_m
+    )
+    return _results(request, draft, who, similar_title(seed_m))
 
 
 @router.post("/new/save")
@@ -161,6 +236,10 @@ async def save(request: Request) -> Response:
         items = [
             PostItem(manhwa=by_id[p], hook=str(form.get(f"hook-{p}", "")).strip()) for p in picks
         ]
+        kind = PostKind(draft.kind)
+        if kind is PostKind.CHARACTERS:
+            chosen = {int(p): int(str(form.get(f"character-{p}", "0")) or 0) for p in picks}
+            items = with_characters(items, ctx.metadata, chosen)
         text = {name: str(form.get(name, "")).strip() for name in ("hashtags", "accent", "emojis")}
         art = str(form.get("art", ""))
         post = store_new_post(
@@ -176,8 +255,10 @@ async def save(request: Request) -> Response:
             emojis=text["emojis"] or None,
             theme=draft.theme,
             cover=CoverStyle(str(form.get("cover", "")) or CoverStyle.FAN.value),
+            kind=kind,
+            seed=draft.seed,
         )
-    except (ManhwatokError, ValueError) as e:
+    except (ManhwatokError, MetadataError, ValueError) as e:
         return done(request, str(e), "error")
     request.app.state.drafts.take(draft.id)
     request.app.state.bus.publish("changed", what="posts")

@@ -9,16 +9,7 @@
         <div class="title">{{ m.title }}</div>
         <div class="meta">{{ label(m) }}{% if m.genres %} · {{ m.genres[:3] | join(", ") }}{% endif %}</div>
         <template data-id="{{ m.anilist_id }}">
-          <li class="pick" draggable="true" data-id="{{ m.anilist_id }}">
-            <input type="hidden" name="pick" value="{{ m.anilist_id }}">
-            {% if m.cover_url %}<img src="{{ m.cover_url }}" alt="" referrerpolicy="no-referrer">{% else %}<span></span>{% endif %}
-            <div><div class="name">{{ m.title }}</div>
-              <input name="hook-{{ m.anilist_id }}" value="{{ hook(m.description) }}" placeholder="Hook line" aria-label="Hook for {{ m.title }}"></div>
-            <div class="moves">
-              <button type="button" data-move="up" aria-label="Move {{ m.title }} up">↑</button>
-              <button type="button" data-move="down" aria-label="Move {{ m.title }} down">↓</button>
-            </div>
-          </li>
+          {% with hook_text=hook(m.description) %}{% include "_pick_row.html" %}{% endwith %}
         </template>
       </div>
       {% endfor %}
