@@ -39,6 +39,9 @@ TOP_SCRIM, BOTTOM_SCRIM = 520, 760
 LINE = 6  # half the accent line between the halves
 CLUE_ZOOM = 0.6  # a clue shows the middle of its focus: enough to recognise, not to read
 CLUE_RISE = 0.4  # and a little above the middle, where faces sit
+# A cover's title logo sits in its top or bottom quarter: a clue from the cover alone keeps to
+# the band between, whether or not the picker could read the lettering.
+COVER_BAND = (0.25, 0.75)
 
 
 def _art(loaded: dict[int, _Art], item: PostItem) -> _Art:
@@ -86,23 +89,39 @@ def clue_piece(art: _Art, picker: PicturePicker | None) -> Piece | None:
     """A clue's picture, zoomed in: picked art, scenes or a character before the cover, whose
     lettering names the title (the picker trims what lettering it finds on it too)."""
     candidates = [img for img in (art.custom, *art.gallery, art.character) if img is not None]
-    candidates = candidates or ([art.cover] if art.cover is not None else [])
     if not candidates:
-        return None
+        if art.cover is None:
+            return None
+        cover = art.cover
+        band = (0, round(cover.height * COVER_BAND[0]), cover.width, round(cover.height * COVER_BAND[1]))
+        return _zoomed(cover, band)
     found = picker.focus(candidates) if picker is not None else []
     if found:
         img, (left, top, right, bottom) = candidates[found[0].index], found[0].box
     else:
         img = candidates[0]
         left, top, right, bottom = 0, 0, img.width, img.height
+    return _zoomed(img, (left, top, right, bottom))
+
+
+def _zoomed(img: Image.Image, box: tuple[int, int, int, int]) -> Piece:
+    """The middle CLUE_ZOOM of `box`, a little above centre, never outside it."""
+    left, top, right, bottom = box
     w, h = (right - left) * CLUE_ZOOM, (bottom - top) * CLUE_ZOOM
     cx, cy = (left + right) / 2, top + (bottom - top) * CLUE_RISE
-    return img, (
-        round(cx - w / 2),
-        round(max(top, cy - h / 2)),
-        round(cx + w / 2),
-        round(min(bottom, max(top, cy - h / 2) + h)),
-    )
+    y = max(top, cy - h / 2)
+    return img, (round(cx - w / 2), round(y), round(cx + w / 2), round(min(bottom, y + h)))
+
+
+def clue_covers(loaded: dict[int, _Art], picker: PicturePicker | None) -> dict[int, _Art]:
+    """A guess post's art as its cover versions should see it: each title's clue in place of
+    its lettered cover, so the cover doesn't answer the first guesses."""
+    out = {}
+    for m_id, art in loaded.items():
+        piece = clue_piece(art, picker)
+        clue = piece[0].crop(piece[1]) if piece else None
+        out[m_id] = _Art(clue, None, art.character, None, ())
+    return out
 
 
 def clue_slide(post: ListPost, index: int, loaded, picker: PicturePicker | None) -> Image.Image:

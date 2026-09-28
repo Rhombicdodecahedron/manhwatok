@@ -417,7 +417,12 @@ class PillowRenderer:
             for m_id, one in art.items()
         }
         covers = {m_id: one.cover for m_id, one in loaded.items()}
-        versions = {style: self.cover_slide(post, loaded, style) for style in CoverStyle}
+        cover_art = loaded
+        if post.kind is PostKind.GUESS:
+            from manhwatok.adapters.kind_slides import clue_covers
+
+            cover_art = clue_covers(loaded, self._picker)
+        versions = {style: self.cover_slide(post, cover_art, style) for style in CoverStyle}
         slides = [versions[post.cover]]  # CoverStyle keys
         from manhwatok.adapters.kind_slides import end_names, middle_slides
 

@@ -171,3 +171,31 @@ def test_a_plain_slide_shows_the_cover_even_when_a_portrait_was_loaded(tmp_path)
         reveal = paths[1] if kind is PostKind.LIST else paths[2]
         r, g, b = _px(reveal, (540, 600))
         assert r > g + 80, kind  # the red cover card, not the green portrait
+
+
+def test_a_guess_posts_covers_do_not_show_the_answers(tmp_path):
+    """Every cover version draws the clues, never the lettered covers (review finding 4)."""
+    items = [PostItem(manhwa=manhwa(anilist_id=i, title=f"T{i}")) for i in (1, 2, 3)]
+    art = {
+        i: SlideArt(
+            cover_file(tmp_path / "c", i, color=(220, 30, 30)),
+            None,
+            gallery=(cover_file(tmp_path / f"s{i}", i, color=(30, 210, 30), size=(900, 1400)),),
+        )
+        for i in (1, 2, 3)
+    }
+    PillowRenderer().render(post(items=items, kind=PostKind.GUESS), art, tmp_path / "o")
+    for style, xy in (("fan", (540, 560)), ("hero", (60, 300)), ("podium", (540, 520))):
+        r, g, b = _px(tmp_path / "o" / f"cover-{style}.png", xy)
+        assert not r > g + 60, style  # no red cover showing
+
+
+def test_a_clue_cut_from_the_cover_keeps_clear_of_its_lettering():
+    """Title logos sit at a cover's top or foot: a clue from the cover alone takes the middle
+    (review finding 5)."""
+    from manhwatok.adapters.kind_slides import clue_piece
+    from manhwatok.adapters.pillow_renderer import _Art
+
+    cover = Image.new("RGB", (460, 650), (30, 30, 220))
+    _, (left, top, right, bottom) = clue_piece(_Art(cover, None, None, None), None)
+    assert top >= 650 * 0.25 and bottom <= 650 * 0.75
