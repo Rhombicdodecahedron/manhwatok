@@ -48,7 +48,7 @@ from manhwatok.adapters.pillow_renderer import (
 from manhwatok.domain.chapter import chapter_kicker
 from manhwatok.domain.color import hex_to_rgb, readable_accent
 from manhwatok.domain.models import ChapterCoverStyle, CoverStyle
-from manhwatok.domain.post import ListPost
+from manhwatok.domain.post import ListPost, cover_kicker
 from manhwatok.ports.picker import PicturePicker
 
 STROKE = 10  # the dark outline round a giant number, so it reads on any art
@@ -172,7 +172,7 @@ def magazine_slide(
     glow = _accent_gradient(SIZE, accent_hex).convert("RGBA")
     glow.putalpha(70)
     canvas.alpha_composite(glow)
-    layout = layout_magazine(post.title, len(post.items), _byline(post))
+    layout = layout_magazine(post.title, len(post.items), _byline(post), kicker=cover_kicker(post))
     piece = _best_piece(_art_of(post, loaded, 0), picker)
     area = layout.art
     if piece:

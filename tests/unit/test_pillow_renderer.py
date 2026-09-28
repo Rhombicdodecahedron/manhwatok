@@ -1051,3 +1051,26 @@ def test_the_chapter_end_slide_asks_for_the_next_chapter_on_the_last_part(tmp_pa
 def test_the_chapter_end_slide_has_no_ranked_row(tmp_path, monkeypatch):
     drawn, _ = _end_texts(tmp_path, monkeypatch, number="12", part=3, parts=3)
     assert not any(text.strip().startswith("1 ") or " — CH." in text for text in drawn), drawn
+
+
+def test_a_similar_cover_says_if_you_liked(tmp_path, monkeypatch):
+    from manhwatok.adapters import pillow_renderer
+    from manhwatok.domain.models import PostKind
+
+    seen = []
+    real = pillow_renderer.layout_cover
+
+    def spy(*a, **k):
+        seen.append(k.get("kicker"))
+        return real(*a, **k)
+
+    monkeypatch.setattr(pillow_renderer, "layout_cover", spy)
+    p = _post(2).model_copy(update={"kind": PostKind.SIMILAR})
+    PillowRenderer().render(p, _art({1: None, 2: None}), tmp_path / "o")
+    assert "IF YOU LIKED" in seen
+
+
+def test_the_magazine_cover_says_what_the_post_holds():
+    from manhwatok.adapters.layout import layout_magazine
+
+    assert layout_magazine("T", 4, kicker="GUESS 4").kicker.text.line_text(0) == "GUESS 4"

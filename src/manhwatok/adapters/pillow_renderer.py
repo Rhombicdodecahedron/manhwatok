@@ -31,8 +31,8 @@ from manhwatok.domain.errors import StorageError
 from manhwatok.domain.labels import chapter_label
 from manhwatok.ports.picker import PicturePicker
 from manhwatok.ports.posts import SlideArt
-from manhwatok.domain.models import QUAD_PICTURES, ArtStyle, ChapterCoverStyle, CoverStyle
-from manhwatok.domain.post import ListPost
+from manhwatok.domain.models import QUAD_PICTURES, ArtStyle, ChapterCoverStyle, CoverStyle, PostKind
+from manhwatok.domain.post import ListPost, cover_kicker
 
 WHITE = (255, 255, 255)
 DARK = (11, 11, 16)
@@ -630,7 +630,8 @@ class PillowRenderer:
     def _cover_text(canvas: Image.Image, post: ListPost) -> Image.Image:
         """The text every cover version shares: pill, title, progress bar and byline."""
         accent = hex_to_rgb(readable_accent(post.accent))
-        layout = layout_cover(post.title, len(post.items), _byline(post))
+        count = (len(post.items) + 1) // 2 if post.kind is PostKind.VERSUS else len(post.items)
+        layout = layout_cover(post.title, count, _byline(post), kicker=cover_kicker(post))
         draw = ImageDraw.Draw(canvas)
         _draw_pill(draw, layout.kicker, accent, filled=True)
         _draw_text(draw, layout.title, WHITE, accent)

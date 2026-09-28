@@ -393,9 +393,13 @@ class CoverLayout:
         return [self.kicker.box, self.title.box, *self.bar]
 
 
-def layout_cover(title: str, count: int, byline: str = "") -> CoverLayout:
+def layout_cover(
+    title: str, count: int, byline: str = "", kicker: str | None = None
+) -> CoverLayout:
+    """`kicker` is the pill's text (default "N PICKS"); `count` is the bar's segments."""
     x, w = SAFE.x, SAFE.w
-    kicker = make_pill(f"{count} PICK" if count == 1 else f"{count} PICKS", bold, 32, w, x)
+    label = kicker or (f"{count} PICK" if count == 1 else f"{count} PICKS")
+    kicker = make_pill(label, bold, 32, w, x)
     title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 92, 56, 1.06)
     tops = stack_up([kicker.box.h, title_t.height, BAR_H], COVER_BOTTOM)
     seg_w = (w - BAR_GAP * (count - 1)) / max(count, 1)
@@ -501,12 +505,14 @@ class MagazineLayout:
         return [self.title.box, self.rule, self.kicker.box, self.art]
 
 
-def layout_magazine(title: str, count: int, byline: str = "") -> MagazineLayout:
+def layout_magazine(
+    title: str, count: int, byline: str = "", kicker: str | None = None
+) -> MagazineLayout:
     x, w = SAFE.x, SAFE.w
     title_t = fit_words(words_of(accent_spans(title.upper())), display, w, 4, 120, 72, 1.0)
     placed = Placed(title_t, x, MAGAZINE_TOP, w)
     rule = Box(x, placed.box.bottom + 40, RULE_W, RULE_H)
-    label = f"{count} PICK" if count == 1 else f"{count} PICKS"
+    label = kicker or (f"{count} PICK" if count == 1 else f"{count} PICKS")
     kicker_t = fit_words(plain_words(label), bold, w - RULE_W - GAP, 1, 40, 32, 1.0)
     kicker = Placed(
         kicker_t, x + RULE_W + GAP, rule.y + RULE_H // 2 - kicker_t.height // 2, w - RULE_W - GAP

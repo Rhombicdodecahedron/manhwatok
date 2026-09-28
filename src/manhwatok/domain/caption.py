@@ -1,4 +1,5 @@
 from manhwatok.domain.emoji import post_emojis
+from manhwatok.domain.models import PostKind
 from manhwatok.domain.post import ListPost
 from manhwatok.domain.text import plain_title
 
@@ -26,6 +27,8 @@ def upload_description(post: ListPost) -> str:
             which += f" · part {part.part}/{part.parts}"
         return f"{which}\n\n{post.hashtags}".strip()
     picks = "\n".join(f"{i}. {item.manhwa.title}" for i, item in enumerate(post.items, 1))
+    if post.kind is PostKind.SIMILAR and post.seed is not None:
+        return f"If you liked {post.seed.title}, read:\n{picks}\n\n{post.hashtags}".strip()
     return f"{picks}\n\n{post.hashtags}".strip()
 
 

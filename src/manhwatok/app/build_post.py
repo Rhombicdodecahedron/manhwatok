@@ -13,7 +13,7 @@ from manhwatok.domain.account import Account
 from manhwatok.domain.color import check_accent
 from manhwatok.domain.draft import check_picks, is_empty_draft, parse_draft, render_draft
 from manhwatok.domain.errors import DraftError, ManhwatokError
-from manhwatok.domain.models import ArtStyle, CoverStyle, Manhwa
+from manhwatok.domain.models import ArtStyle, CoverStyle, Manhwa, PostKind
 from manhwatok.domain.post import (
     DEFAULT_ACCENT,
     DEFAULT_CTA_FOLLOW,
@@ -40,6 +40,8 @@ def create_post(
     emojis: str | None = None,
     theme: str | None = None,
     cover: CoverStyle = CoverStyle.FAN,
+    kind: PostKind = PostKind.LIST,
+    seed: Manhwa | None = None,
 ) -> ListPost:
     """A new post (pure). Hashtags, emojis, accent and art: the override if given, else the
     account's, else the defaults. End-slide texts come from the account."""
@@ -67,6 +69,8 @@ def create_post(
         byline=account.byline if account else "",
         art=art,
         cover=cover,
+        kind=kind,
+        seed=seed,
     )
 
 
@@ -91,12 +95,14 @@ def save_new_post(
     emojis: str | None = None,
     theme: str | None = None,
     cover: CoverStyle = CoverStyle.FAN,
+    kind: PostKind = PostKind.LIST,
+    seed: Manhwa | None = None,
 ) -> tuple[ListPost, list[Path]]:
     """Check the picks, save them as a new post and render it. Nothing is written if the
     picks or the style are invalid."""
     post = store_new_post(
         candidates, title, items, account, hashtags, accent, tools.posts, now,
-        art=art, emojis=emojis, theme=theme, cover=cover,
+        art=art, emojis=emojis, theme=theme, cover=cover, kind=kind, seed=seed,
     )
     return post, render_post(post.id, tools)
 
@@ -114,11 +120,14 @@ def store_new_post(
     emojis: str | None = None,
     theme: str | None = None,
     cover: CoverStyle = CoverStyle.FAN,
+    kind: PostKind = PostKind.LIST,
+    seed: Manhwa | None = None,
 ) -> ListPost:
     """`save_new_post` short of rendering, for a caller with more to do first (art to fill)."""
-    check_picks(title, items)
+    check_picks(title, items, kind)
     post = create_post(
-        "", now, candidates, title, items, account, hashtags, accent, art, emojis, theme, cover
+        "", now, candidates, title, items, account, hashtags, accent, art, emojis, theme, cover,
+        kind, seed,
     )
     post = post.model_copy(update={"id": posts.new_id(now.astimezone().date())})
     _save_new(post, posts)
