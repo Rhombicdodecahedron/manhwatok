@@ -83,3 +83,31 @@ def with_characters(
         hook = item.hook or " · ".join(x for x in (chosen.role.title(), m.title) if x)
         out.append(item.model_copy(update={"manhwa": m, "character": chosen, "hook": hook}))
     return out
+
+
+def carry_characters(
+    before: list[PostItem],
+    items: list[PostItem],
+    metadata: MetadataSource | None,
+    choices: dict[int, int] | None = None,
+) -> list[PostItem]:
+    """A characters post's picks after an edit: each title keeps the character it had, unless
+    `choices` names another; a title new to the post (or re-chosen) is looked up in
+    `metadata`. Without `metadata` a new title is left bare, for the pick check to refuse."""
+    had = {i.manhwa.anilist_id: i for i in before if i.character is not None}
+    choices = choices or {}
+    kept: dict[int, PostItem] = {}
+    lookup: list[PostItem] = []
+    for item in items:
+        m_id = item.manhwa.anilist_id
+        if m_id in had and m_id not in choices:
+            old = had[m_id]
+            kept[m_id] = item.model_copy(update={"manhwa": old.manhwa, "character": old.character})
+        elif item.character is not None and m_id not in choices:
+            kept[m_id] = item
+        else:
+            lookup.append(item)
+    if lookup and metadata is not None:
+        for item in with_characters(lookup, metadata, choices):
+            kept[item.manhwa.anilist_id] = item
+    return [kept.get(i.manhwa.anilist_id, i) for i in items]

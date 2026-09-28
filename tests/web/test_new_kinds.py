@@ -110,3 +110,36 @@ def test_the_post_detail_names_its_kind(tmp_path):
     with client_for(ctx) as client:
         html = client.get("/posts/20260914-a3f9").text
     assert "guess post" in html
+
+
+def _saved_kind(ctx, kind, items, candidates):
+    from tests.unit.fakes import post
+
+    ctx.tools.posts.save(post(items=items, candidates=candidates, kind=kind))
+    return "20260914-a3f9"
+
+
+def test_the_picks_editor_refuses_an_odd_versus_at_once(tmp_path):
+    from manhwatok.domain.post import PostItem
+
+    ctx, _ = _ctx(tmp_path)
+    titles = [manhwa(anilist_id=i, title=f"T{i}") for i in range(1, 5)]
+    pid = _saved_kind(ctx, PostKind.VERSUS, [PostItem(manhwa=m) for m in titles], titles)
+    with client_for(ctx) as client:
+        html = client.get(f"/posts/{pid}/picks").text
+        r = client.post(f"/posts/{pid}/picks", data={"pick": ["1", "2", "3"]})
+    assert 'class="picks versus"' in html
+    assert "pairs" in _notice(r)["text"] and _notice(r)["level"] == "error"
+
+
+def test_the_picks_editor_offers_and_keeps_a_characters_choice(tmp_path):
+    from manhwatok.domain.post import PostItem
+
+    ctx, meta = _ctx(tmp_path, 1)
+    meta.cast[1] = [CharacterPick(name="Jin", index=0, image_url="u0"), CharacterPick(name="Hae", index=1, image_url="u1")]
+    titles = [manhwa(anilist_id=1, title="T1")]
+    item = PostItem(manhwa=titles[0], character=CharacterPick(name="Hae", index=1, image_url="u1"))
+    pid = _saved_kind(ctx, PostKind.CHARACTERS, [item], titles)
+    with client_for(ctx) as client:
+        html = client.get(f"/posts/{pid}/picks").text
+    assert '<option value="1" selected>Hae' in html

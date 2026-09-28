@@ -65,3 +65,24 @@ def test_a_hook_with_a_pipe_keeps_its_words_and_is_no_choice():
     text = "title: T\n1 | T1 | Win | or lose\n"
     _, items = parse_draft(text, [manhwa(anilist_id=1, title="T1")])
     assert items[0].hook == "Win | or lose" and parse_choices(text) == {}
+
+
+def test_a_rescued_draft_keeps_its_kind(wire):  # noqa: F811
+    meta = FakeMetadata(CANDIDATES)
+    meta.cast[11] = [CharacterPick(name="Zeph", index=0, image_url="u0")]  # Kubera has none
+    repo, _ = wire(meta=meta)
+    out = runner.invoke(app, ["build", "-t", "Revenge", "--kind", "characters", "--title", "Top", "--no-chapters"])
+    assert out.exit_code == 1 and "Kubera has no pictured characters" in out.output
+    (saved,) = repo.list()
+    assert saved.kind is PostKind.CHARACTERS
+
+
+def test_an_odd_versus_draft_is_saved_not_lost(wire):  # noqa: F811
+    def respond(text):
+        return "\n".join("# " + line if line.startswith("22 |") else line for line in text.splitlines()) + "\n"
+
+    repo, _ = wire(respond=respond)
+    out = runner.invoke(app, ["build", "-t", "Revenge", "--kind", "versus", "--title", "V", "--no-chapters"])
+    assert out.exit_code == 1 and "pairs" in out.output and "draft is saved" in out.output
+    (saved,) = repo.list()
+    assert saved.kind is PostKind.VERSUS and repo.load_draft(saved.id)

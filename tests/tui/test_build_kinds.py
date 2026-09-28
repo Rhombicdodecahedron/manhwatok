@@ -38,3 +38,24 @@ def test_chapter_mode_still_swaps_the_form(tmp_path):
         assert _shown(pane, "chapter-build") and not _shown(pane, "search")
 
     run_app(ctx, scenario)
+
+
+def test_the_picks_screen_checks_the_kinds_rules_before_closing(tmp_path):
+    from manhwatok.domain.post import PostItem
+    from manhwatok.tui.screens.picks import PicksScreen
+    from tests.unit.fakes import manhwa
+
+    ctx = make_ctx(tmp_path)
+    titles = [manhwa(anilist_id=i, title=f"T{i}") for i in (1, 2, 3)]
+    results = []
+
+    async def scenario(app, pilot):
+        screen = PicksScreen("h", "T", [PostItem(manhwa=m) for m in titles], titles, PostKind.VERSUS)
+        app.push_screen(screen, results.append)
+        await pilot.pause()
+        screen.action_save()
+        await pilot.pause()
+        assert app.screen is screen  # still open: three titles don't pair up
+
+    run_app(ctx, scenario)
+    assert results == []

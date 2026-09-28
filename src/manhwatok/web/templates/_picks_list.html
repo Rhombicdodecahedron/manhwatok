@@ -1,6 +1,6 @@
     <h3>Picks, in order</h3>
     <ol class="picks{% if kind == 'versus' %} versus{% endif %}" id="picks">
       {% for item in picks %}
-      {% with m=item.manhwa, hook_text=item.hook %}{% include "_pick_row.html" %}{% endwith %}
+      {% with m=item.manhwa, hook_text=item.hook, chosen=(item.character.index if item.character else 0) %}{% include "_pick_row.html" %}{% endwith %}
       {% endfor %}
     </ol>

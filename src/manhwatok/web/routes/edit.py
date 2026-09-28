@@ -17,13 +17,15 @@ from starlette.datastructures import UploadFile  # what request.form() gives
 from manhwatok.adapters.picture_download import download_picture, looks_like_url
 from manhwatok.app.art_options import list_art, looks, use_art
 from manhwatok.app.edit_post import TEXT_FIELDS, update_picks, update_post_texts
+from manhwatok.app.kind_post import character_choices
 from manhwatok.app.item_art import clear_item_art, set_item_art
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_from_source, render_post, restyle, set_cover
-from manhwatok.domain.errors import DraftError, ManhwatokError, PostNotFound
+from manhwatok.domain.draft import check_picks
+from manhwatok.domain.errors import DraftError, ManhwatokError, MetadataError, PostNotFound
 from manhwatok.domain.labels import chapter_label
-from manhwatok.domain.models import ArtOrder, ArtSourceName, ArtStyle
-from manhwatok.domain.post import MAX_ITEMS, ListPost, PostItem
+from manhwatok.domain.models import ArtOrder, ArtSourceName, ArtStyle, PostKind
+from manhwatok.domain.post import MAX_GUESS, MAX_ITEMS, ListPost, PostItem
 from manhwatok.domain.text import first_sentence
 from manhwatok.web.jobs import RENDER, Busy
 from manhwatok.web.routes.common import STILL_RENDERING, ctx_of, done, page
@@ -116,17 +118,30 @@ async def save_settings(request: Request, post_id: str) -> Response:
 
 @router.get("/posts/{post_id}/picks", response_class=HTMLResponse)
 def picks_editor(request: Request, post_id: str) -> HTMLResponse:
-    post = ctx_of(request).tools.posts.get(post_id)
+    ctx = ctx_of(request)
+    post = ctx.tools.posts.get(post_id)
+    cast = {}
+    if post.kind is PostKind.CHARACTERS:
+        try:
+            cast = character_choices([PostItem(manhwa=m) for m in post.candidates], ctx.metadata)
+        except MetadataError:
+            cast = {}  # the kept characters still show; new titles get their first on save
+        for item in post.items:  # a kept character is offered even if AniList has moved on
+            if item.character and not cast.get(item.manhwa.anilist_id):
+                cast[item.manhwa.anilist_id] = [item.character]
+    most = {PostKind.VERSUS: 2 * MAX_ITEMS, PostKind.GUESS: MAX_GUESS}.get(post.kind, MAX_ITEMS)
     return page(
         request,
         "_edit_picks.html",
         post=post,
+        kind=post.kind.value,
+        cast=cast,
         candidates=post.candidates,
         picks=post.items,
         picked={i.manhwa.anilist_id for i in post.items},
         label=chapter_label,
         hook=first_sentence,
-        max_items=MAX_ITEMS,
+        max_items=most,
     )
 
 
@@ -152,11 +167,18 @@ async def save_picks(request: Request, post_id: str) -> Response:
                 else PostItem(manhwa=by_id[pid], hook=hook)
             )
         title = post.title  # as saved now: the texts form may have changed it since
+        choices = {
+            int(pid): int(str(form.get(f"character-{pid}", "")))
+            for pid in (str(p) for p in form.getlist("pick"))
+            if str(form.get(f"character-{pid}", "")).isdigit()
+        }
+        if post.kind is not PostKind.CHARACTERS:
+            check_picks(title, items, post.kind)  # at once: the rest waits for the render lane
     except ManhwatokError as e:
         return done(request, str(e), "error")
 
     def change(tools) -> str:
-        update_picks(post_id, title, items, tools)  # checks the picks, saves, renders
+        update_picks(post_id, title, items, tools, choices)  # checks the picks, saves, renders
         return "saved the picks"
 
     return start_change(request, post_id, "saved the picks", change, render=False)

@@ -8,16 +8,27 @@ from pathlib import Path
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_post
 from manhwatok.domain.color import check_accent
-from manhwatok.domain.draft import check_picks, parse_draft, render_draft
+from manhwatok.app.kind_post import carry_characters
+from manhwatok.domain.draft import check_picks, parse_choices, parse_draft, render_draft
+from manhwatok.domain.models import PostKind
 from manhwatok.domain.errors import DraftError
 from manhwatok.domain.post import DEFAULT_CTA_FOLLOW, DEFAULT_CTA_TITLE, ListPost, PostItem
 
 
-def update_picks(post_id: str, title: str, items: list[PostItem], tools: PostTools) -> list[Path]:
+def update_picks(
+    post_id: str,
+    title: str,
+    items: list[PostItem],
+    tools: PostTools,
+    choices: dict[int, int] | None = None,
+) -> list[Path]:
     """Save a new title and picks (any of the post's candidates), drop a saved broken draft and
-    re-render. Returns the new slide paths."""
-    check_picks(title, items)
+    re-render. Returns the new slide paths. The post's kind sets the rules; a characters post's
+    titles keep their characters, or take the ones `choices` names."""
     post = tools.posts.get(post_id)
+    if post.kind is PostKind.CHARACTERS:
+        items = carry_characters(post.items, items, tools.metadata, choices)
+    check_picks(title, items, post.kind)
     known = {m.anilist_id for m in post.candidates}
     for item in items:
         if item.manhwa.anilist_id not in known:
@@ -41,7 +52,7 @@ def edit_post(post_id: str, tools: PostTools) -> list[Path] | None:
     except DraftError as e:
         tools.posts.save_draft(post_id, edited)
         raise DraftError(f"{e} — your draft is saved; run `manhwatok edit {post_id}` again") from e
-    return update_picks(post_id, title, items, tools)
+    return update_picks(post_id, title, items, tools, parse_choices(edited))
 
 
 TEXT_FIELDS = ("title", "hashtags", "emojis", "byline", "cta_title", "cta_follow", "accent")

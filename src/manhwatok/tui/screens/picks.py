@@ -14,7 +14,7 @@ from textual_image.widget import Image
 from manhwatok.domain.draft import check_picks
 from manhwatok.domain.errors import DraftError
 from manhwatok.domain.labels import chapter_label
-from manhwatok.domain.models import Manhwa
+from manhwatok.domain.models import Manhwa, PostKind
 from manhwatok.domain.post import MAX_ITEMS, PostItem
 from manhwatok.domain.text import first_sentence
 from manhwatok.tui.text import clip
@@ -55,9 +55,16 @@ class PicksScreen(Screen[Picks | None]):
     ]
 
     def __init__(
-        self, heading: str, title: str, items: list[PostItem], candidates: list[Manhwa]
+        self,
+        heading: str,
+        title: str,
+        items: list[PostItem],
+        candidates: list[Manhwa],
+        kind: PostKind = PostKind.LIST,
     ) -> None:
         super().__init__()
+        # Checked before closing; a characters post's characters are looked up after it.
+        self.kind = PostKind.LIST if kind is PostKind.CHARACTERS else kind
         self.heading = heading
         self.candidates = list(candidates)
         self.items = list(items)
@@ -200,7 +207,7 @@ class PicksScreen(Screen[Picks | None]):
             return
         title = self.title_text.strip()
         try:
-            check_picks(title, self.items)
+            check_picks(title, self.items, self.kind)
         except DraftError as e:
             self.app.fail(e)
             return

@@ -468,7 +468,7 @@ class BuildPane(VerticalScroll):
             if self.app.start_render(save, self._saved):
                 status.update("saving and rendering…")
 
-        screen = PicksScreen(heading, style["title"], prefill_for(kind, results), results)
+        screen = PicksScreen(heading, style["title"], prefill_for(kind, results), results, kind)
         self.app.push_screen(screen, picked)
 
     def _saved(self, built) -> None:

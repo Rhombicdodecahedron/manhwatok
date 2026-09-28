@@ -405,7 +405,7 @@ class PostsPane(Vertical):
             title, items = result
             self.app.start_render(lambda tools: update_picks(pid, title, items, tools), rendered)
 
-        screen = PicksScreen(f"Edit post {pid}", post.title, post.items, post.candidates)
+        screen = PicksScreen(f"Edit post {pid}", post.title, post.items, post.candidates, post.kind)
         self.app.push_screen(screen, picked)
 
     def action_render(self) -> None:

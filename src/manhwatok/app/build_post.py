@@ -191,10 +191,12 @@ def build_post(
         title, items = parse_draft(edited, candidates)
         if kind is PostKind.CHARACTERS:
             items = with_characters(items, metadata, parse_choices(edited))
+        check_picks(title, items, kind)  # here, so a kind's rule keeps the draft too
     except ManhwatokError as e:
         post_id = tools.posts.new_id(now.astimezone().date())
         draft = create_post(
-            post_id, now, candidates, "", [], account, hashtags, accent, art, emojis, theme
+            post_id, now, candidates, "", [], account, hashtags, accent, art, emojis, theme,
+            kind=kind, seed=seed,
         )
         _save_new(draft, tools.posts)
         tools.posts.save_draft(post_id, edited)
