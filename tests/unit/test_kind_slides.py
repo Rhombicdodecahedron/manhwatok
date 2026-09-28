@@ -66,3 +66,65 @@ def test_a_versus_post_asks_which_wins_by_default():
     items = [PostItem(manhwa=manhwa(anilist_id=i)) for i in (1, 2)]
     p = create_post("x", datetime.now(timezone.utc), [], "T", items, None, None, None, kind=PostKind.VERSUS)
     assert p.cta_title == "Which one *wins?*"
+
+
+def test_guess_puts_a_clue_before_each_reveal(tmp_path):
+    items = [PostItem(manhwa=manhwa(anilist_id=i, title=f"T{i}")) for i in (1, 2)]
+    p = post(items=items, kind=PostKind.GUESS)
+    paths = PillowRenderer().render(p, {1: SlideArt(None, None), 2: SlideArt(None, None)}, tmp_path / "o")
+    assert len(paths) == 6  # cover, clue, reveal, clue, reveal, end
+
+
+def test_the_clue_prefers_picked_art_over_the_lettered_cover():
+    from manhwatok.adapters.kind_slides import clue_piece
+    from manhwatok.adapters.pillow_renderer import _Art
+
+    cover = Image.new("RGB", (460, 650), (200, 30, 30))
+    pick = Image.new("RGB", (600, 900), (30, 30, 200))
+    img, box = clue_piece(_Art(cover, None, None, pick), None)
+    assert img is pick
+    assert box[2] - box[0] < 600 * 0.7  # zoomed in, not the whole picture
+
+
+def test_the_clue_falls_back_to_the_cover():
+    from manhwatok.adapters.kind_slides import clue_piece
+    from manhwatok.adapters.pillow_renderer import _Art
+
+    cover = Image.new("RGB", (460, 650), (200, 30, 30))
+    img, _ = clue_piece(_Art(cover, None, None, None), None)
+    assert img is cover
+
+
+def test_the_clue_slide_shows_the_guess_number_in_the_accent(tmp_path):
+    from manhwatok.adapters.layout import layout_guess
+    from manhwatok.domain.color import hex_to_rgb, readable_accent
+
+    items = [PostItem(manhwa=manhwa(anilist_id=1, title="T1"))]
+    p = post(items=items, kind=PostKind.GUESS)
+    paths = PillowRenderer().render(p, {1: SlideArt(None, None)}, tmp_path / "o")
+    big = layout_guess(1, "").number.box
+    accent = hex_to_rgb(readable_accent(p.accent))
+    with Image.open(paths[1]) as img:
+        row = [img.convert("RGB").getpixel((x, big.y + big.h // 2)) for x in range(big.x, big.right)]
+    assert any(all(abs(a - b) < 30 for a, b in zip(px, accent)) for px in row)
+
+
+def test_guess_hint():
+    from manhwatok.domain.labels import guess_hint
+    from manhwatok.domain.models import Status
+
+    m = manhwa(genres=["Action", "Fantasy", "Drama"], start_year=2018, status=Status.FINISHED)
+    assert guess_hint(m) == "Action · Fantasy · 2018 · completed"
+    assert guess_hint(manhwa(genres=[], status=Status.UNKNOWN)) == ""
+
+
+def test_a_later_titles_clue_uses_its_scene_not_its_cover(tmp_path):
+    items = [PostItem(manhwa=manhwa(anilist_id=i, title=f"T{i}")) for i in (1, 2)]
+    scene = cover_file(tmp_path / "s", 2, color=(30, 210, 30), size=(900, 1400))
+    art = {
+        1: SlideArt(None, None),
+        2: SlideArt(cover_file(tmp_path / "c", 2, color=(220, 30, 30)), None, gallery=(scene,)),
+    }
+    paths = PillowRenderer().render(post(items=items, kind=PostKind.GUESS), art, tmp_path / "o")
+    r, g, b = _px(paths[3], (540, 300))  # the second title's clue
+    assert g > r + 80

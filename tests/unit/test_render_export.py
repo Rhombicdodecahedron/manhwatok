@@ -591,3 +591,25 @@ def test_choosing_another_cover_for_a_chapter_post_is_refused(tmp_path):
     _saved_chapter_post(tmp_path, tools)
     with pytest.raises(ManhwatokError, match="chapter post"):
         choose_cover("20260914-a3f9", CoverStyle.QUAD, tools)
+
+
+def test_a_guess_post_fetches_every_titles_character_and_scenes(tmp_path):
+    from manhwatok.domain.models import PostKind
+
+    items = [
+        PostItem(manhwa=manhwa(anilist_id=i, character_url=f"https://x.test/{i}-char.png"), scenes=[f"s{i}.jpg"])
+        for i in range(1, 7)
+    ]
+    covers = FakeCovers(
+        {i: tmp_path / f"{i}.jpg" for i in range(1, 7)},
+        characters={i: tmp_path / f"{i}-char.png" for i in range(1, 7)},
+    )
+    tools = make_tools(tmp_path, covers=covers)
+    tools.posts.save(post(items=items, kind=PostKind.GUESS))
+    folder = tools.posts.folder("20260914-a3f9")
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "s6.jpg").write_bytes(b"x")
+    render_post("20260914-a3f9", tools)
+    _, passed = tools.renderer.calls[0]
+    assert covers.character_calls == [1, 2, 3, 4, 5, 6]
+    assert passed[6].gallery == (folder / "s6.jpg",)

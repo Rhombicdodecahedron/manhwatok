@@ -487,3 +487,11 @@ def test_versus_text_sits_at_the_foot_of_each_half():
     assert all(SAFE.contains(b) for b in v.text_boxes())
     assert v.a_pill.box.bottom <= v.badge.y - 20
     assert v.b_name.box.y >= v.badge.bottom + 20
+
+
+def test_the_guess_layout_stays_in_the_safe_area():
+    from manhwatok.adapters.layout import COVER_BOTTOM, layout_guess
+
+    g = layout_guess(16, LONG_HOOK, BY)
+    assert all(SAFE.contains(b) for b in g.text_boxes())
+    assert max(b.bottom for b in g.text_boxes()) <= COVER_BOTTOM

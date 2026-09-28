@@ -17,7 +17,7 @@ from manhwatok.domain.errors import (
     NotRendered,
     StorageError,
 )
-from manhwatok.domain.models import QUAD_PICTURES, ArtOrder, ArtStyle, Manhwa, Status
+from manhwatok.domain.models import QUAD_PICTURES, ArtOrder, ArtStyle, Manhwa, PostKind, Status
 from manhwatok.domain.post import ListPost, PostItem
 from manhwatok.ports.art import ArtSource
 from manhwatok.ports.posts import PostRepository, SlideArt
@@ -51,8 +51,10 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
         post, tools.covers.get, tools.covers.cached, lambda m: m.cover_url, "cover", tools
     )
     picked = _picked(post, tools)
-    # The quad cover draws the first four titles' characters whatever the style.
-    wanted = post.items if post.art is ArtStyle.CHARACTER else post.items[:QUAD_PICTURES]
+    # The quad cover draws the first four titles' characters whatever the style; a guess post's
+    # clues look for every title's.
+    every = post.art is ArtStyle.CHARACTER or post.kind is PostKind.GUESS
+    wanted = post.items if every else post.items[:QUAD_PICTURES]
     characters = _fetch_each(
         post,
         tools.covers.get_character,
@@ -76,6 +78,13 @@ def _art_paths(post: ListPost, tools: PostTools) -> dict[int, SlideArt]:
         banners = {}
     if post.art is ArtStyle.QUAD:
         galleries = _galleries(post, tools, picked, characters)
+    elif post.kind is PostKind.GUESS:
+        # Clues prefer scenes to the lettered cover: every title's kept ones, no new search.
+        folder = tools.posts.folder(post.id)
+        galleries = {
+            it.manhwa.anilist_id: tuple(kept_scenes(it, folder)[:QUAD_PICTURES])
+            for it in post.items
+        }
     elif post.items:
         # The hero cover may pick one of the first title's scenes instead of its cover; only
         # scenes already kept are offered — no search is made for them.

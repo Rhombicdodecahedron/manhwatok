@@ -522,6 +522,36 @@ def layout_magazine(
     return MagazineLayout(placed, rule, kicker, art, byline_of(byline))
 
 
+# --- guess clue slide ---------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GuessLayout:
+    label: Placed  # "GUESS"
+    number: Placed  # "#n", big
+    hint: Placed | None  # genres · year · status
+    byline: Placed | None = None
+
+    def text_boxes(self) -> list[Box]:
+        return [b.box for b in (self.label, self.number, self.hint) if b is not None]
+
+
+def layout_guess(number: int, hint: str, byline: str = "") -> GuessLayout:
+    """"GUESS", the number big, the hint: stacked up to COVER_BOTTOM, clear of TikTok's caption."""
+    x, w = SAFE.x, SAFE.w
+    label = fit_words(plain_words("GUESS"), bold, w, 1, 64, 64, 1.0)
+    big = fit_words(plain_words(f"#{number}"), display, w, 1, 300, 160, 1.0)
+    hint_t = fit_words(plain_words(hint), body, w, 2, 44, 32, 1.3) if hint.strip() else None
+    heights = [label.height, big.height] + ([hint_t.height] if hint_t else [])
+    tops = stack_up(heights, COVER_BOTTOM)
+    return GuessLayout(
+        Placed(label, x, tops[0], w, "center"),
+        Placed(big, x, tops[1], w, "center"),
+        Placed(hint_t, x, tops[2], w, "center") if hint_t else None,
+        byline_of(byline),
+    )
+
+
 # --- versus slide --------------------------------------------------------------------------
 
 HALF = SLIDE_H // 2

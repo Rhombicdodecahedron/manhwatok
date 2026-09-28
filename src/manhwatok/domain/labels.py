@@ -22,3 +22,9 @@ def chapter_label(m: Manhwa) -> str:
     if word:
         return f"{word} · ch. {n}"
     return count
+
+
+def guess_hint(m: Manhwa) -> str:
+    """What a guess post's clue tells: two genres, the year it began, whether it's done."""
+    parts = [*m.genres[:2], str(m.start_year) if m.start_year else "", _WORD[m.status]]
+    return " · ".join(p for p in parts if p)

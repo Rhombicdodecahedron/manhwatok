@@ -395,12 +395,14 @@ class PillowRenderer:
         quad_ids = {it.manhwa.anilist_id for it in post.items[:QUAD_COUNT]}
         # The hero cover's picker chooses among the first title's scenes whatever the style.
         hero_id = post.items[0].manhwa.anilist_id if post.items else None
+        # A guess post's clues look past the cover to every title's characters and scenes.
+        every = post.kind is PostKind.GUESS
         loaded = {
             m_id: _Art(
                 _load(one.cover),
                 _load(one.banner) if wants_banner else None,
                 _load(one.character)
-                if post.art is ArtStyle.CHARACTER or m_id in quad_ids
+                if post.art is ArtStyle.CHARACTER or m_id in quad_ids or every
                 else None,
                 _load(one.custom),
                 tuple(
@@ -408,7 +410,7 @@ class PillowRenderer:
                     for img in (_load(p) for p in one.gallery[:QUAD_COUNT])
                     if img is not None
                 )
-                if post.art is ArtStyle.QUAD or m_id == hero_id
+                if post.art is ArtStyle.QUAD or m_id == hero_id or every
                 else (),
             )
             for m_id, one in art.items()
