@@ -69,3 +69,21 @@ def test_pages_dir_sits_under_the_data_dir(tmp_path):
     from manhwatok.config import Settings
 
     assert Settings(data_dir=tmp_path).pages_dir == tmp_path / "pages"
+
+
+def test_ollama_defaults_to_the_local_server_and_a_small_vision_model(monkeypatch):
+    monkeypatch.delenv("MANHWATOK_OLLAMA_MODEL", raising=False)
+    s = Settings()
+    assert (s.ollama_url, s.ollama_model) == ("http://127.0.0.1:11434", "gemma4:e2b-mlx")
+
+
+def test_ollama_server_and_model_come_from_the_environment(monkeypatch):
+    monkeypatch.setenv("MANHWATOK_OLLAMA_URL", "http://box:11434/")
+    monkeypatch.setenv("MANHWATOK_OLLAMA_MODEL", "qwen3.8:27b-mlx")
+    s = Settings()
+    assert (s.ollama_url, s.ollama_model) == ("http://box:11434", "qwen3.8:27b-mlx")
+
+
+def test_ollama_is_off_when_the_model_says_so(monkeypatch):
+    monkeypatch.setenv("MANHWATOK_OLLAMA_MODEL", "OFF")
+    assert Settings().ollama_model == ""

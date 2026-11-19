@@ -472,3 +472,17 @@ def test_account_byline_is_saved_shown_and_put_back(tmp_path):
     assert "byline        @reads\n" in out  # blank draws the handle alone
     with _store(tmp_path) as store:
         assert store.accounts.get("reads").byline == ""
+
+
+def test_account_auto_upload_is_saved_shown_and_turned_off(tmp_path):
+    assert "  auto upload   no\n" in _ok(["account", "add", "reads"])
+    out = _ok(["account", "set", "reads", "--auto-upload"])
+    assert "  auto upload   yes\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").auto_upload is True
+    out = _ok(["account", "set", "reads", "--hashtags", "#x"])  # not given: it stays on
+    assert "  auto upload   yes\n" in out
+    out = _ok(["account", "set", "reads", "--no-auto-upload"])
+    assert "  auto upload   no\n" in out
+    with _store(tmp_path) as store:
+        assert store.accounts.get("reads").auto_upload is False

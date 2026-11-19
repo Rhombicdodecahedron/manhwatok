@@ -116,7 +116,7 @@ def _theme_post(ctx: AppContext, account: Account, name: str, now: datetime) -> 
     post = store_new_post(
         candidates,
         theme.title,
-        prefill_items(candidates),
+        prefill_items(candidates, tools),
         account,
         None,
         None,

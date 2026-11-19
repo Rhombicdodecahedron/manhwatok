@@ -44,6 +44,54 @@ def test_build_post_tools_wires_real_adapters(tmp_path):
     assert tools.posts.folder("20260914-a3f9") == tmp_path / "posts" / "20260914-a3f9"
 
 
+def test_build_llm_is_nothing_when_ollama_is_off(tmp_path):
+    from manhwatok.app.container import build_llm, build_post_tools
+
+    settings = Settings(data_dir=tmp_path)  # the tests' environment turns it off
+    assert build_llm(settings) is None
+    tools = build_post_tools(settings, lambda text: None, print)
+    assert (tools.writer, tools.judge) == (None, None)
+
+
+def test_build_llm_is_the_ollama_server_the_settings_name(tmp_path):
+    from manhwatok.adapters.ollama import Ollama
+    from manhwatok.app.container import build_llm
+
+    settings = Settings(
+        data_dir=tmp_path, ollama_url="http://box:11434", ollama_model="tiny", ollama_timeout=7.0
+    )
+    llm = build_llm(settings)
+    try:
+        assert isinstance(llm, Ollama) and llm.model == "tiny"
+        assert str(llm._client.base_url) == "http://box:11434"
+        assert llm._client.timeout.read == 7.0
+    finally:
+        llm.close()
+
+
+def test_build_post_tools_hands_the_model_and_the_cache_to_the_tools(tmp_path):
+    from manhwatok.adapters.ollama import Ollama
+    from manhwatok.app.container import build_post_tools
+
+    settings = Settings(data_dir=tmp_path, ollama_model="tiny")
+    with build_store(settings) as store:
+        tools = build_post_tools(settings, lambda text: None, print, cache=store.cache)
+        try:
+            assert isinstance(tools.writer, Ollama) and tools.judge is tools.writer
+            assert tools.cache is store.cache
+        finally:
+            tools.writer.close()
+
+
+def test_open_context_closes_the_model_with_everything_else(tmp_path):
+    from manhwatok.app.context import open_context
+
+    ctx = open_context(Settings(data_dir=tmp_path, ollama_model="tiny"))
+    assert ctx.tools.writer in ctx.closers and ctx.tools.cache is ctx.store.cache
+    ctx.close()
+    assert ctx.tools.writer._client.is_closed
+
+
 def test_build_uploader_is_a_visible_playwright_browser(tmp_path):
     from manhwatok.adapters.playwright_uploader import PlaywrightUploader
     from manhwatok.app.container import build_uploader

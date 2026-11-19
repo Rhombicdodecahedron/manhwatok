@@ -9,6 +9,7 @@ hand-picked file would — the renderer needs to know nothing about where it cam
 from __future__ import annotations
 
 import hashlib
+import json
 import tempfile
 from pathlib import Path
 
@@ -18,8 +19,9 @@ from manhwatok.app.item_art import find_index, set_item_art
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.title_extras import refresh_titles
 from manhwatok.domain.errors import ManhwatokError
-from manhwatok.domain.models import ArtOrder
+from manhwatok.domain.models import ArtOrder, Manhwa
 from manhwatok.ports.art import ArtOption, ArtSource
+from manhwatok.ports.llm import ArtVerdict
 
 
 def list_art(
@@ -71,6 +73,56 @@ def use_art(
 
 
 TRIES = 5  # downloads per title before giving up on finding one no other title has
+JUDGED = 6  # pictures per title a judge is shown, to pick the best of
+YEAR = 365 * 24 * 3600.0  # how long a verdict on a picture is kept
+
+
+def judged(pictures: list[Path], manhwa: Manhwa, tools: PostTools) -> tuple[list[int], str]:
+    """Which of `pictures` will do for this title, best first, as indexes into them — and a
+    few words on why: the judge's reason for the best one, or, when none will do, for turning
+    the first one down.
+
+    Without a judge every picture will do, in the order given, which is also what a judge
+    that can't say anything (no server) leaves. A picture it could not say about comes after
+    every one it could, and before none: it is still better than nothing."""
+    if tools.judge is None:
+        return list(range(len(pictures))), ""
+    verdicts = [_verdict(path, manhwa, tools) for path in pictures]
+    good = sorted(
+        (i for i, v in enumerate(verdicts) if v is not None and v.ok),
+        key=lambda i: -verdicts[i].score,
+    )
+    order = good + [i for i, v in enumerate(verdicts) if v is None]
+    if good:
+        return order, verdicts[good[0]].reason
+    if order:
+        return order, ""
+    return [], next((v.reason for v in verdicts if v is not None), "")
+
+
+def _verdict(path: Path, manhwa: Manhwa, tools: PostTools) -> ArtVerdict | None:
+    """What the judge says of one picture for this title, asked once per picture: a verdict
+    is kept, a "can't say" is not."""
+    key = f"judge:{manhwa.anilist_id}:{_digest(path)}:{tools.judge.model}"
+    if tools.cache is not None:
+        try:
+            kept = tools.cache.get(key, YEAR)
+            if kept is not None:
+                ok, score, reason = json.loads(kept)
+                return ArtVerdict(bool(ok), float(score), str(reason))
+        except (ManhwatokError, ValueError, TypeError):
+            pass  # unreadable: ask again
+    try:
+        reference = tools.covers.cached(manhwa)
+    except ManhwatokError:
+        reference = None
+    verdict = tools.judge.judge(path, manhwa, reference)
+    if verdict is not None and tools.cache is not None:
+        try:
+            tools.cache.put(key, json.dumps(list(verdict)))
+        except ManhwatokError:
+            pass
+    return verdict
 
 
 def fill_art(
@@ -90,7 +142,10 @@ def fill_art(
     No two titles in a post get the same picture. A generic search word can outweigh the title,
     and then several titles' first results are the same pin — so a title passes over any
     picture another title already has, by address or by content (a repin moves address), and
-    takes the next one. A title with nothing left to take keeps its style's own art."""
+    takes the next one. A title with nothing left to take keeps its style's own art.
+
+    With a judge (`tools.judge`) a title takes the best of its first JUDGED pictures that
+    pass, not the first: see `judged`."""
     post = refresh_titles(post_id, tools)
     folder = tools.posts.folder(post_id)
     refill = [item for item in post.items if replace or not item.custom_art]
@@ -110,33 +165,46 @@ def fill_art(
             tools.progress(f"{manhwa.title}: found {found} — keeping its own art")
             continue
         problem = "every picture it found is already used in this post"
-        chosen = None
+        # With a judge the title's first few pictures that pass are all kept, and it chooses.
+        wanted = JUDGED if tools.judge is not None else 1
+        found: list[tuple[ArtOption, Path, str]] = []
+        why = ""
         tries = 0
-        for option in options[pick - 1 :]:
-            if option.url in seen or tries == TRIES:
-                continue
-            seen.add(option.url)
-            tries += 1
-            with tempfile.TemporaryDirectory(prefix="manhwatok-art-") as tmp:
+        with tempfile.TemporaryDirectory(prefix="manhwatok-art-") as tmp:
+            for option in options[pick - 1 :]:
+                if len(found) == wanted:
+                    break
+                if option.url in seen or tries == TRIES + wanted - 1:
+                    continue
+                seen.add(option.url)
+                tries += 1
+                into = Path(tmp) / str(tries)
+                into.mkdir()
                 try:
-                    got = source.fetch(option, Path(tmp))
+                    got = source.fetch(option, into)
                 except ManhwatokError as e:
                     problem = str(e)
                     continue
                 digest = _digest(got)
-                if digest in taken:
+                if digest in taken or any(digest == d for _, _, d in found):
                     continue
                 if tools.has_text is not None and tools.has_text(got):
                     problem = "every picture it found has words on it"
                     continue
+                found.append((option, got, digest))
+            order, why = judged([got for _, got, _ in found], manhwa, tools)
+            if found and not order:
+                problem = f"the judge turned down every picture it found ({why})"
+            chosen = None
+            if order:
+                chosen, got, digest = found[order[0]]
                 set_item_art(post_id, manhwa.anilist_id, got, tools)
-            taken.add(digest)
-            chosen = option
-            break
+                taken.add(digest)
         if chosen is None:
             tools.progress(f"{manhwa.title}: {problem} — keeping its own art")
             continue
-        tools.progress(f"{manhwa.title}: {chosen.label}")
+        how = f" — best of {len(found)}: {why}" if why else ""
+        tools.progress(f"{manhwa.title}: {chosen.label}{how}")
         filled += 1
     return filled
 

@@ -89,6 +89,18 @@ def test_a_theme_item_builds_a_list_post_with_the_first_picks_and_renders_it(tmp
     assert store.accounts.get("reads").rotation_cursor == 1
 
 
+def test_a_theme_items_hooks_are_written_when_there_is_a_writer(tmp_path, store):
+    from tests.unit.fakes import FakeWriter
+
+    ctx = _ctx(tmp_path, store)
+    ctx.tools.writer = FakeWriter(by_id={2: "Written for two."})
+    _account(store, ["theme:isekai"])
+
+    post = make_next_post(ctx, "reads", NOW)
+
+    assert [i.hook for i in post.items] == ["Hook 1.", "Written for two.", "Hook 3."]
+
+
 def test_a_theme_item_searches_as_build_theme_does_for_the_account(tmp_path, store):
     ctx = _ctx(tmp_path, store)
     _account(store, ["theme:isekai"], block_tags=["Harem"])

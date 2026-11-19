@@ -7,8 +7,10 @@ import re
 _SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
 _ACCENT = re.compile(r"\*([^*]+)\*")
 
+HOOK_MAX = 110  # what fits under a title on its slide, in characters
 
-def first_sentence(desc: str, max_len: int = 110) -> str:
+
+def first_sentence(desc: str, max_len: int = HOOK_MAX) -> str:
     """First sentence of the first line, cut at a word boundary with '…' if longer than max_len."""
     first_line = desc.strip().split("\n", 1)[0].strip()
     if not first_line:
