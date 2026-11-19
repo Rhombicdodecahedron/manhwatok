@@ -246,3 +246,60 @@ def test_quad_scenes_prefer_the_most_liked_by_default(tmp_path):
     tools = _tools(tmp_path, [_item(1, ["a", "b", "c"])], scenes=pins)
     prepare_quad(PID, tools)
     assert pins.fetched == ["https://i.pinimg.com/loved.jpg"]
+
+
+# --- the best of several, when there is a judge ------------------------------------------------
+
+
+def _verdict(ok, score, reason=""):
+    from manhwatok.ports.llm import ArtVerdict
+
+    return ArtVerdict(ok, float(score), reason)
+
+
+def _scene_urls(tools, pins):
+    from tests.unit.fakes import picture_url
+
+    folder = tools.posts.folder(PID)
+    urls = [o.url for o in pins]
+    return [picture_url(folder / name, urls) for name in tools.posts.get(PID).items[0].scenes]
+
+
+def test_a_judge_fills_the_gaps_with_the_best_scenes_it_was_shown(tmp_path):
+    from tests.unit.fakes import FakeJudge
+
+    pins = _pins(1, 5)
+    scores = [1, None, 9, 5, 7]  # None: turned down
+    verdicts = {
+        o.url: _verdict(s is not None, s or 10, "another series") for o, s in zip(pins, scores)
+    }
+    tools = _tools(tmp_path, [_item(1, ["a", "b"])], scenes=FakeArtSource({1: pins}))
+    tools.judge = FakeJudge(verdicts)
+
+    prepare_quad(PID, tools)
+
+    assert _scene_urls(tools, pins) == [pins[2].url, pins[4].url]
+
+
+def test_a_scene_the_judge_turns_down_leaves_its_square_to_the_other_pictures(tmp_path):
+    from tests.unit.fakes import FakeJudge
+
+    pins = _pins(1, 2)
+    tools = _tools(tmp_path, [_item(1, ["a", "b"])], scenes=FakeArtSource({1: pins}))
+    tools.judge = FakeJudge({pins[0].url: _verdict(False, 9), pins[1].url: _verdict(True, 2)})
+
+    prepare_quad(PID, tools)
+
+    assert _scene_urls(tools, pins) == [pins[1].url]
+
+
+def test_a_judge_that_cannot_say_leaves_the_first_scenes_as_before(tmp_path):
+    from tests.unit.fakes import FakeJudge
+
+    pins = _pins(1, 6)
+    tools = _tools(tmp_path, [_item(1, ["a", "b"])], scenes=FakeArtSource({1: pins}))
+    tools.judge = FakeJudge()
+
+    prepare_quad(PID, tools)
+
+    assert _scene_urls(tools, pins) == [pins[0].url, pins[1].url]

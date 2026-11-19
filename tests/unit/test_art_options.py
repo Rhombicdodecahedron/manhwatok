@@ -4,7 +4,7 @@ from manhwatok.app.art_options import fill_art, list_art, use_art
 from manhwatok.domain.models import ArtOrder
 from manhwatok.domain.errors import ManhwatokError
 from manhwatok.ports.art import ArtOption
-from tests.unit.fakes import FakeArtSource, make_tools, post
+from tests.unit.fakes import FakeArtSource, FakeCovers, make_tools, post
 
 VOL1 = ArtOption(label="vol. 1", url="https://example.test/one.jpg")
 VOL2 = ArtOption(label="vol. 2", url="https://example.test/two.jpg")
@@ -380,3 +380,168 @@ def test_render_from_source_fills_a_quad_posts_squares_instead(tmp_path):
     assert len(slides) == 5
     saved = tools.posts.get("20260914-a3f9")
     assert saved.items[0].scenes and not saved.items[0].custom_art
+
+
+# --- the best of several, when there is a judge ------------------------------------------------
+
+
+def _good(score, reason="fine"):
+    from manhwatok.ports.llm import ArtVerdict
+
+    return ArtVerdict(True, float(score), reason)
+
+
+def _bad(reason="another series", score=9):
+    from manhwatok.ports.llm import ArtVerdict
+
+    return ArtVerdict(False, float(score), reason)
+
+
+def _judged(tmp_path, verdicts, options, default=None, messages=None, **tools_kw):
+    """A one-title post, a source with `options` for it, and a judge with `verdicts` by
+    option; returns (tools, source, judge) after nothing has run yet."""
+    from tests.unit.fakes import FakeJudge, manhwa
+    from manhwatok.domain.post import PostItem
+
+    judge = FakeJudge({o.url: v for o, v in verdicts.items()}, default)
+    tools = make_tools(tmp_path, judge=judge, messages=messages, **tools_kw)
+    tools.posts.save(post(items=[PostItem(manhwa=manhwa(anilist_id=1, title="Title 1"), hook="h")]))
+    return tools, FakeArtSource({1: list(options)}), judge
+
+
+def _chosen(tools, options):
+    """Which option the title's art was downloaded from, or None when it kept its own."""
+    from tests.unit.fakes import picture_url
+
+    art = tools.posts.get("20260914-a3f9").items[0].custom_art
+    if not art:
+        return None
+    url = picture_url(tools.posts.folder("20260914-a3f9") / art, [o.url for o in options])
+    return next(o for o in options if o.url == url)
+
+
+def test_a_judge_picks_the_best_scored_picture_not_the_first(tmp_path):
+    options = [PIN1, PIN2, PIN3]
+    tools, source, _ = _judged(tmp_path, {PIN1: _good(3), PIN2: _good(9), PIN3: _good(5)}, options)
+
+    assert fill_art("20260914-a3f9", tools, source) == 1
+
+    assert _chosen(tools, options) == PIN2
+    assert source.fetched == [PIN1.url, PIN2.url, PIN3.url]
+
+
+def test_a_picture_the_judge_turns_down_is_never_used_however_good(tmp_path):
+    options = [PIN1, PIN2]
+    tools, source, _ = _judged(tmp_path, {PIN1: _bad(score=10), PIN2: _good(2)}, options)
+    fill_art("20260914-a3f9", tools, source)
+    assert _chosen(tools, options) == PIN2
+
+
+def test_equally_good_pictures_keep_the_sources_order(tmp_path):
+    options = [PIN1, PIN2, PIN3]
+    tools, source, _ = _judged(tmp_path, {PIN1: _good(7), PIN2: _good(7), PIN3: _good(7)}, options)
+    fill_art("20260914-a3f9", tools, source)
+    assert _chosen(tools, options) == PIN1
+
+
+def test_a_judge_that_cannot_say_leaves_the_first_picture_as_before(tmp_path):
+    options = [PIN1, PIN2, PIN3]
+    tools, source, judge = _judged(tmp_path, {}, options, default=None)
+    fill_art("20260914-a3f9", tools, source)
+    assert _chosen(tools, options) == PIN1
+    assert len(judge.seen) == 3
+
+
+def test_a_judged_picture_beats_one_the_judge_could_not_say_about(tmp_path):
+    options = [PIN1, PIN2]
+    tools, source, _ = _judged(tmp_path, {PIN1: None, PIN2: _good(1)}, options)
+    fill_art("20260914-a3f9", tools, source)
+    assert _chosen(tools, options) == PIN2
+
+
+def test_an_unjudged_picture_is_used_when_every_judged_one_was_turned_down(tmp_path):
+    options = [PIN1, PIN2]
+    tools, source, _ = _judged(tmp_path, {PIN1: _bad(), PIN2: None}, options)
+    fill_art("20260914-a3f9", tools, source)
+    assert _chosen(tools, options) == PIN2
+
+
+def test_a_title_whose_every_picture_is_turned_down_keeps_its_own_art_and_says_why(tmp_path):
+    messages = []
+    options = [PIN1, PIN2]
+    tools, source, _ = _judged(
+        tmp_path, {PIN1: _bad("a logo over it"), PIN2: _bad("another series")}, options,
+        messages=messages,
+    )
+
+    assert fill_art("20260914-a3f9", tools, source) == 0
+
+    assert _chosen(tools, options) is None
+    assert any("Title 1" in m and "a logo over it" in m and "keeping its own art" in m for m in messages)
+
+
+def test_a_judge_is_shown_only_so_many_pictures_per_title(tmp_path):
+    from manhwatok.app.art_options import JUDGED
+
+    options = _own(1, n=JUDGED + 5)
+    tools, source, judge = _judged(tmp_path, {}, options, default=_good(5))
+    fill_art("20260914-a3f9", tools, source)
+    assert len(source.fetched) == JUDGED and len(judge.seen) == JUDGED
+
+
+def test_a_picture_with_words_on_it_is_not_put_to_the_judge(tmp_path):
+    from tests.unit.fakes import picture_url
+
+    options = [PIN1, PIN2]
+    tools, source, judge = _judged(tmp_path, {PIN1: _good(9), PIN2: _good(1)}, options)
+    tools.has_text = lambda path: picture_url(path, [PIN1.url, PIN2.url]) == PIN1.url
+    fill_art("20260914-a3f9", tools, source)
+    assert [url for url, _, _ in judge.seen] == [PIN2.url]
+    assert _chosen(tools, options) == PIN2
+
+
+def test_the_judge_compares_against_the_titles_cover_when_it_is_on_disk(tmp_path):
+    cover = tmp_path / "1.jpg"
+    covers = FakeCovers({1: cover}, on_disk={1})
+    tools, source, judge = _judged(tmp_path, {PIN1: _good(5)}, [PIN1], covers=covers)
+    fill_art("20260914-a3f9", tools, source)
+    assert judge.seen == [(PIN1.url, 1, cover)]
+
+
+def test_without_a_cover_on_disk_the_judge_has_nothing_to_compare_against(tmp_path):
+    tools, source, judge = _judged(tmp_path, {PIN1: _good(5)}, [PIN1])
+    fill_art("20260914-a3f9", tools, source)
+    assert judge.seen == [(PIN1.url, 1, None)]
+
+
+def test_a_verdict_is_kept_so_the_same_picture_is_not_judged_twice(tmp_path):
+    from tests.unit.fakes import FakeCache
+
+    options = [PIN1, PIN2]
+    tools, source, judge = _judged(
+        tmp_path, {PIN1: _good(3), PIN2: _good(9)}, options, cache=FakeCache()
+    )
+    fill_art("20260914-a3f9", tools, source)
+    fill_art("20260914-a3f9", tools, source, replace=True)
+
+    assert len(judge.seen) == 2
+    assert _chosen(tools, options) == PIN2
+
+
+def test_a_judge_that_could_not_say_is_asked_again_next_time(tmp_path):
+    from tests.unit.fakes import FakeCache
+
+    tools, source, judge = _judged(tmp_path, {}, [PIN1], default=None, cache=FakeCache())
+    fill_art("20260914-a3f9", tools, source)
+    fill_art("20260914-a3f9", tools, source, replace=True)
+    assert len(judge.seen) == 2
+
+
+def test_the_progress_line_says_how_the_picture_was_chosen(tmp_path):
+    messages = []
+    options = [PIN1, PIN2]
+    tools, source, _ = _judged(
+        tmp_path, {PIN1: _good(3), PIN2: _good(9, "clean official art")}, options, messages=messages
+    )
+    fill_art("20260914-a3f9", tools, source)
+    assert any("pin 2" in m and "best of 2" in m and "clean official art" in m for m in messages)

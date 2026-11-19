@@ -9,7 +9,8 @@ AniList lists a title's characters most favourited first, but only some have a p
 many titles have fewer than four. Titles saved before the style existed kept just the first
 one, so `refresh_titles` looks the rest up. What is still missing is searched for (Pinterest by
 default, most liked first, wide ones skipped, and any with words on them — speech bubbles,
-captions — passed over) and kept in the post's folder as
+captions — passed over; the best of them, when a model judges pictures) and kept in the post's
+folder as
 scene-<id>-<n> files, so a re-render downloads nothing and exporting keeps working after the
 source changes.
 """
@@ -21,7 +22,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from manhwatok.app.art_options import TRIES, arrange, looks, same_picture
+from manhwatok.app.art_options import JUDGED, TRIES, arrange, judged, looks, same_picture
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.title_extras import refresh_titles
 from manhwatok.domain.errors import ManhwatokError
@@ -98,28 +99,38 @@ def _fill_scenes(post: ListPost, tools: PostTools, search: SceneSearch) -> None:
             break
         names = [p.name for p in kept_scenes(it, folder)]
         wanted, tries = need, 0
-        for option in options[search.pick - 1 :]:
-            if need == 0 or tries == need * 3 + TRIES:
-                break
-            if option.width > option.height:  # sizes the source doesn't report are 0, kept
-                continue
-            tries += 1
-            with tempfile.TemporaryDirectory(prefix="manhwatok-scene-") as tmp:
+        # With a judge a few more than the gaps are kept, and it chooses which fill them.
+        pool = need + (JUDGED // 2 if tools.judge is not None else 0)
+        found: list[tuple[Path, tuple]] = []
+        with tempfile.TemporaryDirectory(prefix="manhwatok-scene-") as tmp:
+            for option in options[search.pick - 1 :]:
+                if len(found) == pool or tries == need * 3 + TRIES + pool - need:
+                    break
+                if option.width > option.height:  # sizes the source doesn't report are 0, kept
+                    continue
+                tries += 1
+                into = Path(tmp) / str(tries)
+                into.mkdir()
                 try:
-                    got = search.source.fetch(option, Path(tmp))
+                    got = search.source.fetch(option, into)
                 except ManhwatokError:
                     continue
                 seen = looks(got)
-                if seen is None or any(same_picture(seen, t) for t in taken):
+                others = taken + [s for _, s in found]
+                if seen is None or any(same_picture(seen, t) for t in others):
                     continue
                 if tools.has_text is not None and tools.has_text(got):
                     continue  # a speech bubble, a caption, a meme: not a picture of the title
+                found.append((got, seen))
+            order, _ = judged([got for got, _ in found], it.manhwa, tools)
+            for k in order[:need]:
+                got, seen = found[k]
                 name = _free_name(folder, it.manhwa.anilist_id, got.suffix.lower() or ".jpg")
                 folder.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(got, folder / name)
-            taken.append(seen)
-            names.append(name)
-            need -= 1
+                taken.append(seen)
+                names.append(name)
+            need -= len(order[:need])
         items[i] = it.model_copy(update={"scenes": names})
         got = wanted - need
         note = " — the rest repeat its other pictures" if need else ""

@@ -235,6 +235,41 @@ class FakeWriter:
         return self.replies.pop(0) if self.replies else None
 
 
+def picture_hue(url: str) -> tuple[int, int, int]:
+    """The colour of the picture `FakeArtSource` downloads for an address."""
+    import hashlib
+
+    return tuple(hashlib.md5(url.encode()).digest()[:3])
+
+
+def picture_url(path: Path, urls) -> str:
+    """Which of `urls` the picture at `path` was downloaded from, by its colour (a JPEG
+    shifts a colour slightly, so the nearest one)."""
+    from PIL import Image
+
+    with Image.open(path) as img:
+        seen = img.convert("RGB").getpixel((0, 0))
+    return min(urls, key=lambda u: sum(abs(a - b) for a, b in zip(seen, picture_hue(u))))
+
+
+class FakeJudge:
+    """Stands in for the model that judges pictures: `verdicts` maps a picture's address to
+    what it says of it (an ArtVerdict, or None for "can't say"); anything else gets `default`.
+    Remembers what it was shown, as (address, anilist id, reference)."""
+
+    model = "fake"
+
+    def __init__(self, verdicts=None, default=None):
+        self.verdicts = dict(verdicts or {})
+        self.default = default
+        self.seen: list[tuple[str, int, Path | None]] = []
+
+    def judge(self, picture: Path, manhwa, reference):
+        url = picture_url(picture, self.verdicts) if self.verdicts else ""
+        self.seen.append((url, manhwa.anilist_id, reference))
+        return self.verdicts.get(url, self.default)
+
+
 def make_tools(
     tmp_path: Path, editor=None, covers=None, renderer=None, messages=None, writer=None,
     judge=None, cache=None,
