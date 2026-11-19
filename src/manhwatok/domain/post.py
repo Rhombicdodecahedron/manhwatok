@@ -72,6 +72,9 @@ class ListPost(BaseModel):
     chapter: ChapterPart | None = None
     kind: PostKind = PostKind.LIST
     seed: Manhwa | None = None  # a similar post's "if you liked" title; never one of its items
+    # How many times `manhwatok auto` tried to upload it and it did not go out; after a couple
+    # it is left for a person. Defaulted, so older post.json files load.
+    auto_tries: int = 0
 
     @model_validator(mode="after")
     def _chapter_kind(self) -> "ListPost":

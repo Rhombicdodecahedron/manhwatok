@@ -534,6 +534,35 @@ Publisher art (the covers and banners the tool fetches itself) does not carry th
 
 Fonts: Montserrat, bundled under the SIL Open Font License (`src/manhwatok/assets/fonts/`).
 
+## A local model (Ollama)
+
+With [Ollama](https://ollama.com) running on this computer, a model writes each title's hook
+and chooses its picture. Nothing needs setting up beyond having the model:
+
+```bash
+ollama pull gemma4:e2b-mlx     # the default: small, and it reads pictures
+```
+
+| Setting | Default |
+|---------|---------|
+| `MANHWATOK_OLLAMA_URL` | `http://127.0.0.1:11434` |
+| `MANHWATOK_OLLAMA_MODEL` | `gemma4:e2b-mlx`; any model that reads pictures; `off` never asks |
+
+- **Hooks.** The line under a title was the first sentence of its AniList description, cut
+  at 110 characters. The model writes one sentence from the whole description instead, made to
+  fit. A title's hook is written once and kept, so it reads the same in every post. This is
+  what `next`, `plan fill`, `auto` and `build` start a post with; the pick lists in the terminal
+  and web apps still show the first sentence, and whatever you type there is kept as you typed it.
+- **Pictures.** `render --source ...` and an account's `--art-source` took the first picture
+  that passed the checks (not already used, no words on it). The model is now shown the first
+  six that pass, each next to the title's cover, and says whether it is the right series,
+  whether anything is laid over it (a watermark, a logo, a collage) and how good the art is.
+  The best one that is the right series and clean is used; the progress line says which and
+  why. A quad post's scenes are chosen the same way. A verdict is kept, so a picture is judged
+  once. `art --list` / `--pick` and the pickers in the apps are yours and are not judged.
+- **Without it.** If Ollama isn't running, or answers something that makes no sense, a post
+  is built as before: the cut first sentence, the first picture that passes. Nothing fails.
+
 ## Accounts and themes
 
 Each TikTok account keeps its own genre filters, hashtags, accent colour and end-slide texts.
@@ -629,9 +658,41 @@ uv run manhwatok schedule 20260922-a3f9 --clear
 - `schedule <id> <when>` takes `YYYY-MM-DD HH:MM` or `<day> HH:MM` (the next such time), in the
   post's account's time zone (`Europe/Paris` for a post without one); `--clear` unschedules it.
   `posts` shows each scheduled post's time (in this computer's time zone).
-- The plan is yours to follow: nothing is uploaded at its time. Run `upload <id>` when you are
-  ready and it fills the post's slot into TikTok's own schedule, so TikTok posts it then (see
-  below). You still click the button.
+- The plan is yours to follow: nothing is uploaded at its time unless you ask for that (see
+  "Running by itself" below). Run `upload <id>` when you are ready and it fills the post's slot
+  into TikTok's own schedule, so TikTok posts it then. You still click the button.
+
+## Running by itself
+
+`auto` keeps the plan going with nobody at the keyboard. Every 15 minutes it fills each
+account's empty slots, as `plan fill` does, and — only for accounts you set to
+`--auto-upload` — sends the post whose time has come.
+
+```bash
+uv run manhwatok auto                    # until Ctrl-C: a round every 15 minutes
+uv run manhwatok auto --every 5 --days 10
+uv run manhwatok auto --once             # one round, then stop: for cron or launchd
+
+uv run manhwatok account set @manhwa.daily --auto-upload --default-sound "SOLO LEVELING RaijinLofi"
+MANHWATOK_UPLOADER=phone uv run manhwatok auto
+```
+
+- **Filling** covers every account that has both `--slots` and a `--rotation`. One account's
+  failure (a title with no chapters left, a source that is down) is printed and the others are
+  still filled; it is tried again on the next round.
+- **Uploading** is off unless an account has `--auto-upload`, and needs the phone
+  (`MANHWATOK_UPLOADER=phone`, see "On an Android phone" below), which taps Post itself. With
+  the browser, `auto` says so and only builds and queues. Nobody looks at these posts before
+  they go out: review what is queued in `manhwatok tui` beforehand, or leave `--auto-upload`
+  off and keep uploading by hand.
+- One post goes out per round, the oldest due first. A post is recorded as sent only when
+  the phone reports it tapped Post. One it could not post is tried once more on the next round,
+  then left overdue in the Queue for you. A post more than 6 hours past its time is left alone
+  too, so `auto` started after a few days away does not post a backlog at once.
+- A post goes out with the account's `--default-sound`, or one of its sounds at random with
+  `--random-sound`; with neither it goes out without a sound, and `auto` says so.
+- Only one `auto` runs at a time (`auto.lock` in the data folder). For launchd or cron, call
+  `manhwatok auto --once` every few minutes instead of leaving it running.
 
 ## Uploading to TikTok (assisted)
 
@@ -754,9 +815,10 @@ uv run manhwatok upload 20260922-a3f9 --visibility private        # this one upl
   saved `page.html` comes from a logged-in TikTok page and can contain account details (IDs,
   nickname, tokens) — check it before sharing it with anyone.
 - `account remove` asks whether to delete the account's saved login too (`--yes` does).
-- manhwatok never clicks Post or Schedule (it only fills the schedule's fields in), never
-  posts by itself at a planned time and never batch-uploads, and it does nothing to hide that the
-  browser is automated. Automating TikTok's website is against TikTok's Terms of Service and may
+- In the browser manhwatok never clicks Post or Schedule (it only fills the schedule's fields
+  in), never posts by itself at a planned time and never batch-uploads, and it does nothing to
+  hide that the browser is automated. (Posting by itself is the phone's, and only for accounts
+  set to `--auto-upload`: see "Running by itself".) Automating TikTok's website is against TikTok's Terms of Service and may
   trigger captchas or account checks — use it at your own risk.
 
 ### On an Android phone instead (Appium)

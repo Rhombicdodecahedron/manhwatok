@@ -170,3 +170,9 @@ def test_an_account_keeps_the_byline_its_slides_carry():
 
 def test_an_accounts_byline_is_empty_by_default():
     assert Account(handle="reads").byline == ""
+
+
+def test_auto_upload_is_off_unless_asked_for():
+    assert Account(handle="ab").auto_upload is False
+    assert Account(handle="ab", auto_upload=True).auto_upload is True
+    assert Account.model_validate({"handle": "ab"}).auto_upload is False  # saved before it existed

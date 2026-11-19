@@ -54,9 +54,9 @@ an injectable client and `close()` like the other adapters.
   characters with no ellipsis. A longer one is asked for once more; then the fallback.
 - Kept in the `Cache` table as `hook:<anilist_id>:<model>`: a title has one hook, written once.
 - A fallback is never cached, so a title gets a written hook once the server is back.
-- `prefill_items(candidates, tools)` uses it, which covers `next`, `plan fill`, `build` and
-  the web's new-post form. Candidate lists that show a hook for every search result keep
-  `first_sentence`: writing twenty hooks to show a list would stall the screen.
+- `prefill_items(candidates, tools)` uses it, which covers `next`, `plan fill`, `auto` and
+  `build`. The forms of the terminal and web apps call it without tools and keep
+  `first_sentence`: writing a hook per pick while a form opens would stall the screen.
 
 ## 2. Judged art
 `fill_art` and the quad style's `_fill_scenes` both take "the first picture that passes".

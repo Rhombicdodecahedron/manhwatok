@@ -76,6 +76,10 @@ class Account(BaseModel):
     # Who can see this account's posts, unless a post says otherwise. Defaulted, so accounts
     # saved before it load; TikTok's own default is the same.
     visibility: Visibility = Visibility.EVERYONE
+    # `manhwatok auto` uploads this account's posts itself when their time comes, through the
+    # phone, without anyone looking at them first. Off unless asked for: without it `auto`
+    # only builds and queues. Defaulted, so accounts saved before it load.
+    auto_upload: bool = False
 
     @field_validator("handle")
     @classmethod

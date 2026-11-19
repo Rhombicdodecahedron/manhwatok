@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import NoReturn, Optional, TextIO
@@ -89,6 +91,11 @@ def _fail(e: Exception) -> NoReturn:
 def _now() -> datetime:
     """The time the plan's commands work from (tests set their own)."""
     return datetime.now(timezone.utc)
+
+
+def _sleep(seconds: float) -> None:
+    """How `auto` waits between rounds (tests set their own)."""
+    time.sleep(seconds)
 
 
 # Search options shared by `suggest` and `build`. Sort and min tag rank default to None so an
@@ -1087,6 +1094,13 @@ RANDOM_SOUND = typer.Option(
     "post's theme's own) for every upload, instead of asking. `upload --ask-sound` still "
     "asks, and `upload --sound`/`--no-sound` still decide for one post.",
 )
+AUTO_UPLOAD = typer.Option(
+    None,
+    "--auto-upload/--no-auto-upload",
+    help="Let `manhwatok auto` upload this account's posts itself when their time comes, "
+    "through the phone, without you looking at them first. Off by default: `auto` then only "
+    "builds and queues its posts.",
+)
 STORY_TEXT = typer.Option(
     None,
     "--story-text",
@@ -1169,6 +1183,7 @@ def _account_fields(
     byline: Optional[str] = None,
     story_text: Optional[str] = None,
     phone: Optional[str] = None,
+    auto_upload: Optional[bool] = None,
 ) -> dict:
     from manhwatok.domain.text import split_names
 
@@ -1179,6 +1194,7 @@ def _account_fields(
         "emojis": emojis,
         "default_sound": default_sound,
         "random_sound": random_sound,
+        "auto_upload": auto_upload,
         "accent": accent,
         "byline": byline,
         "story_text": story_text,
@@ -1230,6 +1246,7 @@ def _print_account(a) -> None:
         ("slots", ", ".join(a.slots) or "-"),
         ("art source", a.art_source.value if a.art_source else "-"),
         ("visibility", a.visibility.value),
+        ("auto upload", "yes" if a.auto_upload else "no"),
     ]:
         typer.echo(f"  {label:<13} {value}")
 
@@ -1283,6 +1300,7 @@ def account_add(
     visibility: Optional[Visibility] = ACCOUNT_VISIBILITY,
     story_text: Optional[str] = STORY_TEXT,
     phone: Optional[str] = PHONE,
+    auto_upload: Optional[bool] = AUTO_UPLOAD,
 ) -> None:
     """Add an account; unset options get the defaults."""
     from manhwatok.app.accounts import add_account
@@ -1290,7 +1308,7 @@ def account_add(
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
         emojis, sound, default_sound, random_sound, rotation, time_zone, art_source,
-        slots, visibility, byline, story_text, phone,
+        slots, visibility, byline, story_text, phone, auto_upload,
     )
     _save_account(add_account, "added", handle, fields)
 
@@ -1319,6 +1337,7 @@ def account_set(
     visibility: Optional[Visibility] = ACCOUNT_VISIBILITY,
     story_text: Optional[str] = STORY_TEXT,
     phone: Optional[str] = PHONE,
+    auto_upload: Optional[bool] = AUTO_UPLOAD,
 ) -> None:
     """Change an account; only the given options change."""
     from manhwatok.app.accounts import update_account
@@ -1326,7 +1345,7 @@ def account_set(
     fields = _account_fields(
         genres, block_genres, block_tags, hashtags, accent, cta_title, cta_follow, repeat_days, art,
         emojis, sound, default_sound, random_sound, rotation, time_zone, art_source,
-        slots, visibility, byline, story_text, phone,
+        slots, visibility, byline, story_text, phone, auto_upload,
     )
     _save_account(update_account, "updated", handle, fields)
 
@@ -1828,6 +1847,96 @@ def _echo_filled(post, posts) -> None:
         f"{post.scheduled_at:%a %d %b %H:%M}  @{post.account}  post {post.id} · "
         f"{_next_summary(post, posts)}"
     )
+
+
+def _pid_alive(text: str) -> bool:
+    """Whether the process a lock file names is still running."""
+    try:
+        os.kill(int(text), 0)
+    except (ValueError, ProcessLookupError):
+        return False
+    except OSError:  # there, but not ours to signal
+        return True
+    return True
+
+
+@app.command()
+def auto(
+    days: int = typer.Option(
+        7, "--days", min=1, max=10, help="How many days ahead to keep filled, 1–10."
+    ),
+    every: int = typer.Option(15, "--every", min=1, help="Minutes between rounds."),
+    once: bool = typer.Option(
+        False, "--once", help="One round, then stop — for cron or launchd to call."
+    ),
+) -> None:
+    """Keep the plan going with nobody at the keyboard: every few minutes, fill each account's
+    empty slots as `plan fill` does, and send the post whose time has come for the accounts
+    set to `--auto-upload`.
+
+    Sending needs the phone (MANHWATOK_UPLOADER=phone), which taps Post itself; a post it
+    could not post is tried once more, then left overdue in the Queue. With the browser,
+    `auto` only builds and queues. Ctrl-C stops it."""
+    from dataclasses import replace
+
+    from manhwatok.app import auto as runner
+    from manhwatok.app import container
+    from manhwatok.app.context import open_context
+
+    settings = Settings()
+
+    def log(message: str) -> None:
+        _progress.close()
+        typer.echo(f"{_now().astimezone():%H:%M}  {message}")
+
+    def phone_for(account):
+        return container.build_uploader(
+            replace(settings, uploader="phone", auto_post=True, phone=account.phone)
+        )
+
+    lock = settings.data_dir / "auto.lock"
+    try:
+        if lock.exists() and _pid_alive(lock.read_text().strip()):
+            raise ManhwatokError(
+                f"manhwatok auto is already running (process {lock.read_text().strip()}) — "
+                f"stop it first, or delete {lock} if it isn't"
+            )
+        settings.data_dir.mkdir(parents=True, exist_ok=True)
+        lock.write_text(str(os.getpid()))
+    except OSError as e:
+        _fail(ManhwatokError(f"could not take the lock at {lock}: {e}"))
+    except ManhwatokError as e:
+        _fail(e)
+    try:
+        ctx = open_context(settings, _progress)
+        try:
+            uploader = phone_for if settings.uploader == "phone" else None
+            if uploader is None and any(a.auto_upload for a in ctx.store.accounts.list()):
+                log(
+                    "posts are built and queued, not uploaded: uploading by itself needs the "
+                    "phone — MANHWATOK_UPLOADER=phone"
+                )
+            while True:
+                try:
+                    report = runner.tick(ctx, _now(), days, uploader, log)
+                    if not (report.made or report.sent or report.failed):
+                        log("nothing to do")
+                except ManhwatokError as e:
+                    if once:
+                        raise
+                    log(f"this round failed: {e}")
+                if once:
+                    break
+                _sleep(every * 60)
+        finally:
+            ctx.close()
+    except ManhwatokError as e:
+        lock.unlink(missing_ok=True)
+        _fail(e)
+    except KeyboardInterrupt:
+        log("stopped")
+    finally:
+        lock.unlink(missing_ok=True)
 
 
 @app.command()
