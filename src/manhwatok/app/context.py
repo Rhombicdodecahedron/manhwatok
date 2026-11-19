@@ -116,6 +116,7 @@ def open_context(settings: Settings, progress: ProgressFn = _quiet) -> AppContex
     tools = container.build_post_tools(
         settings, _no_editor, progress, metadata, art_sources[ArtSourceName.PINS]
     )
+    tools.cache = store.cache  # where what the model said is kept
     return AppContext(
         settings=settings,
         store=store,
@@ -127,6 +128,7 @@ def open_context(settings: Settings, progress: ProgressFn = _quiet) -> AppContex
         uploader_factory=lambda: container.build_uploader(settings),
         closers=[
             tools.covers,
+            *([tools.writer] if tools.writer is not None else []),
             *art_sources.values(),
             *chapter_tools.sources.values(),
             chapters,

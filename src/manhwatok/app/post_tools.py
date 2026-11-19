@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Callable
 
 from manhwatok.ports.art import ArtSource
+from manhwatok.ports.cache import Cache
+from manhwatok.ports.llm import ArtJudge, HookWriter
 from manhwatok.ports.metadata import MetadataSource
 from manhwatok.ports.posts import CoverSource, PostRepository, SlideRenderer
 
@@ -33,3 +35,9 @@ class PostTools:
     scenes: ArtSource | None = None
     # Whether a downloaded picture has words on it (speech bubbles, captions); None = unchecked.
     has_text: Callable[[Path], bool] | None = None
+    # A language model, when there is one: `writer` writes each title's hook and `judge` says
+    # which of the pictures a source offers is the best. `cache` keeps what they said, so
+    # neither is asked the same thing twice. Without them nothing is written or judged.
+    writer: HookWriter | None = None
+    judge: ArtJudge | None = None
+    cache: Cache | None = None

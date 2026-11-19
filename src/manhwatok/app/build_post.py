@@ -8,6 +8,7 @@ from typing import Callable
 
 from manhwatok.app.delete_post import delete_post
 from manhwatok.app.kind_post import character_choices, with_characters
+from manhwatok.app.hooks import hook_for
 from manhwatok.app.post_tools import PostTools
 from manhwatok.app.render_post import render_post
 from manhwatok.domain.account import Account
@@ -94,12 +95,14 @@ def create_post(
     )
 
 
-def prefill_items(candidates: list[Manhwa]) -> list[PostItem]:
-    """The picks a new post starts with: the first MAX_ITEMS candidates, each hooked with the
-    first sentence of its description."""
-    return [
-        PostItem(manhwa=m, hook=first_sentence(m.description)) for m in candidates[:MAX_ITEMS]
-    ]
+def prefill_items(candidates: list[Manhwa], tools: PostTools | None = None) -> list[PostItem]:
+    """The picks a new post starts with: the first MAX_ITEMS candidates, each with its hook.
+    With `tools` that is `hook_for` — written by a model when they have one; without, the
+    first sentence of its description, which is what a form shows before anything is saved."""
+    picks = candidates[:MAX_ITEMS]
+    if tools is None:
+        return [PostItem(manhwa=m, hook=first_sentence(m.description)) for m in picks]
+    return [PostItem(manhwa=m, hook=hook_for(m, tools)) for m in picks]
 
 
 def save_new_post(
@@ -177,7 +180,7 @@ def build_post(
     candidates = find_candidates()
     if not candidates:
         raise ManhwatokError("no matches — try fewer tags or a lower --min-tag-rank")
-    items = prefill_for(kind, candidates)
+    items = prefill_for(kind, candidates, tools)
     cast = None
     if kind is PostKind.CHARACTERS:
         if metadata is None:
@@ -207,9 +210,11 @@ def build_post(
     )
 
 
-def prefill_for(kind: PostKind, candidates: list[Manhwa]) -> list[PostItem]:
+def prefill_for(
+    kind: PostKind, candidates: list[Manhwa], tools: PostTools | None = None
+) -> list[PostItem]:
     """`prefill_items`, fitted to what the kind takes: pairs for versus, fewer for guess."""
-    items = prefill_items(candidates)
+    items = prefill_items(candidates, tools)
     if kind is PostKind.GUESS:
         return items[:MAX_GUESS]
     if kind is PostKind.VERSUS:

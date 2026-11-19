@@ -23,6 +23,14 @@ def _env(name: str) -> str:
     return os.environ.get(name, "").strip()
 
 
+OLLAMA_MODEL = "gemma4:e2b-mlx"  # small, and it reads pictures
+
+
+def _ollama_model() -> str:
+    model = _env("MANHWATOK_OLLAMA_MODEL") or OLLAMA_MODEL
+    return "" if model.lower() == "off" else model
+
+
 @dataclass
 class Settings:
     data_dir: Path = field(default_factory=_default_data_dir)
@@ -50,6 +58,17 @@ class Settings:
     auto_post: bool = field(default_factory=lambda: _env("MANHWATOK_AUTO_POST") in ("1", "yes"))
     # TikTok's package on the phone; empty: the global app, com.zhiliaoapp.musically.
     tiktok_app: str = field(default_factory=lambda: _env("MANHWATOK_TIKTOK_APP"))
+    # A local Ollama writes each title's hook and judges the pictures a source offers. Without
+    # one running, both fall back to what they did before: a cut first sentence, the first
+    # picture that passes. MANHWATOK_OLLAMA_MODEL=off never asks it at all.
+    ollama_url: str = field(
+        default_factory=lambda: (
+            _env("MANHWATOK_OLLAMA_URL") or "http://127.0.0.1:11434"
+        ).rstrip("/")
+    )
+    ollama_model: str = field(default_factory=_ollama_model)
+    # A picture takes a local model far longer than a web request takes anyone else.
+    ollama_timeout: float = 120.0
 
     @property
     def db_path(self) -> Path:

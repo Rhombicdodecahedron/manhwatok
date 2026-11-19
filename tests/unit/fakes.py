@@ -204,7 +204,41 @@ class ScriptedEditor:
         return self.respond(text)
 
 
-def make_tools(tmp_path: Path, editor=None, covers=None, renderer=None, messages=None):
+class FakeCache:
+    """The `Cache` port in a dict; nothing in it ever goes stale."""
+
+    def __init__(self):
+        self.kept: dict[str, str] = {}
+
+    def get(self, key: str, max_age: float) -> str | None:
+        return self.kept.get(key)
+
+    def put(self, key: str, value: str) -> None:
+        self.kept[key] = value
+
+
+class FakeWriter:
+    """Stands in for the model that writes hooks: answers with `replies` in turn (None once
+    they run out), or with what `by_id` has for the title, and remembers what it was asked."""
+
+    model = "fake"
+
+    def __init__(self, *replies, by_id=None):
+        self.replies = list(replies)
+        self.by_id = by_id or {}
+        self.asked: list[tuple[int, int]] = []
+
+    def hook(self, manhwa, max_len: int) -> str | None:
+        self.asked.append((manhwa.anilist_id, max_len))
+        if manhwa.anilist_id in self.by_id:
+            return self.by_id[manhwa.anilist_id]
+        return self.replies.pop(0) if self.replies else None
+
+
+def make_tools(
+    tmp_path: Path, editor=None, covers=None, renderer=None, messages=None, writer=None,
+    judge=None, cache=None,
+):
     """PostTools with real post folders under tmp_path and fakes for everything else."""
     from manhwatok.adapters.fs_posts import FsPostRepository
     from manhwatok.app.post_tools import PostTools
@@ -215,6 +249,9 @@ def make_tools(tmp_path: Path, editor=None, covers=None, renderer=None, messages
         renderer=renderer or FakeRenderer(),
         editor=editor or ScriptedEditor(lambda text: text + "\n"),
         progress=(messages.append if messages is not None else lambda _: None),
+        writer=writer,
+        judge=judge,
+        cache=cache,
     )
 
 

@@ -81,21 +81,35 @@ def build_posts(settings: Settings) -> PostRepository:
     return FsPostRepository(settings.posts_dir)
 
 
+def build_llm(settings: Settings):
+    """The local Ollama that writes hooks and judges pictures, or None when it is turned off
+    (MANHWATOK_OLLAMA_MODEL=off). Nothing is asked of it here: a server that isn't running is
+    found out when it is first needed, and done without."""
+    if not settings.ollama_model:
+        return None
+    from manhwatok.adapters.ollama import Ollama
+
+    return Ollama(settings.ollama_url, settings.ollama_model, timeout=settings.ollama_timeout)
+
+
 def build_post_tools(
     settings: Settings,
     editor: EditorFn,
     progress: ProgressFn,
     metadata: MetadataSource | None = None,
     scenes: ArtSource | None = None,
+    cache: Cache | None = None,
 ) -> PostTools:
     """`metadata` and `scenes` default to new AniList and Pinterest sources (both cheap to make);
-    a front end that already holds them passes its own."""
+    a front end that already holds them passes its own. `cache` is where the model's answers
+    are kept; without one it is asked again each time."""
     from manhwatok.adapters.cover_cache import CoverCache
     from manhwatok.adapters.cover_picker import build_picker
     from manhwatok.adapters.pillow_renderer import PillowRenderer
     from manhwatok.adapters.pinterest import PinterestSource
     from manhwatok.adapters.text_check import build_text_check
 
+    llm = build_llm(settings)
     return PostTools(
         posts=build_posts(settings),
         covers=CoverCache(settings.covers_dir, timeout=settings.http_timeout),
@@ -105,6 +119,9 @@ def build_post_tools(
         metadata=metadata or build_metadata(settings),
         scenes=scenes or PinterestSource(),
         has_text=build_text_check(),
+        writer=llm,
+        judge=llm,
+        cache=cache,
     )
 
 

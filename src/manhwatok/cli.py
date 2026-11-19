@@ -307,6 +307,7 @@ def build(
     try:
         tools = _tools(settings)
         with container.build_store(settings) as store:
+            tools.cache = store.cache  # where a written hook is kept for the next post
             acct = _account(store, account)
             metadata = container.build_metadata(settings)
             source = container.build_chapter_source(settings, store.cache) if chapters else None

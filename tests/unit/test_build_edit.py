@@ -294,6 +294,28 @@ def test_prefill_items_hooks_the_first_max_items_candidates():
     assert prefill_items([]) == []
 
 
+def test_prefill_items_takes_its_hooks_from_the_tools_writer(tmp_path):
+    from tests.unit.fakes import FakeWriter
+
+    many = [manhwa(anilist_id=i, title=f"T{i}", description=f"Hook {i}. More.") for i in range(40)]
+    writer = FakeWriter(by_id={0: "Written for the first."})
+    items = prefill_items(many, make_tools(tmp_path, writer=writer))
+
+    assert [i.hook for i in items[:2]] == ["Written for the first.", "Hook 1."]
+    assert len(writer.asked) == MAX_ITEMS  # only the picks, not all forty candidates
+
+
+def test_build_post_drafts_with_written_hooks(tmp_path):
+    from tests.unit.fakes import FakeWriter
+
+    writer = FakeWriter(by_id={CANDIDATES[0].anilist_id: "Written."})
+    tools = make_tools(tmp_path, writer=writer)
+
+    built = build_post(lambda: CANDIDATES, "T", None, None, None, tools, NOW)
+
+    assert built is not None and built[0].items[0].hook == "Written."
+
+
 def _save_new(tools, title="T", items=None, accent=None, account=None, **style):
     items = [PostItem(manhwa=CANDIDATES[1], hook="k")] if items is None else items
     return save_new_post(CANDIDATES, title, items, account, None, accent, tools, NOW, **style)
